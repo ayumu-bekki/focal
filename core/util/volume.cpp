@@ -19,6 +19,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+
+#include <cwchar>
 #else
 #include <sys/stat.h>
 

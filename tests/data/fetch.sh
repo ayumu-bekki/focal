@@ -4,14 +4,23 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# SHA-256 の計算コマンド（macOS は shasum、Linux と Windows の Git Bash は sha256sum）
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256() { sha256sum "$1" | cut -d' ' -f1; }
+elif command -v shasum >/dev/null 2>&1; then
+  sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
+else
+  sha256() { openssl dgst -sha256 "$1" | awk '{print $NF}'; }
+fi
+
 fetch() {
   local name="$1" url="$2" sha="$3"
-  if [[ -f "$name" ]] && echo "$sha  $name" | shasum -a 256 -c --status; then
+  if [[ -f "$name" ]] && [[ "$(sha256 "$name")" == "$sha" ]]; then
     echo "ok      $name"; return
   fi
   echo "fetch   $name"
   curl -fsSL --retry 3 -o "$name.part" "$url"
-  echo "$sha  $name.part" | shasum -a 256 -c --status || { echo "checksum mismatch: $name" >&2; rm -f "$name.part"; exit 1; }
+  [[ "$(sha256 "$name.part")" == "$sha" ]] || { echo "checksum mismatch: $name" >&2; rm -f "$name.part"; exit 1; }
   mv "$name.part" "$name"
 }
 

@@ -1,6 +1,8 @@
 // v3.19: SD カードなどからの取り込み（日付フォルダへのコピー・検証・重複のスキップ）
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
+#include <ctime>
 #include <fstream>
 #include <sstream>
 
