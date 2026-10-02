@@ -1,0 +1,146 @@
+# XcodeGen の定義（ADR-11）。生成: cd apps/macos && xcodegen
+name: Focal
+options:
+  bundleIdPrefix: jp.bekki
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ARCHS: arm64                       # core（vcpkg の arm64-osx-focal）に合わせて Apple シリコン専用
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    CODE_SIGN_IDENTITY: "-"            # 開発中はローカル署名。Developer ID は M6
+    CODE_SIGN_STYLE: Manual
+    DEAD_CODE_STRIPPING: YES
+  configs:
+    Release:
+      ENABLE_HARDENED_RUNTIME: YES     # ADR-14（公証に必要）
+
+targets:
+  # C API の Swift ラッパー（4.4 章）。core の静的ライブラリ（XCFramework）をリンクする
+  FocalCore:
+    type: framework
+    platform: macOS
+    sources: [FocalCore]
+    dependencies:
+      - framework: build/FocalCore.xcframework
+        embed: false
+      # 表示用の GPU レンダラー（v3.14）
+      - sdk: Metal.framework
+      - sdk: Foundation.framework
+    preBuildScripts:
+      - name: Build C++ core (CMake)
+        script: '"${PROJECT_DIR}/scripts/build-core.sh"'
+        basedOnDependencyAnalysis: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: jp.bekki.focal.FocalCore
+        GENERATE_INFOPLIST_FILE: YES
+        DEFINES_MODULE: YES
+        SKIP_INSTALL: YES
+        LIBRARY_SEARCH_PATHS: $(PROJECT_DIR)/build/Frameworks
+        OTHER_LDFLAGS: -lraw_r -lomp -lc++
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks @loader_path/../Frameworks @loader_path/Frameworks"
+
+  Focal:
+    type: application
+    platform: macOS
+    sources:
+      - Focal
+      - path: build/Licenses       # scripts/build-core.sh が作る（同梱ライブラリのライセンス文）
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - target: FocalCore
+    postCompileScripts:
+      - name: Embed LibRaw and libomp
+        script: |
+          set -e
+          dst="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}"
+          mkdir -p "$dst"
+          for lib in libraw_r.25.0.0.dylib libomp.dylib; do
+            cp -f "${PROJECT_DIR}/build/Frameworks/$lib" "$dst/"
+            if [ "${EXPANDED_CODE_SIGN_IDENTITY:--}" = "-" ]; then
+              codesign --force --sign - --timestamp=none "$dst/$lib"
+            else
+              # Developer ID（ADR-14）: 公証にはタイムスタンプと Hardened Runtime が要る
+              codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" --timestamp --options runtime "$dst/$lib"
+            fi
+          done
+        basedOnDependencyAnalysis: false
+    info:
+      # XcodeGen が生成する。GENERATE_INFOPLIST_FILE の項目とマージされる
+      path: Focal-Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # カタログ（〜.focalcatalog）はパッケージ（Finder では 1 つのファイルに見える）
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: jp.bekki.focal.catalog
+            UTTypeDescription: Focal Catalog
+            UTTypeConformsTo: [com.apple.package, public.composite-content]
+            UTTypeTagSpecification:
+              public.filename-extension: [focalcatalog]
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Focal Catalog
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSTypeIsPackage: true
+            LSItemContentTypes: [jp.bekki.focal.catalog]
+    settings:
+      base:
+        PRODUCT_NAME: Focal
+        PRODUCT_BUNDLE_IDENTIFIER: jp.bekki.focal
+        PRODUCT_MODULE_NAME: Focal
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Focal
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.photography
+        LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+        SWIFT_EMIT_LOC_STRINGS: YES
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        MARKETING_VERSION: "0.2.0"
+        CURRENT_PROJECT_VERSION: "1"
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_APP_SANDBOX: NO        # ADR-14
+
+  FocalCoreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [FocalCoreTests]
+    dependencies:
+      - target: FocalCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        LD_RUNPATH_SEARCH_PATHS: "@loader_path/../Frameworks @executable_path/../Frameworks $(PROJECT_DIR)/build/Frameworks"
+
+  FocalUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [FocalUITests]
+    dependencies:
+      - target: Focal
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Focal
+
+schemes:
+  Focal:
+    build:
+      targets:
+        Focal: all
+        FocalCore: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - FocalCoreTests
+        - FocalUITests

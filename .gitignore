@@ -1,0 +1,34 @@
+# ビルド（CMake のプリセットは build/ に出す）
+/build/
+/out/
+/vcpkg_installed/
+CMakeUserPresets.json
+compile_commands.json
+/.cache/
+
+# テスト用 RAW（tests/data/fetch.sh で取得する）
+/tests/data/*
+!/tests/data/fetch.sh
+
+# macOS アプリ（.xcodeproj と Info.plist は XcodeGen が project.yml から作る）
+/apps/macos/build/
+/apps/macos/*.xcodeproj/
+/apps/macos/*-Info.plist
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcresult
+*.trace
+*.dmg
+
+# Python（scripts/make-icon.py）
+__pycache__/
+
+# エディタ・OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Claude Code の個人設定
+.claude/settings.local.json

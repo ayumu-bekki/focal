@@ -1,0 +1,8 @@
+{
+  "name": "metal-cpp",
+  "version-string": "26",
+  "description": "Apple metal-cpp（Metal を C++ から使うヘッダのみのラッパー）。表示の GPU 処理（ADR-03 v3.14）に使う",
+  "homepage": "https://developer.apple.com/metal/cpp/",
+  "license": "Apache-2.0",
+  "supports": "osx"
+}

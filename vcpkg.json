@@ -1,0 +1,32 @@
+{
+  "name": "focal",
+  "version": "0.1.0",
+  "builtin-baseline": "4a1c77189c64dae7afd478333a64d1e604d5dc91",
+  "dependencies": [
+    {
+      "name": "libraw",
+      "features": [
+        "dng-lossy",
+        "openmp"
+      ]
+    },
+    "lcms",
+    "sqlite3",
+    "blake3",
+    "nlohmann-json",
+    "libjpeg-turbo",
+    {
+      "name": "tiff",
+      "default-features": false,
+      "features": [
+        "zip"
+      ]
+    },
+    "utf8proc",
+    {
+      "name": "metal-cpp",
+      "platform": "osx"
+    },
+    "catch2"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "llvm-openmp",
+  "version": "23.1.2",
+  "description": "LLVM OpenMP runtime (libomp). Apple clang は OpenMP ランタイムを同梱しないため、LibRaw の並列化用に自前でビルドする",
+  "homepage": "https://openmp.llvm.org/",
+  "license": "Apache-2.0 WITH LLVM-exception",
+  "supports": "osx",
+  "dependencies": [
+    { "name": "vcpkg-cmake", "host": true }
+  ]
+}

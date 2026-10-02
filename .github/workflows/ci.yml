@@ -1,0 +1,113 @@
+# 13 章 M6: core / capi / cli を 3 OS でビルド・テストし、macOS アプリをビルドする
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  VCPKG_COMMIT: 4a1c77189c64dae7afd478333a64d1e604d5dc91   # vcpkg.json の builtin-baseline と同じ
+
+jobs:
+  core:
+    name: core (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            preset: release
+            cache: ~/.cache/vcpkg/archives
+          - os: ubuntu-24.04
+            preset: linux-release
+            cache: ~/.cache/vcpkg/archives
+          - os: windows-2022
+            preset: windows-release
+            cache: ~\AppData\Local\vcpkg\archives
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build pkg-config
+      - name: Tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+      - name: MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: vcpkg
+        shell: bash
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          git -C "$VCPKG_ROOT" checkout "$VCPKG_COMMIT"
+          if [ "$RUNNER_OS" = "Windows" ]; then "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics; else "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics; fi
+      - name: vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.cache }}
+          key: vcpkg-${{ matrix.os }}-${{ hashFiles('vcpkg.json', 'triplets/**', 'ports/**') }}
+          restore-keys: vcpkg-${{ matrix.os }}-
+
+      - name: Test RAW files
+        uses: actions/cache@v4
+        with:
+          path: tests/data
+          key: rawdata-${{ hashFiles('tests/data/fetch.sh') }}
+      - name: Fetch test RAW files
+        shell: bash
+        run: tests/data/fetch.sh
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }} -j4
+
+  macos-app:
+    name: macOS app
+    runs-on: macos-latest
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: brew install ninja xcodegen
+      - name: vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          git -C "$VCPKG_ROOT" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+      - name: vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/vcpkg/archives
+          key: vcpkg-macos-latest-${{ hashFiles('vcpkg.json', 'triplets/**', 'ports/**') }}
+          restore-keys: vcpkg-macos-latest-
+      - name: Test RAW files
+        uses: actions/cache@v4
+        with:
+          path: tests/data
+          key: rawdata-${{ hashFiles('tests/data/fetch.sh') }}
+      - name: Fetch test RAW files
+        run: tests/data/fetch.sh
+      - name: Build core (XCFramework)
+        run: apps/macos/scripts/build-core.sh
+      - name: Build and test (XCTest)
+        working-directory: apps/macos
+        run: |
+          xcodegen -q
+          xcodebuild test -project Focal.xcodeproj -scheme Focal -destination 'platform=macOS' \
+            -derivedDataPath build/DerivedData -only-testing:FocalCoreTests CODE_SIGN_IDENTITY=-
+      - name: Package (ad-hoc DMG)
+        run: apps/macos/scripts/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Focal-dmg
+          path: apps/macos/build/dist/*.dmg
