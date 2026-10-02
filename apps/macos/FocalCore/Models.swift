@@ -5,6 +5,18 @@ public struct PhotoRoot: Identifiable, Hashable, Sendable {
     public let id: Int64
     public let path: String
     public let label: String
+    /// v3.19: ボリュームの ID・名前と、ボリュームのルートからの相対パス（判別できなければ空）
+    public let volumeID: String
+    public let volumeName: String
+    public let volumeRelativePath: String
+    /// いまアクセスできる（外付けドライブが外れていると false）
+    public let isOnline: Bool
+
+    /// 表示名: 付けた名前、なければフォルダ名
+    public var displayName: String {
+        if !label.isEmpty { return label }
+        return URL(fileURLWithPath: path).lastPathComponent
+    }
 }
 
 public struct PhotoFolder: Identifiable, Hashable, Sendable {
@@ -28,11 +40,27 @@ public struct PhotoTag: Identifiable, Hashable, Sendable {
     public let photoCount: Int64
 }
 
-/// アルバム（v3.16）: 利用者が選んだ写真の集まり
+/// アルバム（v3.16）: 利用者が選んだ写真の集まり。v3.19 でフォルダ（入れ子）とスマートアルバムを追加
 public struct Album: Identifiable, Hashable, Sendable {
+    public enum Kind: Int32, Sendable {
+        /// 手で集める
+        case album = 0
+        /// アルバムを入れる入れ物
+        case folder = 1
+        /// 保存した検索条件（読み取り専用）
+        case smart = 2
+    }
+
     public let id: Int64
     public let name: String
+    /// フォルダは 0。スマートアルバムは条件に合う枚数
     public let photoCount: Int64
+    public let parentID: Int64?
+    public let kind: Kind
+    public let coverPhotoID: Int64?
+
+    /// 写真を足せるのは手で集めるアルバムだけ
+    public var acceptsPhotos: Bool { kind == .album }
 }
 
 public enum PhotoStatus: Int32, Sendable {
@@ -108,6 +136,8 @@ public struct PhotoFilter: Hashable, Sendable {
     public var albumID: Int64?
     /// 最後に写真を足した取り込みの写真だけ（v3.16）
     public var recentImport = false
+    /// このスマートアルバムの条件に合う写真だけ（v3.19）
+    public var smartAlbumID: Int64?
 
     public init() {}
 
@@ -123,6 +153,7 @@ public struct PhotoFilter: Hashable, Sendable {
         f.include_unavailable = includeUnavailable ? 1 : 0
         f.album_id = albumID ?? 0
         f.recent_import = recentImport ? 1 : 0
+        f.smart_album_id = smartAlbumID ?? 0
         return try withOptionalCString(dateFrom) { from in
             try withOptionalCString(dateTo) { to in
                 f.date_from = from
@@ -134,7 +165,7 @@ public struct PhotoFilter: Hashable, Sendable {
 }
 
 public struct ScanStats: Sendable {
-    public var added = 0, updated = 0, unchanged = 0, missing = 0, restored = 0, renamed = 0
+    public var added = 0, updated = 0, unchanged = 0, missing = 0, restored = 0, renamed = 0, relinked = 0
     public var unsupported = 0, foldersAdded = 0, thumbnails = 0, thumbnailFailures = 0
 
     init(_ s: fc_scan_stats) {
@@ -144,6 +175,7 @@ public struct ScanStats: Sendable {
         missing = Int(s.missing)
         restored = Int(s.restored)
         renamed = Int(s.renamed)
+        relinked = Int(s.relinked)
         unsupported = Int(s.unsupported)
         foldersAdded = Int(s.folders_added)
         thumbnails = Int(s.thumbnails)
@@ -154,4 +186,63 @@ public struct ScanStats: Sendable {
 func withOptionalCString<R>(_ s: String?, _ body: (UnsafePointer<CChar>?) throws -> R) rethrows -> R {
     if let s { return try s.withCString { try body($0) } }
     return try body(nil)
+}
+
+// MARK: カードの取り込み（v3.19）
+
+/// DCIM フォルダを持つボリューム（SD カードなど）
+public struct ImportSource: Identifiable, Hashable, Sendable {
+    public var id: String { mountPoint }
+    public let volumeID: String
+    public let name: String
+    public let mountPoint: String
+    public let dcimPath: String
+    public let isRemovable: Bool
+}
+
+public struct CardSummary: Hashable, Sendable {
+    /// RAW + JPEG のペアなどは 1 枚
+    public let shots: Int
+    public let files: Int
+    public let bytes: Int64
+}
+
+public struct CardImportOptions: Sendable {
+    public var source: URL
+    /// コピー先。<destination>/YYYY/YYYY-MM-DD/ に入れる
+    public var destination: URL
+    public var verify = true
+    public var albumID: Int64?
+    public var tagIDs: [Int64] = []
+    public var thumbnailCache: URL?
+
+    public init(source: URL, destination: URL) {
+        self.source = source
+        self.destination = destination
+    }
+}
+
+public struct CardImportResult: Sendable {
+    public var shots = 0, imported = 0, skippedDuplicates = 0, failed = 0, estimatedDates = 0, filesCopied = 0
+    public var bytesCopied: Int64 = 0
+    public var cancelled = false
+    public var rootID: Int64?
+    /// カタログに新しく足した写真の数
+    public var added = 0
+    /// 失敗した写真のメッセージ（改行区切り）
+    public var errors = ""
+
+    init(_ r: fc_card_import_result, errors: String) {
+        shots = Int(r.shots)
+        imported = Int(r.imported)
+        skippedDuplicates = Int(r.skipped_duplicates)
+        failed = Int(r.failed)
+        estimatedDates = Int(r.estimated_dates)
+        filesCopied = Int(r.files_copied)
+        bytesCopied = r.bytes_copied
+        cancelled = r.cancelled != 0
+        rootID = r.root_id > 0 ? r.root_id : nil
+        added = Int(r.added)
+        self.errors = errors
+    }
 }

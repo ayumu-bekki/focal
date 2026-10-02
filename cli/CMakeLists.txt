@@ -5,6 +5,7 @@ add_executable(focal
     cmd_info.cpp
     cmd_compare.cpp
     cmd_catalog.cpp
+    cmd_library.cpp
     ${PROJECT_SOURCE_DIR}/bench/cmd_bench.cpp
 )
 target_include_directories(focal PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

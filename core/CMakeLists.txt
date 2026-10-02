@@ -4,6 +4,7 @@ add_library(focal_core STATIC
     util/hash.cpp
     util/file.cpp
     util/omp_threads.cpp
+    util/volume.cpp
     edit/settings.cpp
     edit/undo_stack.cpp
     edit/editor.cpp
@@ -23,9 +24,11 @@ add_library(focal_core STATIC
     catalog/schema.cpp
     catalog/db_writer.cpp
     catalog/catalog.cpp
+    catalog/smart_query.cpp
     thumbs/thumbnail.cpp
     thumbs/thumbnail_service.cpp
     export/exporter.cpp
+    import/card_import.cpp
 )
 
 target_include_directories(focal_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

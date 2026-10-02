@@ -73,4 +73,21 @@ enum AppPaths {
         if let p = env["FOCAL_CACHE"] { return URL(fileURLWithPath: p + "-previews") }
         return cacheBase.appendingPathComponent("previews")
     }
+
+    // MARK: 取り込み（v3.19）
+
+    /// 起動時にすべてのフォルダを再スキャンするか（設定）
+    static let rescanOnLaunchKey = "rescanOnLaunch"
+    /// 読み込み先（ライブラリのルート）の設定
+    static let importDestinationKey = "importDestination"
+
+    /// カードの読み込み先の既定: 設定 → なければ ~/Pictures/Photos
+    static var savedImportDestination: URL? {
+        UserDefaults.standard.string(forKey: importDestinationKey).map { URL(fileURLWithPath: $0) }
+    }
+
+    static var fallbackImportDestination: URL {
+        FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Photos", isDirectory: true)
+    }
 }

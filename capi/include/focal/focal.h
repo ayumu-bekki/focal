@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 10
+#define FC_API_VERSION 11
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -59,6 +59,11 @@ typedef struct fc_root {
     int64_t id;
     const char* path;  /* NFC の絶対パス */
     const char* label; /* なければ "" */
+    /* v3.19: ボリュームの ID・名前と、ボリュームのルートからの相対パス。判別できなければ "" */
+    const char* volume_id;
+    const char* volume_name;
+    const char* volume_rel_path;
+    int32_t online; /* 1: いまアクセスできる。0: 外付けドライブが外れているなど（オフライン） */
 } fc_root;
 
 typedef struct fc_root_array {
@@ -69,6 +74,13 @@ typedef struct fc_root_array {
 fc_status fc_catalog_add_root(fc_catalog* catalog, const char* dir, int64_t* out_root_id);
 fc_status fc_catalog_roots(fc_catalog* catalog, fc_root_array** out);
 void fc_root_array_free(fc_root_array* array);
+/* マウントされているボリュームを見て、ルートの場所をいまのマウントポイントに合わせる（v3.19）。
+   外付けドライブをつなぎ直したとき・アプリの起動時に呼ぶ。変えたルートの数を out_changed に返す（NULL 可） */
+fc_status fc_catalog_refresh_volumes(fc_catalog* catalog, int32_t* out_changed);
+/* ルートをカタログから外す。写真の情報（★・フラグ・タグ・アルバムへの所属・編集）も消える。ディスク上のファイルは消さない */
+fc_status fc_catalog_remove_root(fc_catalog* catalog, int64_t root_id);
+/* ルートの表示名（空文字で消す） */
+fc_status fc_catalog_set_root_label(fc_catalog* catalog, int64_t root_id, const char* label);
 
 typedef struct fc_folder {
     int64_t id;
@@ -108,11 +120,21 @@ fc_status fc_catalog_ensure_tag(fc_catalog* catalog, const char* path, int64_t* 
 fc_status fc_catalog_add_tag(fc_catalog* catalog, const int64_t* photo_ids, size_t count, int64_t tag_id);
 fc_status fc_catalog_remove_tag(fc_catalog* catalog, const int64_t* photo_ids, size_t count, int64_t tag_id);
 
-/* アルバム（v3.16）: 利用者が選んだ写真の集まり。写真は参照するだけで、アルバムを消しても写真は消えない */
+/* アルバム（v3.16）: 利用者が選んだ写真の集まり。写真は参照するだけで、アルバムを消しても写真は消えない。
+   v3.19: フォルダで入れ子にできる。スマートアルバムは保存した検索条件（読み取り専用） */
+typedef enum fc_album_kind {
+    FC_ALBUM_ALBUM = 0,  /* 手で集める */
+    FC_ALBUM_FOLDER = 1, /* アルバムを入れる入れ物（写真は持たない） */
+    FC_ALBUM_SMART = 2,  /* 条件に合う写真。写真を足せない */
+} fc_album_kind;
+
 typedef struct fc_album {
     int64_t id;
     const char* name;
-    int64_t photo_count;
+    int64_t photo_count; /* フォルダは 0。スマートアルバムは条件に合う枚数 */
+    int64_t parent_id;   /* いちばん上は 0 */
+    int32_t kind;        /* fc_album_kind */
+    int64_t cover_photo_id; /* 指定がなければ 0（先頭の写真を使う） */
 } fc_album;
 
 typedef struct fc_album_array {
@@ -120,15 +142,36 @@ typedef struct fc_album_array {
     const fc_album* items;
 } fc_album_array;
 
-/* 作った順 */
+/* 親が先、同じ親の中は作った順（深さ優先） */
 fc_status fc_catalog_albums(fc_catalog* catalog, fc_album_array** out);
 void fc_album_array_free(fc_album_array* array);
-/* 名前は前後の空白を落とす。空や同じ名前のアルバムがあれば FC_ERR_INVALID_ARGUMENT */
-fc_status fc_catalog_create_album(fc_catalog* catalog, const char* name, int64_t* out_album_id);
+/* 名前は前後の空白を落とす。空や、同じ親の下に同じ名前があれば FC_ERR_INVALID_ARGUMENT。
+   parent_id: 0 ならいちばん上。親にできるのはフォルダだけ */
+fc_status fc_catalog_create_album(fc_catalog* catalog, const char* name, int64_t parent_id, int64_t* out_album_id);
+fc_status fc_catalog_create_album_folder(fc_catalog* catalog, const char* name, int64_t parent_id,
+                                         int64_t* out_album_id);
+/* query_json は design.md 7.2 章（catalog/smart_query.h）の条件。不正なら FC_ERR_INVALID_ARGUMENT */
+fc_status fc_catalog_create_smart_album(fc_catalog* catalog, const char* name, const char* query_json,
+                                        int64_t parent_id, int64_t* out_album_id);
+fc_status fc_catalog_set_smart_query(fc_catalog* catalog, int64_t album_id, const char* query_json);
 fc_status fc_catalog_rename_album(fc_catalog* catalog, int64_t album_id, const char* name);
+/* フォルダを消すと中のアルバムも消える（写真は消えない） */
 fc_status fc_catalog_delete_album(fc_catalog* catalog, int64_t album_id);
+/* 親を変える（0 でいちばん上）。自分の中へは動かせない */
+fc_status fc_catalog_move_album(fc_catalog* catalog, int64_t album_id, int64_t parent_id);
+/* 写真を足せるのは FC_ALBUM_ALBUM だけ */
 fc_status fc_catalog_add_to_album(fc_catalog* catalog, int64_t album_id, const int64_t* photo_ids, size_t count);
 fc_status fc_catalog_remove_from_album(fc_catalog* catalog, int64_t album_id, const int64_t* photo_ids, size_t count);
+/* photo_id が 0 ならカバーの指定をやめる */
+fc_status fc_catalog_set_album_cover(fc_catalog* catalog, int64_t album_id, int64_t photo_id);
+
+/* core が持つ文字列（fc_string_free で解放する） */
+typedef struct fc_string {
+    const char* value;
+} fc_string;
+void fc_string_free(fc_string* string);
+/* スマートアルバムの条件 JSON。スマートアルバムでなければ FC_ERR_NOT_FOUND */
+fc_status fc_catalog_smart_query(fc_catalog* catalog, int64_t album_id, fc_string** out);
 
 /* ---- 写真 -------------------------------------------------------------- */
 
@@ -190,6 +233,7 @@ typedef struct fc_photo_filter {
     int32_t include_unavailable; /* 0 ならファイルなし・非対応を除く */
     int64_t album_id;           /* 0 なら制限なし。このアルバムの写真だけ（v3.16） */
     int32_t recent_import;      /* 1 なら最後に写真を足した取り込みの写真だけ（v3.16） */
+    int64_t smart_album_id;     /* 0 なら制限なし。このスマートアルバムの条件に合う写真だけ（v3.19） */
 } fc_photo_filter;
 
 /* 既定値（制限なし、サブフォルダを含む、ファイルなしも含む）で初期化する */
@@ -219,6 +263,7 @@ typedef struct fc_scan_stats {
     int32_t restored;
     int32_t renamed;
     int32_t unsupported;
+    int32_t relinked; /* 別のフォルダから移動してきた写真をつなぎ直した（v3.19） */
     int32_t folders_added;
     int32_t thumbnails;
     int32_t thumbnail_failures;
@@ -238,6 +283,78 @@ fc_status fc_catalog_scan_async(fc_catalog* catalog, int64_t root_id, const char
 void fc_task_cancel(fc_task* task);
 /* 実行中なら完了まで待ってから解放する */
 void fc_task_release(fc_task* task);
+
+/* ---- カードの取り込み（v3.19、design.md 5.10 章） ----------------------- */
+
+/* DCIM フォルダを持つボリューム（SD カードなど） */
+typedef struct fc_import_source {
+    const char* volume_id;   /* 取れなければ "" */
+    const char* name;
+    const char* mount_point;
+    const char* dcim_path;
+    int32_t removable;
+} fc_import_source;
+
+typedef struct fc_import_source_array {
+    size_t count;
+    const fc_import_source* items;
+} fc_import_source_array;
+
+fc_status fc_import_sources(fc_import_source_array** out);
+void fc_import_source_array_free(fc_import_source_array* array);
+
+typedef struct fc_card_summary {
+    int32_t shots;  /* RAW + JPEG のペアなどは 1 枚 */
+    int32_t files;
+    int64_t bytes;
+} fc_card_summary;
+
+/* カードの中身の概算（ファイルの一覧と大きさだけ読む）。遅いカードでは時間がかかるのでメインスレッドで呼ばないこと。
+   source は DCIM フォルダ、または DCIM を持つボリューム */
+fc_status fc_card_summarize(const char* source, fc_card_summary* out);
+
+typedef struct fc_card_import_options {
+    const char* source;
+    const char* dest_root;           /* コピー先。<dest_root>/YYYY/YYYY-MM-DD/ に入れる。登録されたルートの下でなければ登録する */
+    int32_t verify;                  /* 1: コピーを読み直してハッシュで照合する */
+    int32_t dry_run;                 /* 1: コピーも登録もせず数えるだけ */
+    int64_t album_id;                /* 0 なら足さない。手で集めるアルバム */
+    const int64_t* tag_ids;          /* 取り込んだ写真に付けるタグ */
+    size_t tag_count;
+    const char* thumbnail_cache_dir; /* NULL でなければ登録のときにサムネイルも作る */
+} fc_card_import_options;
+
+typedef enum fc_import_phase {
+    FC_IMPORT_READING = 0,    /* カードを読んで、撮影日時と取り込み済みかを調べる */
+    FC_IMPORT_COPYING = 1,
+    FC_IMPORT_CATALOGING = 2, /* カタログへの登録 */
+} fc_import_phase;
+
+typedef struct fc_card_import_result {
+    int32_t shots;
+    int32_t imported;
+    int32_t skipped_duplicates;
+    int32_t failed;
+    int32_t estimated_dates; /* 撮影日時が読めず、ファイルの更新日時で日付フォルダを決めた枚数 */
+    int32_t files_copied;
+    int64_t bytes_copied;
+    int32_t cancelled;
+    int64_t root_id;         /* 登録先のルート。dry_run では 0 */
+    int32_t added;           /* カタログに新しく足した写真の数 */
+} fc_card_import_result;
+
+/* 進捗。ワーカースレッドから呼ばれる。current はコールバックの間だけ有効 */
+typedef void (*fc_card_progress_fn)(void* user, int32_t phase, int32_t done, int32_t total, int64_t bytes_done,
+                                    int64_t bytes_total, const char* current);
+/* 完了。必ず 1 回だけ呼ばれる。status が FC_OK でも一部の写真が失敗していることがある（result->failed。
+   message に失敗の内容を改行区切りで入れる）。result と message はコールバックの間だけ有効 */
+typedef void (*fc_card_done_fn)(void* user, fc_status status, const fc_card_import_result* result,
+                                const char* message);
+
+/* カードの写真を core のスレッドでコピーして登録する。カードには書き込まない。
+   キャンセルしても、それまでにコピーした分は登録する。catalog は完了まで閉じないこと。out_task は fc_task_release で手放す */
+fc_status fc_card_import_start(fc_catalog* catalog, const fc_card_import_options* options,
+                               fc_card_progress_fn progress, fc_card_done_fn done, void* user, fc_task** out_task);
 
 /* ---- 書き出し（5.8 章） ------------------------------------------------- */
 

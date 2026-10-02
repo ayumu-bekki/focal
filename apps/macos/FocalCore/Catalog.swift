@@ -37,8 +37,27 @@ public final class Catalog: @unchecked Sendable {
         try check(fc_catalog_roots(handle, &a))
         defer { fc_root_array_free(a) }
         return UnsafeBufferPointer(start: a!.pointee.items, count: a!.pointee.count).map {
-            PhotoRoot(id: $0.id, path: String(cString: $0.path), label: String(cString: $0.label))
+            PhotoRoot(id: $0.id, path: String(cString: $0.path), label: String(cString: $0.label),
+                      volumeID: String(cString: $0.volume_id), volumeName: String(cString: $0.volume_name),
+                      volumeRelativePath: String(cString: $0.volume_rel_path), isOnline: $0.online != 0)
         }
+    }
+
+    /// 外付けドライブのマウントポイントが変わっていたら、ルートの場所を合わせる。変えたルートの数を返す
+    @discardableResult
+    public func refreshVolumes() throws -> Int {
+        var n: Int32 = 0
+        try check(fc_catalog_refresh_volumes(handle, &n))
+        return Int(n)
+    }
+
+    /// ルートをカタログから外す。写真の情報（★・タグ・編集など）も消える。ディスク上のファイルは消さない
+    public func removeRoot(_ rootID: Int64) throws {
+        try check(fc_catalog_remove_root(handle, rootID))
+    }
+
+    public func setRootLabel(_ label: String, rootID: Int64) throws {
+        try label.withCString { try check(fc_catalog_set_root_label(handle, rootID, $0)) }
     }
 
     public func folders(rootID: Int64) throws -> [PhotoFolder] {
@@ -95,16 +114,55 @@ public final class Catalog: @unchecked Sendable {
         try check(fc_catalog_albums(handle, &a))
         defer { fc_album_array_free(a) }
         return UnsafeBufferPointer(start: a!.pointee.items, count: a!.pointee.count).map {
-            Album(id: $0.id, name: String(cString: $0.name), photoCount: $0.photo_count)
+            Album(id: $0.id, name: String(cString: $0.name), photoCount: $0.photo_count,
+                  parentID: $0.parent_id == 0 ? nil : $0.parent_id, kind: Album.Kind(rawValue: $0.kind) ?? .album,
+                  coverPhotoID: $0.cover_photo_id == 0 ? nil : $0.cover_photo_id)
         }
     }
 
-    /// 空や同じ名前のアルバムがあれば FocalError（invalidArgument）
+    /// 空や、同じ親の下に同じ名前のアルバムがあれば FocalError（invalidArgument）。parentID はフォルダの id
     @discardableResult
-    public func createAlbum(_ name: String) throws -> Int64 {
+    public func createAlbum(_ name: String, parentID: Int64? = nil) throws -> Int64 {
         var id: Int64 = 0
-        try name.withCString { try check(fc_catalog_create_album(handle, $0, &id)) }
+        try name.withCString { try check(fc_catalog_create_album(handle, $0, parentID ?? 0, &id)) }
         return id
+    }
+
+    @discardableResult
+    public func createAlbumFolder(_ name: String, parentID: Int64? = nil) throws -> Int64 {
+        var id: Int64 = 0
+        try name.withCString { try check(fc_catalog_create_album_folder(handle, $0, parentID ?? 0, &id)) }
+        return id
+    }
+
+    /// queryJSON は design.md 7.2 章のスマートアルバムの条件。不正なら FocalError（invalidArgument）
+    @discardableResult
+    public func createSmartAlbum(_ name: String, queryJSON: String, parentID: Int64? = nil) throws -> Int64 {
+        var id: Int64 = 0
+        try name.withCString { n in
+            try queryJSON.withCString { try check(fc_catalog_create_smart_album(handle, n, $0, parentID ?? 0, &id)) }
+        }
+        return id
+    }
+
+    public func setSmartQuery(_ id: Int64, queryJSON: String) throws {
+        try queryJSON.withCString { try check(fc_catalog_set_smart_query(handle, id, $0)) }
+    }
+
+    public func smartQuery(_ id: Int64) throws -> String {
+        var s: UnsafeMutablePointer<fc_string>?
+        try check(fc_catalog_smart_query(handle, id, &s))
+        defer { fc_string_free(s) }
+        return String(cString: s!.pointee.value)
+    }
+
+    /// 親を変える（nil でいちばん上）。自分の中へは動かせない
+    public func moveAlbum(_ id: Int64, toParent parentID: Int64?) throws {
+        try check(fc_catalog_move_album(handle, id, parentID ?? 0))
+    }
+
+    public func setAlbumCover(_ id: Int64, photoID: Int64?) throws {
+        try check(fc_catalog_set_album_cover(handle, id, photoID ?? 0))
     }
 
     public func renameAlbum(_ id: Int64, to name: String) throws {
@@ -210,6 +268,68 @@ public final class Catalog: @unchecked Sendable {
             }
             if status != FC_OK {
                 Unmanaged<ExportBox>.fromOpaque(user).release()
+                continuation.finish(throwing: FocalError(status: status))
+                return
+            }
+            box.setTask(task!)
+            continuation.onTermination = { @Sendable _ in box.cancel() }
+        }
+    }
+
+    // MARK: カードの取り込み（v3.19）
+
+    /// DCIM フォルダを持つボリューム（SD カードなど）
+    public static func importSources() throws -> [ImportSource] {
+        var a: UnsafeMutablePointer<fc_import_source_array>?
+        try check(fc_import_sources(&a))
+        defer { fc_import_source_array_free(a) }
+        return UnsafeBufferPointer(start: a!.pointee.items, count: a!.pointee.count).map {
+            ImportSource(volumeID: String(cString: $0.volume_id), name: String(cString: $0.name),
+                         mountPoint: String(cString: $0.mount_point), dcimPath: String(cString: $0.dcim_path),
+                         isRemovable: $0.removable != 0)
+        }
+    }
+
+    /// カードの中身の概算。遅いカードでは時間がかかるので、メインスレッド以外で呼ぶこと
+    public static func summarizeCard(_ source: URL) throws -> CardSummary {
+        var s = fc_card_summary()
+        try source.path.withCString { try check(fc_card_summarize($0, &s)) }
+        return CardSummary(shots: Int(s.shots), files: Int(s.files), bytes: s.bytes)
+    }
+
+    public enum CardImportEvent: Sendable {
+        public enum Phase: Int32, Sendable { case reading = 0, copying = 1, cataloging = 2 }
+        case progress(phase: Phase, done: Int, total: Int, bytesDone: Int64, bytesTotal: Int64, current: String)
+        /// 終わった。キャンセルしても、それまでにコピーした分は登録されている（result.cancelled）
+        case finished(CardImportResult)
+    }
+
+    /// カードの写真をコピーして登録する。カードには書き込まない。ストリームを途中で捨てる（Task をキャンセルする）と
+    /// 取り込みをキャンセルする
+    public func importFromCard(_ options: CardImportOptions) -> AsyncThrowingStream<CardImportEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let box = CardImportBox(continuation: continuation, catalog: self)
+            let user = Unmanaged.passRetained(box).toOpaque()
+            var task: OpaquePointer?
+            var opt = fc_card_import_options()
+            opt.verify = options.verify ? 1 : 0
+            opt.album_id = options.albumID ?? 0
+            opt.tag_count = options.tagIDs.count
+            let status = options.source.path.withCString { source in
+                options.destination.path.withCString { dest in
+                    withOptionalCString(options.thumbnailCache?.path) { cache in
+                        options.tagIDs.withUnsafeBufferPointer { tags in
+                            opt.source = source
+                            opt.dest_root = dest
+                            opt.thumbnail_cache_dir = cache
+                            opt.tag_ids = tags.baseAddress
+                            return fc_card_import_start(handle, &opt, cardProgress, cardDone, user, &task)
+                        }
+                    }
+                }
+            }
+            if status != FC_OK {
+                Unmanaged<CardImportBox>.fromOpaque(user).release()
                 continuation.finish(throwing: FocalError(status: status))
                 return
             }
@@ -369,5 +489,73 @@ private func exportDone(_ user: UnsafeMutableRawPointer?, _ status: fc_status) {
     let box = Unmanaged<ExportBox>.fromOpaque(user!).takeRetainedValue()
     box.continuation.yield(.finished(cancelled: status != FC_OK))
     box.continuation.finish()
+    box.finish()
+}
+
+/// カードの取り込み中の状態。完了コールバックで解放する
+private final class CardImportBox: @unchecked Sendable {
+    let continuation: AsyncThrowingStream<Catalog.CardImportEvent, Error>.Continuation
+    let catalog: Catalog
+    private let lock = NSLock()
+    private var task: OpaquePointer?
+    private var finished = false
+
+    init(continuation: AsyncThrowingStream<Catalog.CardImportEvent, Error>.Continuation, catalog: Catalog) {
+        self.continuation = continuation
+        self.catalog = catalog
+    }
+
+    func setTask(_ t: OpaquePointer) {
+        lock.lock()
+        task = t
+        let done = finished
+        lock.unlock()
+        if done { releaseTask() }
+    }
+
+    func cancel() {
+        lock.lock()
+        if let task, !finished { fc_task_cancel(task) }
+        lock.unlock()
+    }
+
+    func finish() {
+        lock.lock()
+        finished = true
+        let has = task != nil
+        lock.unlock()
+        if has { releaseTask() }
+    }
+
+    private func releaseTask() {
+        lock.lock()
+        let t = task
+        task = nil
+        lock.unlock()
+        guard let t else { return }
+        let handle = UInt(bitPattern: t)
+        DispatchQueue.global(qos: .utility).async { fc_task_release(OpaquePointer(bitPattern: handle)) }
+    }
+}
+
+private func cardProgress(_ user: UnsafeMutableRawPointer?, _ phase: Int32, _ done: Int32, _ total: Int32,
+                          _ bytesDone: Int64, _ bytesTotal: Int64, _ current: UnsafePointer<CChar>?) {
+    let box = Unmanaged<CardImportBox>.fromOpaque(user!).takeUnretainedValue()
+    box.continuation.yield(.progress(phase: Catalog.CardImportEvent.Phase(rawValue: phase) ?? .copying,
+                                     done: Int(done), total: Int(total), bytesDone: bytesDone, bytesTotal: bytesTotal,
+                                     current: String(optionalCString: current) ?? ""))
+}
+
+private func cardDone(_ user: UnsafeMutableRawPointer?, _ status: fc_status,
+                      _ result: UnsafePointer<fc_card_import_result>?, _ message: UnsafePointer<CChar>?) {
+    let box = Unmanaged<CardImportBox>.fromOpaque(user!).takeRetainedValue()
+    let text = String(optionalCString: message) ?? ""
+    // キャンセルは失敗ではなく、途中までの結果として返す
+    if status == FC_OK || status == FC_ERR_CANCELLED, let result {
+        box.continuation.yield(.finished(CardImportResult(result.pointee, errors: text)))
+        box.continuation.finish()
+    } else {
+        box.continuation.finish(throwing: FocalError(status: status, message: text))
+    }
     box.finish()
 }

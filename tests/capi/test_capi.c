@@ -96,6 +96,34 @@ static scan_ctx run_scan(fc_catalog* cat, int64_t root, const char* cache) {
     return ctx;
 }
 
+/* ---- カードの取り込み ---- */
+
+typedef struct card_ctx {
+    waiter w;
+    fc_status status;
+    fc_card_import_result result;
+    int copy_progress;
+} card_ctx;
+
+static void on_card_progress(void* user, int32_t phase, int32_t done, int32_t total, int64_t bytes_done,
+                             int64_t bytes_total, const char* current) {
+    card_ctx* ctx = (card_ctx*)user;
+    (void)done;
+    (void)total;
+    (void)bytes_done;
+    (void)bytes_total;
+    (void)current;
+    if (phase == FC_IMPORT_COPYING) ctx->copy_progress++;
+}
+
+static void on_card_done(void* user, fc_status status, const fc_card_import_result* result, const char* message) {
+    card_ctx* ctx = (card_ctx*)user;
+    (void)message;
+    ctx->status = status;
+    ctx->result = *result;
+    waiter_signal(&ctx->w);
+}
+
 /* ---- 現像 ---- */
 
 typedef struct session_ctx {
@@ -347,8 +375,8 @@ int main(void) {
     /* アルバム（v3.16） */
     {
         int64_t album = 0;
-        REQUIRE_OK(fc_catalog_create_album(cat, "\xe6\x97\x85\xe8\xa1\x8c", &album)); /* 旅行 */
-        CHECK(fc_catalog_create_album(cat, "\xe6\x97\x85\xe8\xa1\x8c", NULL) == FC_ERR_INVALID_ARGUMENT);
+        REQUIRE_OK(fc_catalog_create_album(cat, "\xe6\x97\x85\xe8\xa1\x8c", 0, &album)); /* 旅行 */
+        CHECK(fc_catalog_create_album(cat, "\xe6\x97\x85\xe8\xa1\x8c", 0, NULL) == FC_ERR_INVALID_ARGUMENT);
         REQUIRE_OK(fc_catalog_add_to_album(cat, album, both, 2));
         fc_photo_filter_init(&f);
         f.album_id = album;
@@ -373,6 +401,142 @@ int main(void) {
         REQUIRE_OK(fc_catalog_albums(cat, &albums));
         CHECK(albums->count == 0);
         fc_album_array_free(albums);
+    }
+
+    /* アルバムのフォルダ・スマートアルバム（v3.19） */
+    {
+        int64_t folder = 0, inner = 0, smart = 0, flat = 0;
+        REQUIRE_OK(fc_catalog_create_album_folder(cat, "Trips", 0, &folder));
+        REQUIRE_OK(fc_catalog_create_album(cat, "Hokkaido", folder, &inner));
+        REQUIRE_OK(fc_catalog_create_album(cat, "Hokkaido", 0, &flat)); /* 親が違えば同じ名前でよい */
+        CHECK(fc_catalog_create_album(cat, "Hokkaido", folder, NULL) == FC_ERR_INVALID_ARGUMENT);
+        CHECK(fc_catalog_create_album(cat, "X", flat, NULL) == FC_ERR_INVALID_ARGUMENT); /* 親にできるのはフォルダだけ */
+        CHECK(fc_catalog_add_to_album(cat, folder, both, 2) == FC_ERR_INVALID_ARGUMENT);
+        REQUIRE_OK(fc_catalog_add_to_album(cat, inner, both, 2));
+
+        const char* query = "{\"match\":\"all\",\"rules\":[{\"field\":\"camera\",\"op\":\"contains\",\"value\":\"Canon\"},"
+                            "{\"field\":\"album\",\"op\":\"in\",\"value\":%lld}]}";
+        char json[512];
+        snprintf(json, sizeof json, query, (long long)folder);
+        CHECK(fc_catalog_create_smart_album(cat, "Canon in Trips", "{", 0, NULL) == FC_ERR_INVALID_ARGUMENT);
+        REQUIRE_OK(fc_catalog_create_smart_album(cat, "Canon in Trips", json, 0, &smart));
+        CHECK(fc_catalog_add_to_album(cat, smart, both, 2) == FC_ERR_INVALID_ARGUMENT); /* 読み取り専用 */
+        fc_photo_filter_init(&f);
+        f.smart_album_id = smart;
+        REQUIRE_OK(fc_catalog_count(cat, &f, &n));
+        CHECK(n == 1); /* フォルダの中のアルバムも含み、Canon だけ */
+        fc_string* q = NULL;
+        REQUIRE_OK(fc_catalog_smart_query(cat, smart, &q));
+        CHECK(strstr(q->value, "Canon") != NULL);
+        fc_string_free(q);
+        CHECK(fc_catalog_smart_query(cat, inner, &q) == FC_ERR_NOT_FOUND);
+        REQUIRE_OK(fc_catalog_set_smart_query(cat, smart, "{\"rules\":[]}"));
+        REQUIRE_OK(fc_catalog_count(cat, &f, &n));
+        CHECK(n == 2);
+
+        fc_album_array* albums = NULL;
+        REQUIRE_OK(fc_catalog_albums(cat, &albums));
+        CHECK(albums->count == 4);
+        CHECK(albums->items[0].kind == FC_ALBUM_FOLDER);
+        CHECK(albums->items[1].id == inner && albums->items[1].parent_id == folder);
+        CHECK(albums->items[1].kind == FC_ALBUM_ALBUM && albums->items[1].photo_count == 2);
+        CHECK(albums->items[3].kind == FC_ALBUM_SMART && albums->items[3].photo_count == 2);
+        fc_album_array_free(albums);
+
+        CHECK(fc_catalog_move_album(cat, flat, folder) == FC_ERR_INVALID_ARGUMENT); /* 同じ名前がフォルダの中にある */
+        CHECK(fc_catalog_move_album(cat, folder, inner) == FC_ERR_INVALID_ARGUMENT); /* 自分の中へは動かせない */
+        REQUIRE_OK(fc_catalog_rename_album(cat, flat, "Elsewhere"));
+        REQUIRE_OK(fc_catalog_move_album(cat, flat, folder));
+        REQUIRE_OK(fc_catalog_move_album(cat, flat, 0));
+        REQUIRE_OK(fc_catalog_delete_album(cat, folder)); /* 中のアルバムも消える */
+        REQUIRE_OK(fc_catalog_albums(cat, &albums));
+        CHECK(albums->count == 2); /* Elsewhere とスマートアルバム */
+        fc_album_array_free(albums);
+        REQUIRE_OK(fc_catalog_delete_album(cat, smart));
+        REQUIRE_OK(fc_catalog_delete_album(cat, flat));
+    }
+
+    /* カードの取り込み（v3.19） */
+    {
+        char card_dir[1024], dcim[1024], card_photo[1024], dest[1024], src[1024];
+        snprintf(card_dir, sizeof card_dir, "%s/card", tmp);
+        snprintf(dcim, sizeof dcim, "%s/DCIM", card_dir);
+        char sub100[1024];
+        snprintf(sub100, sizeof sub100, "%s/100CANON", dcim);
+        snprintf(card_photo, sizeof card_photo, "%s/IMG_9999.CR3", sub100);
+        snprintf(dest, sizeof dest, "%s/imported", tmp);
+        snprintf(src, sizeof src, "%s/canon_eos_m50.CR3", data);
+        mkdir(card_dir, 0755);
+        mkdir(dcim, 0755);
+        mkdir(sub100, 0755);
+        copy_file(src, card_photo);
+
+        fc_card_summary sum;
+        REQUIRE_OK(fc_card_summarize(card_dir, &sum));
+        CHECK(sum.shots == 1 && sum.files == 1 && sum.bytes > 0);
+        CHECK(fc_card_summarize("/nonexistent/card", &sum) == FC_ERR_NOT_FOUND);
+
+        fc_import_source_array* sources = NULL;
+        REQUIRE_OK(fc_import_sources(&sources)); /* この環境に SD カードがあるかは分からない。解放できればよい */
+        fc_import_source_array_free(sources);
+
+        int64_t tag = 0, album = 0;
+        REQUIRE_OK(fc_catalog_ensure_tag(cat, "Card/Day1", &tag));
+        REQUIRE_OK(fc_catalog_create_album(cat, "FromCard", 0, &album));
+        fc_card_import_options opt;
+        memset(&opt, 0, sizeof opt);
+        opt.source = card_dir;
+        opt.dest_root = dest;
+        opt.verify = 1;
+        opt.album_id = album;
+        opt.tag_ids = &tag;
+        opt.tag_count = 1;
+        opt.thumbnail_cache_dir = cache;
+
+        card_ctx ctx;
+        memset(&ctx, 0, sizeof ctx);
+        waiter_init(&ctx.w);
+        fc_task* task = NULL;
+        REQUIRE_OK(fc_card_import_start(cat, &opt, on_card_progress, on_card_done, &ctx, &task));
+        waiter_wait_calls(&ctx.w, 1);
+        fc_task_release(task);
+        CHECK(ctx.status == FC_OK);
+        CHECK(ctx.result.shots == 1 && ctx.result.imported == 1 && ctx.result.failed == 0);
+        CHECK(ctx.result.files_copied == 1 && ctx.result.bytes_copied > 0);
+        CHECK(ctx.result.added == 1 && ctx.result.root_id > 0);
+        CHECK(ctx.copy_progress > 0);
+        char copied[1024];
+        snprintf(copied, sizeof copied, "%s/2018/2018-07-01/IMG_9999.CR3", dest);
+        CHECK(access(copied, R_OK) == 0);
+        CHECK(access(card_photo, R_OK) == 0); /* カードのファイルは残る */
+
+        fc_photo_filter_init(&f);
+        f.album_id = album;
+        REQUIRE_OK(fc_catalog_count(cat, &f, &n));
+        CHECK(n == 1);
+        fc_photo_filter_init(&f);
+        f.recent_import = 1;
+        REQUIRE_OK(fc_catalog_count(cat, &f, &n));
+        CHECK(n >= 1); /* 時刻は秒単位なので、直前のスキャンの写真も同じ秒なら入る */
+
+        /* 2 回目は取り込み済み */
+        memset(&ctx, 0, sizeof ctx);
+        waiter_init(&ctx.w);
+        REQUIRE_OK(fc_card_import_start(cat, &opt, on_card_progress, on_card_done, &ctx, &task));
+        waiter_wait_calls(&ctx.w, 1);
+        fc_task_release(task);
+        CHECK(ctx.result.skipped_duplicates == 1 && ctx.result.imported == 0);
+
+        /* ルートにはボリュームの情報が付き、オンライン */
+        fc_root_array* roots2 = NULL;
+        REQUIRE_OK(fc_catalog_roots(cat, &roots2));
+        CHECK(roots2->count == 2);
+        for (size_t i = 0; i < roots2->count; ++i) CHECK(roots2->items[i].online == 1);
+        fc_root_array_free(roots2);
+        int32_t changed = -1;
+        REQUIRE_OK(fc_catalog_refresh_volumes(cat, &changed));
+        CHECK(changed == 0);
+        REQUIRE_OK(fc_catalog_delete_album(cat, album));
     }
 
     /* サムネイル: キャッシュ済みでも未作成でも、どの要求にもちょうど 1 回コールバックが来る */

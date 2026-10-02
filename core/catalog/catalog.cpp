@@ -10,6 +10,7 @@
 #include <variant>
 
 #include "catalog/db_writer.h"
+#include "catalog/smart_query.h"
 #include "catalog/sqlite.h"
 #include "imaging/libraw_util.h"
 #include "thumbs/thumbnail.h"
@@ -18,6 +19,7 @@
 #include "util/hash.h"
 #include "util/thread_pool.h"
 #include "util/unicode.h"
+#include "util/volume.h"
 
 namespace focal {
 
@@ -193,6 +195,25 @@ Probe probe(const Work& w, const ThumbnailCache* thumbs) {
     return p;
 }
 
+// 新しく見つかったファイルが、ほかの場所から移動してきた写真か（v3.19）。
+// ファイルなしになっている写真のうち、ファイル名・サイズ・撮影日時が同じものがちょうど 1 枚ならそれ。
+// ★・フラグ・タグ・アルバム・編集は写真の id に付いているので、つなぎ直せばすべて引き継がれる
+std::optional<int64_t> find_relink_candidate(Database& db, const Work& w, const Probe& p) {
+    if (!p.readable) return std::nullopt;
+    const auto capture = local_time_string(p.meta.timestamp);
+    if (!capture) return std::nullopt;
+    auto st = db.prepare(
+        "SELECT id FROM photos WHERE status = 1 AND file_name = ? COLLATE NOCASE AND file_size = ?"
+        " AND capture_time = ? LIMIT 2");
+    st.bind(1, w.name).bind(2, w.st.size).bind(3, *capture);
+    std::optional<int64_t> found;
+    while (st.step()) {
+        if (found) return std::nullopt;  // 候補が複数ならどれか決められない（新規として足す）
+        found = st.column_int64(0);
+    }
+    return found;
+}
+
 void write_probe(Database& db, const Work& w, const Probe& p) {
     const int status = p.readable ? static_cast<int>(PhotoStatus::Ok) : static_cast<int>(PhotoStatus::Unsupported);
     const auto& m = p.meta;
@@ -216,11 +237,11 @@ void write_probe(Database& db, const Work& w, const Probe& p) {
 
     if (w.photo_id) {
         auto st = db.prepare(
-            "UPDATE photos SET file_name = ?, file_size = ?, file_mtime = ?, quick_hash = ?, status = ?,"
+            "UPDATE photos SET folder_id = ?, file_name = ?, file_size = ?, file_mtime = ?, quick_hash = ?, status = ?,"
             " capture_time = ?, camera_make = ?, camera_model = ?, lens_model = ?, iso = ?, exposure_time = ?,"
             " f_number = ?, focal_length = ?, width = ?, height = ?, orientation = ? WHERE id = ?");
-        st.bind(1, w.name).bind(2, w.st.size).bind(3, w.st.mtime).bind(4, hash).bind(5, status);
-        const int next = bind_meta(st, 6);
+        st.bind(1, w.folder_id).bind(2, w.name).bind(3, w.st.size).bind(4, w.st.mtime).bind(5, hash).bind(6, status);
+        const int next = bind_meta(st, 7);
         st.bind(next, *w.photo_id);
         st.run();
     } else {
@@ -270,20 +291,35 @@ PhotoRecord read_photo(const Statement& st) {
 // WHERE 句とバインドする値を組み立てる
 struct WhereClause {
     std::string sql;
-    std::vector<std::variant<int64_t, std::string>> args;
+    std::vector<SqlArg> args;
+
+    void append(const SqlClause& c) {
+        sql += " AND " + c.sql;
+        for (const auto& a : c.args) args.push_back(a);
+    }
 
     void bind_all(Statement& st, int first = 1) const {
         int i = first;
         for (const auto& a : args) {
             if (std::holds_alternative<int64_t>(a))
                 st.bind(i++, std::get<int64_t>(a));
+            else if (std::holds_alternative<double>(a))
+                st.bind(i++, std::get<double>(a));
             else
                 st.bind(i++, std::get<std::string>(a));
         }
     }
 };
 
-WhereClause build_where(const PhotoFilter& f) {
+// スマートアルバムの条件（albums.query）。スマートアルバムでなければ nullopt
+std::optional<std::string> load_smart_query(Database& db, int64_t album_id) {
+    auto st = db.prepare("SELECT query FROM albums WHERE id = ? AND kind = 2");
+    st.bind(1, album_id);
+    if (st.step()) return st.column_opt_text(0);
+    return std::nullopt;
+}
+
+WhereClause build_where(const PhotoFilter& f, Database& db) {
     WhereClause w;
     w.sql = " WHERE 1 = 1";
     if (f.folder_id) {
@@ -324,6 +360,10 @@ WhereClause build_where(const PhotoFilter& f) {
     if (f.album_id) {
         w.sql += " AND p.id IN (SELECT ap.photo_id FROM album_photos ap WHERE ap.album_id = ?)";
         w.args.emplace_back(*f.album_id);
+    }
+    if (f.smart_album_id) {
+        const auto q = load_smart_query(db, *f.smart_album_id);
+        w.append(q ? smart_query_clause(*q) : SqlClause{"0 = 1", {}});
     }
     // 最後に写真を足した取り込みの開始時刻より後に足された写真（記録がなければ 0 枚）
     if (f.recent_import) w.sql += " AND p.imported_at >= (SELECT value FROM meta WHERE key = 'last_import_at')";
@@ -377,23 +417,59 @@ Catalog::Catalog(const fs::path& path) : path_(path) {
     if (path.has_parent_path()) fs::create_directories(path.parent_path());
     writer_ = std::make_unique<db::DbWriter>(path);  // スキーマを作ってから読み取り接続を開く
     reader_ = std::make_unique<Database>(path, Database::Mode::ReadOnly);
+    // 外付けドライブのマウントポイントが前回と変わっていたら、ルートの場所を合わせる（v3.19）
+    try {
+        refresh_volumes();
+    } catch (const Error&) {
+    }
 }
 
 Catalog::~Catalog() = default;
 
 fs::path Catalog::migration_backup() const { return writer_->backup_path(); }
 
+namespace {
+
+struct VolumeColumns {
+    std::optional<std::string> id, name, rel;
+};
+
+// dir があるボリュームの情報（ボリュームを判別できなければ空）
+VolumeColumns volume_columns(const fs::path& dir) {
+    VolumeColumns v;
+    const auto vol = volume_for_path(dir);
+    if (!vol || vol->id.empty()) return v;
+    const auto rel = volume_relative_path(*vol, dir);
+    if (!rel) return v;
+    v.id = vol->id;
+    v.name = vol->name.empty() ? std::nullopt : std::optional<std::string>(to_nfc(vol->name));
+    v.rel = *rel;
+    return v;
+}
+
+} // namespace
+
 int64_t Catalog::add_root(const fs::path& dir, std::string_view label) {
     std::error_code ec;
     if (!fs::is_directory(dir, ec)) throw Error(Error::Code::NotFound, "not a directory: " + path_to_utf8(dir));
     const std::string p = normalized_path_string(dir);
     const std::string l = to_nfc(label);
+    const VolumeColumns vol = volume_columns(dir);
     return writer_->call([&](Database& db) -> int64_t {
-        auto find = db.prepare("SELECT id FROM roots WHERE path = ?");
+        auto find = db.prepare("SELECT id, volume_id FROM roots WHERE path = ?");
         find.bind(1, p);
-        if (find.step()) return find.column_int64(0);
-        auto ins = db.prepare("INSERT INTO roots (path, label) VALUES (?, ?)");
+        if (find.step()) {
+            const int64_t id = find.column_int64(0);
+            if (find.column_is_null(1) && vol.id) {  // v2 までのカタログで登録したルートにボリュームの情報を足す
+                auto up = db.prepare("UPDATE roots SET volume_id = ?, volume_name = ?, volume_rel_path = ? WHERE id = ?");
+                up.bind(1, vol.id).bind(2, vol.name).bind(3, vol.rel).bind(4, id).run();
+            }
+            return id;
+        }
+        auto ins = db.prepare(
+            "INSERT INTO roots (path, label, volume_id, volume_name, volume_rel_path) VALUES (?, ?, ?, ?, ?)");
         ins.bind(1, p).bind(2, l.empty() ? std::optional<std::string>() : std::optional<std::string>(l));
+        ins.bind(3, vol.id).bind(4, vol.name).bind(5, vol.rel);
         ins.run();
         const int64_t id = db.last_insert_rowid();
         auto folder = db.prepare("INSERT INTO folders (root_id, parent_id, rel_path) VALUES (?, NULL, '')");
@@ -403,10 +479,21 @@ int64_t Catalog::add_root(const fs::path& dir, std::string_view label) {
 }
 
 std::vector<RootInfo> Catalog::roots() {
-    std::lock_guard lock(reader_mutex_);
-    auto st = reader_->prepare("SELECT id, path, COALESCE(label, '') FROM roots ORDER BY path");
     std::vector<RootInfo> out;
-    while (st.step()) out.push_back({st.column_int64(0), st.column_text(1), st.column_text(2)});
+    {
+        std::lock_guard lock(reader_mutex_);
+        auto st = reader_->prepare(
+            "SELECT id, path, COALESCE(label, ''), COALESCE(volume_id, ''), COALESCE(volume_name, ''),"
+            " COALESCE(volume_rel_path, '') FROM roots ORDER BY path");
+        while (st.step())
+            out.push_back({st.column_int64(0), st.column_text(1), st.column_text(2), st.column_text(3),
+                           st.column_text(4), st.column_text(5), true});
+    }
+    for (auto& r : out) {
+        std::error_code ec;
+        const auto disk = resolve_nfc_path(r.path);
+        r.online = disk && fs::is_directory(*disk, ec);
+    }
     return out;
 }
 
@@ -415,6 +502,73 @@ std::optional<RootInfo> Catalog::root_for_path(const fs::path& dir) {
     for (auto& r : roots())
         if (r.path == p) return r;
     return std::nullopt;
+}
+
+std::optional<RootInfo> Catalog::root_containing(const fs::path& dir) {
+    const std::string p = normalized_path_string(dir);
+    std::optional<RootInfo> best;
+    for (auto& r : roots()) {
+        const bool inside = p == r.path || r.path == "/" || p.rfind(r.path + "/", 0) == 0;
+        if (inside && (!best || r.path.size() > best->path.size())) best = r;
+    }
+    return best;
+}
+
+int Catalog::refresh_volumes() {
+    const auto all = roots();
+    const auto vols = mounted_volumes();
+    int changed = 0;
+    for (const auto& r : all) {
+        try {
+            if (r.volume_id.empty()) {
+                // 登録したときにボリュームを判別できなかった（または v2 までのカタログ）。いま判別できれば足す
+                if (!r.online) continue;
+                const VolumeColumns vol = volume_columns(utf8_to_path(r.path));
+                if (!vol.id) continue;
+                writer_->call([&](Database& db) {
+                    auto up = db.prepare("UPDATE roots SET volume_id = ?, volume_name = ?, volume_rel_path = ? WHERE id = ?");
+                    up.bind(1, vol.id).bind(2, vol.name).bind(3, vol.rel).bind(4, r.id).run();
+                });
+                continue;
+            }
+            const auto it = std::find_if(vols.begin(), vols.end(), [&](const VolumeInfo& v) { return v.id == r.volume_id; });
+            if (it == vols.end()) continue;  // 外れている
+            const std::string path = normalized_path_string(it->mount_point / utf8_to_path(r.volume_rel_path));
+            const std::string name = to_nfc(it->name);
+            // いま開けるパスがすでに同じ場所を指していれば書き換えない（シンボリックリンク経由の登録などを変えない）
+            std::error_code ec;
+            const bool same_place = r.online && fs::weakly_canonical(utf8_to_path(r.path), ec) ==
+                                                    fs::weakly_canonical(utf8_to_path(path), ec);
+            const std::string new_path = same_place ? r.path : path;
+            if (new_path == r.path && name == r.volume_name) continue;
+            writer_->call([&](Database& db) {
+                auto up = db.prepare("UPDATE roots SET path = ?, volume_name = ? WHERE id = ?");
+                up.bind(1, new_path).bind(2, name).bind(3, r.id).run();
+            });
+            if (new_path != r.path) ++changed;
+        } catch (const Error&) {
+            // 別のルートがすでにその場所を使っている（UNIQUE 違反）など。そのルートは今回は変えない
+        }
+    }
+    return changed;
+}
+
+void Catalog::remove_root(int64_t root_id) {
+    writer_->call([&](Database& db) {
+        auto find = db.prepare("SELECT 1 FROM roots WHERE id = ?");
+        find.bind(1, root_id);
+        if (!find.step()) throw Error(Error::Code::NotFound, "unknown root id " + std::to_string(root_id));
+        auto st = db.prepare("DELETE FROM roots WHERE id = ?");  // folders → photos → edits・タグ・アルバム所属は ON DELETE CASCADE
+        st.bind(1, root_id).run();
+    });
+}
+
+void Catalog::set_root_label(int64_t root_id, std::string_view label) {
+    const std::string l = to_nfc(label);
+    writer_->call([&](Database& db) {
+        auto st = db.prepare("UPDATE roots SET label = ? WHERE id = ?");
+        st.bind(1, l.empty() ? std::optional<std::string>() : std::optional<std::string>(l)).bind(2, root_id).run();
+    });
 }
 
 ScanStats Catalog::scan_root(int64_t root_id, const ScanOptions& opt) {
@@ -609,10 +763,24 @@ ScanStats Catalog::scan_root(int64_t root_id, const ScanOptions& opt) {
             else
                 ++stats.updated;
         }
-        writer_->call([&](Database& db) {
-            for (int i = start; i < end; ++i)
-                if (!work[i].thumb_only) write_probe(db, work[i], probes[i - start]);
+        const int relinked = writer_->call([&](Database& db) {
+            int n = 0;
+            for (int i = start; i < end; ++i) {
+                if (work[i].thumb_only) continue;
+                Work w = work[i];
+                const Probe& p = probes[i - start];
+                if (!w.photo_id) {
+                    if (const auto id = find_relink_candidate(db, w, p)) {
+                        w.photo_id = id;
+                        ++n;
+                    }
+                }
+                write_probe(db, w, p);
+            }
+            return n;
         });
+        stats.added -= relinked;
+        stats.relinked += relinked;
         if (opt.progress) opt.progress(end, total);
     }
     if (stats.added > 0) {
@@ -625,36 +793,128 @@ ScanStats Catalog::scan_root(int64_t root_id, const ScanOptions& opt) {
     return stats;
 }
 
-// ---- アルバム（v3.16）
+// ---- アルバム（v3.16、v3.19 でフォルダ・スマートアルバムを追加）
+
+namespace {
+
+std::optional<int> album_kind(Database& db, int64_t id) {
+    auto st = db.prepare("SELECT kind FROM albums WHERE id = ?");
+    st.bind(1, id);
+    if (st.step()) return st.column_int(0);
+    return std::nullopt;
+}
+
+// 親に指定できるのはフォルダだけ
+void check_parent(Database& db, std::optional<int64_t> parent) {
+    if (!parent) return;
+    const auto kind = album_kind(db, *parent);
+    if (!kind) throw Error(Error::Code::NotFound, "unknown album id " + std::to_string(*parent));
+    if (*kind != static_cast<int>(AlbumKind::Folder))
+        throw Error(Error::Code::InvalidArgument, "only an album folder can contain albums");
+}
+
+void check_name_free(Database& db, const std::string& name, std::optional<int64_t> parent, int64_t except_id) {
+    auto dup = db.prepare("SELECT 1 FROM albums WHERE name = ? AND parent_id IS ? AND id <> ?");
+    dup.bind(1, name).bind(2, parent).bind(3, except_id);
+    if (dup.step()) throw Error(Error::Code::InvalidArgument, "album already exists: " + name);
+}
+
+int64_t insert_album(Database& db, const std::string& name, std::optional<int64_t> parent, AlbumKind kind,
+                     std::optional<std::string> query) {
+    check_parent(db, parent);
+    check_name_free(db, name, parent, 0);
+    auto st = db.prepare(
+        "INSERT INTO albums (name, parent_id, kind, query, sort_order)"
+        " VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM albums))");
+    st.bind(1, name).bind(2, parent).bind(3, static_cast<int>(kind)).bind(4, query).run();
+    return db.last_insert_rowid();
+}
+
+} // namespace
 
 std::vector<AlbumInfo> Catalog::albums() {
     std::lock_guard lock(reader_mutex_);
     auto st = reader_->prepare(
-        "SELECT a.id, a.name, (SELECT COUNT(*) FROM album_photos ap WHERE ap.album_id = a.id)"
+        "SELECT a.id, a.name, a.parent_id, a.kind, a.cover_photo_id, a.query,"
+        " (SELECT COUNT(*) FROM album_photos ap WHERE ap.album_id = a.id)"
         " FROM albums a ORDER BY a.sort_order, a.id");
+    std::vector<AlbumInfo> all;
+    std::vector<std::optional<std::string>> queries;
+    while (st.step()) {
+        AlbumInfo a;
+        a.id = st.column_int64(0);
+        a.name = st.column_text(1);
+        a.parent_id = st.column_opt_int64(2);
+        a.kind = static_cast<AlbumKind>(st.column_int(3));
+        a.cover_photo_id = st.column_opt_int64(4);
+        a.photo_count = st.column_int64(6);
+        queries.push_back(st.column_opt_text(5));
+        all.push_back(std::move(a));
+    }
+    for (size_t i = 0; i < all.size(); ++i) {
+        if (all[i].kind != AlbumKind::Smart) continue;
+        const SqlClause c = smart_query_clause(queries[i].value_or(empty_smart_query()));
+        WhereClause w;
+        w.append(c);
+        auto cnt = reader_->prepare("SELECT COUNT(*) FROM photos p WHERE 1 = 1" + w.sql);
+        w.bind_all(cnt);
+        cnt.step();
+        all[i].photo_count = cnt.column_int64(0);
+    }
+    // 親が先、同じ親の中は作った順（深さ優先）
     std::vector<AlbumInfo> out;
-    while (st.step()) out.push_back({st.column_int64(0), st.column_text(1), st.column_int64(2)});
+    std::set<int64_t> placed;
+    auto emit = [&](auto&& self, std::optional<int64_t> parent) -> void {
+        for (const auto& a : all) {
+            if (a.parent_id != parent || !placed.insert(a.id).second) continue;
+            out.push_back(a);
+            self(self, a.id);
+        }
+    };
+    emit(emit, std::nullopt);
     return out;
 }
 
-int64_t Catalog::create_album(std::string_view name) {
+int64_t Catalog::create_album(std::string_view name, std::optional<int64_t> parent_id) {
     const std::string n = album_name(name);
-    return writer_->call([&](Database& db) -> int64_t {
-        auto dup = db.prepare("SELECT 1 FROM albums WHERE name = ?");
-        dup.bind(1, n);
-        if (dup.step()) throw Error(Error::Code::InvalidArgument, "album already exists: " + n);
-        auto st = db.prepare("INSERT INTO albums (name, sort_order) VALUES (?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM albums))");
-        st.bind(1, n).run();
-        return db.last_insert_rowid();
+    return writer_->call([&](Database& db) { return insert_album(db, n, parent_id, AlbumKind::Album, std::nullopt); });
+}
+
+int64_t Catalog::create_album_folder(std::string_view name, std::optional<int64_t> parent_id) {
+    const std::string n = album_name(name);
+    return writer_->call([&](Database& db) { return insert_album(db, n, parent_id, AlbumKind::Folder, std::nullopt); });
+}
+
+int64_t Catalog::create_smart_album(std::string_view name, const std::string& query_json,
+                                    std::optional<int64_t> parent_id) {
+    const std::string n = album_name(name);
+    validate_smart_query(query_json);
+    return writer_->call(
+        [&](Database& db) { return insert_album(db, n, parent_id, AlbumKind::Smart, query_json); });
+}
+
+void Catalog::set_smart_query(int64_t album_id, const std::string& query_json) {
+    validate_smart_query(query_json);
+    writer_->call([&](Database& db) {
+        if (album_kind(db, album_id) != static_cast<int>(AlbumKind::Smart))
+            throw Error(Error::Code::InvalidArgument, "not a smart album");
+        auto st = db.prepare("UPDATE albums SET query = ? WHERE id = ?");
+        st.bind(1, query_json).bind(2, album_id).run();
     });
+}
+
+std::optional<std::string> Catalog::smart_query(int64_t album_id) {
+    std::lock_guard lock(reader_mutex_);
+    return load_smart_query(*reader_, album_id);
 }
 
 void Catalog::rename_album(int64_t album_id, std::string_view name) {
     const std::string n = album_name(name);
     writer_->call([&](Database& db) {
-        auto dup = db.prepare("SELECT 1 FROM albums WHERE name = ? AND id <> ?");
-        dup.bind(1, n).bind(2, album_id);
-        if (dup.step()) throw Error(Error::Code::InvalidArgument, "album already exists: " + n);
+        auto cur = db.prepare("SELECT parent_id FROM albums WHERE id = ?");
+        cur.bind(1, album_id);
+        if (!cur.step()) throw Error(Error::Code::NotFound, "unknown album id " + std::to_string(album_id));
+        check_name_free(db, n, cur.column_opt_int64(0), album_id);
         auto st = db.prepare("UPDATE albums SET name = ? WHERE id = ?");
         st.bind(1, n).bind(2, album_id).run();
     });
@@ -662,14 +922,38 @@ void Catalog::rename_album(int64_t album_id, std::string_view name) {
 
 void Catalog::delete_album(int64_t album_id) {
     writer_->call([&](Database& db) {
-        auto st = db.prepare("DELETE FROM albums WHERE id = ?");  // album_photos は ON DELETE CASCADE
+        auto st = db.prepare("DELETE FROM albums WHERE id = ?");  // 子のアルバムと album_photos は ON DELETE CASCADE
         st.bind(1, album_id).run();
+    });
+}
+
+void Catalog::move_album(int64_t album_id, std::optional<int64_t> parent_id) {
+    writer_->call([&](Database& db) {
+        auto cur = db.prepare("SELECT name FROM albums WHERE id = ?");
+        cur.bind(1, album_id);
+        if (!cur.step()) throw Error(Error::Code::NotFound, "unknown album id " + std::to_string(album_id));
+        const std::string name = cur.column_text(0);
+        check_parent(db, parent_id);
+        // 自分か自分の子孫の中へは動かせない
+        for (std::optional<int64_t> p = parent_id; p;) {
+            if (*p == album_id) throw Error(Error::Code::InvalidArgument, "cannot move an album into itself");
+            auto up = db.prepare("SELECT parent_id FROM albums WHERE id = ?");
+            up.bind(1, *p);
+            p = up.step() ? up.column_opt_int64(0) : std::nullopt;
+        }
+        check_name_free(db, name, parent_id, album_id);
+        auto st = db.prepare("UPDATE albums SET parent_id = ? WHERE id = ?");
+        st.bind(1, parent_id).bind(2, album_id).run();
     });
 }
 
 void Catalog::add_to_album(int64_t album_id, std::span<const int64_t> ids) {
     std::vector<int64_t> v(ids.begin(), ids.end());
     writer_->call([&](Database& db) {
+        const auto kind = album_kind(db, album_id);
+        if (!kind) throw Error(Error::Code::NotFound, "unknown album id " + std::to_string(album_id));
+        if (*kind != static_cast<int>(AlbumKind::Album))
+            throw Error(Error::Code::InvalidArgument, "photos can only be added to an album");
         auto st = db.prepare("INSERT OR IGNORE INTO album_photos (album_id, photo_id) VALUES (?, ?)");
         for (int64_t id : v) st.bind(1, album_id).bind(2, id).run();
     });
@@ -681,6 +965,34 @@ void Catalog::remove_from_album(int64_t album_id, std::span<const int64_t> ids) 
         auto st = db.prepare("DELETE FROM album_photos WHERE album_id = ? AND photo_id = ?");
         for (int64_t id : v) st.bind(1, album_id).bind(2, id).run();
     });
+}
+
+void Catalog::set_album_cover(int64_t album_id, std::optional<int64_t> photo_id) {
+    writer_->call([&](Database& db) {
+        auto st = db.prepare("UPDATE albums SET cover_photo_id = ? WHERE id = ?");
+        st.bind(1, photo_id).bind(2, album_id).run();
+    });
+}
+
+std::optional<int64_t> Catalog::find_photo_by_identity(std::string_view file_name, int64_t file_size,
+                                                       std::string_view capture_time) {
+    std::lock_guard lock(reader_mutex_);
+    auto st = reader_->prepare(
+        "SELECT id FROM photos WHERE file_name = ? COLLATE NOCASE AND file_size = ? AND capture_time = ? LIMIT 1");
+    st.bind(1, to_nfc(file_name)).bind(2, file_size).bind(3, capture_time);
+    if (st.step()) return st.column_int64(0);
+    return std::nullopt;
+}
+
+std::optional<int64_t> Catalog::find_photo(int64_t root_id, std::string_view folder_rel_path,
+                                           std::string_view file_name) {
+    std::lock_guard lock(reader_mutex_);
+    auto st = reader_->prepare(
+        "SELECT p.id FROM photos p JOIN folders f ON f.id = p.folder_id"
+        " WHERE f.root_id = ? AND f.rel_path = ? AND p.file_name = ?");
+    st.bind(1, root_id).bind(2, to_nfc(folder_rel_path)).bind(3, to_nfc(file_name));
+    if (st.step()) return st.column_int64(0);
+    return std::nullopt;
 }
 
 std::vector<FolderInfo> Catalog::folders(int64_t root_id) {
@@ -705,8 +1017,8 @@ std::optional<int64_t> Catalog::folder_id(int64_t root_id, std::string_view rel_
 }
 
 int64_t Catalog::count(const PhotoFilter& filter) {
-    const WhereClause w = build_where(filter);
     std::lock_guard lock(reader_mutex_);
+    const WhereClause w = build_where(filter, *reader_);
     auto st = reader_->prepare("SELECT COUNT(*) FROM photos p" + w.sql);
     w.bind_all(st);
     st.step();
@@ -714,8 +1026,8 @@ int64_t Catalog::count(const PhotoFilter& filter) {
 }
 
 std::vector<PhotoRecord> Catalog::query(const PhotoFilter& filter, int64_t offset, int64_t limit) {
-    const WhereClause w = build_where(filter);
     std::lock_guard lock(reader_mutex_);
+    const WhereClause w = build_where(filter, *reader_);
     auto st = reader_->prepare(std::string("SELECT ") + kPhotoColumns +
                                " FROM photos p JOIN folders f ON f.id = p.folder_id JOIN roots r ON r.id = f.root_id" +
                                w.sql +
@@ -730,8 +1042,8 @@ std::vector<PhotoRecord> Catalog::query(const PhotoFilter& filter, int64_t offse
 }
 
 std::vector<int64_t> Catalog::query_ids(const PhotoFilter& filter) {
-    const WhereClause w = build_where(filter);
     std::lock_guard lock(reader_mutex_);
+    const WhereClause w = build_where(filter, *reader_);
     auto st = reader_->prepare("SELECT p.id FROM photos p" + w.sql +
                                " ORDER BY p.capture_time IS NULL, p.capture_time, p.file_name, p.id");
     w.bind_all(st);
@@ -889,5 +1201,9 @@ void Catalog::save_edit(int64_t photo_id, int process_version, std::optional<std
 void Catalog::flush() {
     writer_->call([](Database&) {});
 }
+
+bool is_raw_file_name(std::string_view name) { return is_raw_file(std::string(name)); }
+
+std::optional<std::string> capture_time_string(std::time_t t) { return local_time_string(t); }
 
 } // namespace focal

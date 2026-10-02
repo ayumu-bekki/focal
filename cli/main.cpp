@@ -19,8 +19,15 @@ void usage() {
                  "\n"
                  "catalog commands（--catalog file / --cache dir、または FOCAL_CATALOG / FOCAL_CACHE）:\n"
                  "  import <dir> [--no-thumbs] [--threads N]       フォルダを登録して取り込む（再実行で再スキャン）\n"
-                 "  roots                                         登録したフォルダの一覧\n"
-                 "  ls [--rating N] [--flag pick|reject|none|not-rejected] [--folder ID] [--flat]\n"
+                 "  roots                                         登録したフォルダの一覧（ボリューム名・オフライン表示つき）\n"
+                 "  unroot <root id>                              ルートをカタログから外す（ファイルは消さない）\n"
+                 "  sources [--path dir]                          DCIM があるボリューム（SD カード）を探す。--path ならその中身の概算\n"
+                 "  import-card <card|DCIM> --dest dir [--album ID] [--tags a/b,c] [--no-verify] [--dry-run] [--no-thumbs]\n"
+                 "                                                カードから <dest>/YYYY/YYYY-MM-DD/ へコピーして登録する\n"
+                 "  album list | create <name> | folder <name> | smart <name> --query JSON | query <id> [--query JSON]\n"
+                 "        | rename <id> <name> | move <id> | delete <id> | add <album> <photo>... | remove <album> <photo>...\n"
+                 "        （create / folder / smart / move は --parent ID でフォルダの中へ）\n"
+                 "  ls [--rating N] [--flag pick|reject|none|not-rejected] [--folder ID] [--flat] [--album ID] [--smart ID]\n"
                  "     [--tag a/b] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--available] [--limit N] [--offset N]\n"
                  "  rate <0-5> <id>...    flag <pick|reject|none> <id>...\n"
                  "  tag [--remove] <a/b> <id>...    tag --list\n"
@@ -59,6 +66,10 @@ int main(int argc, char** argv) {
         if (!std::strcmp(cmd, "export")) return focal::cli::cmd_export(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "colorgrid")) return focal::cli::cmd_colorgrid(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "import")) return focal::cli::cmd_import(argc - 2, argv + 2);
+        if (!std::strcmp(cmd, "sources")) return focal::cli::cmd_sources(argc - 2, argv + 2);
+        if (!std::strcmp(cmd, "import-card")) return focal::cli::cmd_import_card(argc - 2, argv + 2);
+        if (!std::strcmp(cmd, "album")) return focal::cli::cmd_album(argc - 2, argv + 2);
+        if (!std::strcmp(cmd, "unroot")) return focal::cli::cmd_unroot(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "roots")) return focal::cli::cmd_roots(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "ls")) return focal::cli::cmd_ls(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "rate")) return focal::cli::cmd_rate(argc - 2, argv + 2);

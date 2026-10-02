@@ -1,6 +1,6 @@
 # focal — 軽量 RAW 現像・管理アプリ
 
-設計書は `design.md`（v3.18）。ADR は `docs/adr/`。
+設計書は `design.md`（v3.19）。ADR は `docs/adr/`。
 
 ## 守ること
 
@@ -10,7 +10,7 @@
 - C++ 例外を C API の外に出さない。
 - Swift 側に画像処理・カタログのロジックを書かない。
 - LibRaw のインスタンスをスレッド間で共有しない（`libraw::raw_r` をリンク）。
-- 元の RAW ファイルには一切書き込まない。
+- 元の RAW ファイルには一切書き込まない。カードからの取り込みもカードには書き込まない（ADR-12。コピー先に新規作成するだけで、既存のファイルは上書きしない）。
 - 画像処理の正しさは GUI ではなく CLI とゴールデン画像で確認する。
 - ゴールデン画像を更新するのは process_version を変えるときだけ。
 
@@ -44,6 +44,9 @@ cmake --preset tsan && cmake --build --preset tsan --target focal_tests && ./bui
 ./build/release/cli/focal import ~/Pictures/RAW          # 登録 + 取り込み。再実行で再スキャン
 ./build/release/cli/focal ls --rating 3 --flag pick
 ./build/release/cli/focal export 12 34 --dest ~/Desktop/out --long-edge 2048   # 編集を反映して書き出す
+./build/release/cli/focal sources                        # DCIM のあるボリューム（SD カード）を探す
+./build/release/cli/focal import-card /Volumes/EOS --dest ~/Pictures/Photos --album 3 --tags "旅行/北海道"   # <dest>/YYYY/YYYY-MM-DD/ へコピーして登録（--dry-run で数えるだけ）
+./build/release/cli/focal album create 旅行 ; focal album folder 2026 ; focal album smart "星4以上" --query '{"rules":[{"field":"rating","op":">=","value":4}]}'   # アルバム・フォルダ・スマートアルバム
 bench/import_bench.sh 1000                               # 1,000 枚の取り込み計測（APFS のクローンを使う）
 ```
 
@@ -66,7 +69,7 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 
 - `scripts/build-core.sh`: core + capi + 静的リンクの依存を `build/FocalCore.xcframework`（module `CFocal`）にまとめ、LibRaw と libomp の dylib を `build/Frameworks` に置く。アプリのビルド時に `Contents/Frameworks` へコピーして署名する。
 - `ui-test.sh` は、書き出しのテスト用フォルダと、色のチェックの基準（ニコンの写真を CLI で書き出して `focal colorgrid` でマスごとの平均色にしたもの）も用意する。外部ディスプレイで色のチェックをするときは `FOCAL_WINDOW_SCREEN=1 apps/macos/scripts/ui-test.sh … -only-testing:FocalUITests/FocalUITests/testDisplayColor`。
-- 環境変数: `FOCAL_CATALOG`（このカタログを開く。.sqlite か .focalcatalog）/ `FOCAL_CACHE`（サムネイルのキャッシュ。大きいプレビューは隣の `〜-previews`）、`FOCAL_CATALOG_HOME`（新規カタログの既定の場所。前回のカタログと古い場所を見ず、記録もしない。初回起動のテスト用）、`FOCAL_EXPORT_DIR`（書き出し先の初期値）、`FOCAL_WINDOW_SCREEN=番号`（ウィンドウを置くディスプレイ）、`FOCAL_GRID=lazy`（比較用の LazyVGrid）、`FOCAL_FRAME_STATS=1`（ヒッチと現像の計測値を表示）、`FOCAL_SCROLL_BENCH=1`（自動スクロール）、`FOCAL_WINDOW_SIZE=幅x高さ`（ウィンドウの大きさ。UI テストは毎回 1440x900 を指定する。指定しないと前回の大きさが使われる。指定したときは、保存されたサイドバーとインスペクタの区分の開閉も消し、保存された外観も使わない）、`FOCAL_APPEARANCE=system|light|dark`（UI テストの外観）、`FOCAL_GPU=0`（表示を CPU で描く。`FOCAL_GPU=0 apps/macos/scripts/ui-test.sh` で UI テストにも渡る）、`FOCAL_GPU_TIMING=1`（GPU の実行時間を標準エラーに出す）。
+- 環境変数: `FOCAL_CATALOG`（このカタログを開く。.sqlite か .focalcatalog）/ `FOCAL_CACHE`（サムネイルのキャッシュ。大きいプレビューは隣の `〜-previews`）、`FOCAL_CATALOG_HOME`（新規カタログの既定の場所。前回のカタログと古い場所を見ず、記録もしない。初回起動のテスト用）、`FOCAL_EXPORT_DIR`（書き出し先の初期値）、`FOCAL_IMPORT_SOURCE` / `FOCAL_IMPORT_DEST`（カード取り込みシートの取り込み元と読み込み先。UI テスト用。指定すると設定を書き換えない）、`FOCAL_WINDOW_SCREEN=番号`（ウィンドウを置くディスプレイ）、`FOCAL_GRID=lazy`（比較用の LazyVGrid）、`FOCAL_FRAME_STATS=1`（ヒッチと現像の計測値を表示）、`FOCAL_SCROLL_BENCH=1`（自動スクロール）、`FOCAL_WINDOW_SIZE=幅x高さ`（ウィンドウの大きさ。UI テストは毎回 1440x900 を指定する。指定しないと前回の大きさが使われる。指定したときは、保存されたサイドバーとインスペクタの区分の開閉も消し、保存された外観も使わない）、`FOCAL_APPEARANCE=system|light|dark`（UI テストの外観）、`FOCAL_GPU=0`（表示を CPU で描く。`FOCAL_GPU=0 apps/macos/scripts/ui-test.sh` で UI テストにも渡る）、`FOCAL_GPU_TIMING=1`（GPU の実行時間を標準エラーに出す）。
 - 文言は `Focal/Localizable.xcstrings`（英語がキー、日本語訳）。SwiftUI の `Text("…")` などは自動で引かれる。`String` を渡す API（`Button(cond ? "a" : "b")` など）は `String(localized:)` を使う。UI テストは表示言語に依らないよう、文言ではなくアクセシビリティ識別子で要素を探す。
 - XCUITest のランナーはサンドボックス内で動くので、スクリーンショットは xcresult から書き出す。UI テストでスクロール性能を測らない（スクロール命令のたびにアクセシビリティの木を取得して 70ms ほど止まる）。
 - アイコンは `Focal/AppIcon.icon`（Icon Composer の形式。ライト・ダークの背景と図形を持つ）。元の絵は `Icon/focal_icon.svg`。`scripts/make-icon.py` で作り直す（MacPorts の `rsvg-convert` が要る）。SVG のレイヤーは放射グラデーションが使えないので PNG にしている。icon.json で `fill` や `image-name` を `〜-specializations` と一緒に書くと、ダークの指定が無視される。見た目は `ictool` で確かめる（スクリプトの先頭のコメントを参照）。
@@ -101,6 +104,9 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 - `core/edit/settings` — 6.1 章の JSON（未知キー保持）
 - `core/catalog/` — `sqlite`（RAII ラッパー）、`schema`（7.2 章とマイグレーション。移行前に `VACUUM INTO` でバックアップ）、`db_writer`（書き込み専用スレッド。最大 500 件を 1 トランザクションにまとめ、ジョブごとに SAVEPOINT）、`catalog`（ルート登録・スキャン・照合・絞り込み・★/フラグ/タグ・アルバム・最近の取り込み）
 - `core/thumbs/thumbnail` — 埋め込みプレビューの選択と抽出、向き補正、フォールバック（half_size + 既定パイプライン、同時実行はコア数の半分、OpenMP 1 スレッド）、ディスクキャッシュ、`rendered_key`（現像結果のキー）、`PreviewCache`（大きいプレビュー、上限付き LRU）
+- `core/util/volume` — ボリュームの ID・名前・マウントポイント（macOS は `getattrlist` の UUID、Windows はボリューム GUID、Linux は `/dev/disk/by-uuid`）。macOS は Data ボリュームを "/" として扱う。Linux / Windows の実装は未確認（macOS 以外ではビルドしていない）
+- `core/import/card_import` — SD カードなどの取り込み（v3.19、design.md 5.10 章）。1 枚の単位（RAW + JPEG + サイドカー）、日付フォルダ、重複判定、一時ファイル + BLAKE3 検証のコピー、登録、アルバム・タグ付け
+- `core/catalog/smart_query` — スマートアルバムの条件（JSON → SQL の断片。検証も）
 - `core/util/` — スレッドプール（latest-wins 用の `CancelToken`）、行列、画像バッファ、例外、`unicode`（utf8proc で NFC と case folding）、`hash`（BLAKE3、quick_hash）、`file`（UTF-8 ⇔ path、NFC のパスから実ファイルを解決）、`omp_threads`
 - `gpu/` — 表示用の GPU レンダラー（Metal、metal-cpp、macOS のみ）。`src/shaders.metal` は CPU 版と同じ式で書き、実行時にコンパイルする（CMake が C++ の文字列にする）。capi が Editor に渡す。`tests/test_gpu.cpp` で CPU 版との一致を確かめる
 - `capi/` — C API（`include/focal/focal.h`）。全関数で例外を捕まえてステータスに変換。配列は core が確保し `fc_*_array_free` で解放。テストは C だけで書いた `tests/capi/test_capi.c`
@@ -109,8 +115,8 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 - `core/imaging/crop_tool` — クロップモードの計算（ドラッグ、最大の枠、90° 回転、水平線ツール）。M4
 - `core/export/exporter` — 書き出し（M5）。名前の確保、1 枚ずつ書き出し、キャンセル
 - `core/edit/editor` — 現像ビューア（M3）。編集の保存時と写真を閉じるときに現像結果のサムネイルを、閉じるときに大きいプレビュー（`set_preview_cache`）も作る。開くときは大きいプレビューのキャッシュを埋め込みプレビューより先に使う（`SessionInfo::preview_display_p3`）。`Editor` がプレビュー・デコード（先読み 1 枚、打ち切り可）・レンダリング（latest-wins）・保存（500ms デバウンス）のスレッドを持つ。`EditSession` が写真 1 枚の Settings と Undo（`undo_stack`、直近 20 枚分）
-- `apps/macos/Focal/` — SwiftUI アプリ（`LibraryModel` が状態、`PhotoCollectionView` がグリッド、`KeyMonitor` が単キー操作、`DevelopModel` / `DevelopView`（NSView + CALayer、クロップ枠の重ね描き）/ `DevelopPanel` / `CropToolbar` が現像。`AppState`（`FocalApp.swift`）がカタログを開く・作る・切り替える・記録する、`AppPaths` が保存先、`WelcomeView` が初回起動、`SettingsView` が設定ウィンドウ。v3.16: `SidebarView` がライブラリとアルバム、`FilterBar` が絞り込みバー、`PhotoCollectionView(style: .filmstrip)` が現像画面のフィルムストリップ、`DevelopTools` がインスペクタ上部の現像の操作、`IsolatedHost` がインスペクタを別の NSHostingView に入れる）
-- `cli/` — `render` / `info` / `compare` / `bench`（実装は `bench/cmd_bench.cpp`）/ `thumb` / `import` / `roots` / `ls` / `rate` / `flag` / `tag` / `export` / `colorgrid`
+- `apps/macos/Focal/` — SwiftUI アプリ（`LibraryModel` が状態、`PhotoCollectionView` がグリッド、`KeyMonitor` が単キー操作、`DevelopModel` / `DevelopView`（NSView + CALayer、クロップ枠の重ね描き）/ `DevelopPanel` / `CropToolbar` が現像。`AppState`（`FocalApp.swift`）がカタログを開く・作る・切り替える・記録する、`AppPaths` が保存先、`WelcomeView` が初回起動、`SettingsView` が設定ウィンドウ。v3.16: `SidebarView` がライブラリとアルバム、`FilterBar` が絞り込みバー、`PhotoCollectionView(style: .filmstrip)` が現像画面のフィルムストリップ、`DevelopTools` がインスペクタ上部の現像の操作、`IsolatedHost` がインスペクタを別の NSHostingView に入れる。v3.19: `SidebarView` がストレージ（ボリューム ▸ ルート ▸ フォルダ）とアルバムのツリー、`SmartAlbumSheet` / `SmartQuery.swift` がスマートアルバムの編集（条件の行 ⇔ JSON の変換だけ。意味づけは core）、`ImportSheet` / `CardImportModel` がカードの取り込み、`FolderWatcher` が表示中のルートの FSEvents 監視）
+- `cli/` — `render` / `info` / `compare` / `bench`（実装は `bench/cmd_bench.cpp`）/ `thumb` / `import` / `roots` / `ls` / `rate` / `flag` / `tag` / `export` / `colorgrid` / `sources` / `import-card` / `album`（後の 3 つは `cmd_library.cpp`）
 - `tests/` — Catch2 のユニットテスト、`tests/golden/` のゴールデン画像（CLI でレンダリングして比較）
 
 ## 実装上の注意
@@ -123,10 +129,14 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 - 出力変換の U8 経路は、lcms2 から取り出した行列と TRC 表で直接計算する（float 入力の `cmsDoTransform` は 1 スレッド 80ns/画素で 16ms 予算に収まらないため）。両プロファイルが matrix-shaper なので結果は同じで、`apply_lcms()` との差 ±1 以内をテストしている。U16（書き出し）は `cmsDoTransform` を使う。
 - 画像処理ホットパスは `-O3`。再現性のため `-ffast-math` は使わない。
 - カタログに保存するパス・ファイル名・タグ名はすべて NFC。ファイルを開くときは `Catalog::photo_disk_path()`（`resolve_nfc_path`）を使い、保存した文字列をそのまま開かない。
-- スキャンの照合はフォルダごとに「完全一致 → case folding で一致」の 2 段階。大文字小文字だけのリネームは同じ写真として扱い、★・フラグ・タグを引き継ぐ。別フォルダへの移動は「ファイルなし + 新規」になる（v1 の仕様）。
+- スキャンの照合はフォルダごとに「完全一致 → case folding で一致」の 2 段階。大文字小文字だけのリネームは同じ写真として扱い、★・フラグ・タグを引き継ぐ。別フォルダへの移動は、ファイル名・サイズ・撮影日時が同じ「ファイルなし」の写真がちょうど 1 枚あればその写真につなぎ直す（v3.19。★・フラグ・タグ・アルバム・編集を引き継ぐ。候補が複数なら新規）。
 - ルートフォルダにアクセスできない（外付けドライブを外した等）ときは、写真をファイルなしにせず Error を投げる。
 - `DbWriter::call()` はコミット後に戻るので、直後に読み取り接続から結果が見える。
 - 現像のコールバック（セッションのイベント、レンダリング結果）は core のスレッドから来る。Swift 側では `Task { @MainActor … }` で戻す。セッションのコールバックの中で `close` しない（close は実行中のコールバックの終了を待つ）。
 - `Editor` は開いている `EditSession` より長く生きている必要がある（Swift の `Session` が `Editor` を参照で持つ）。
 - アプリの終了時とカタログの切り替え時は `LibraryModel.prepareForTermination()` でセッションを閉じ、`Catalog.flush()` で保存の完了を待つ。
 - アプリのカタログの既定は `~/Pictures/Focal/〜.focalcatalog` だが、CLI の既定は今も `~/Library/Application Support/jp.bekki.focal/catalog.sqlite`（CLI はパッケージを開くとき `--catalog 〜.focalcatalog/catalog.sqlite` と指定する）。
+- アルバムは `albums.kind`（0 アルバム / 1 フォルダ / 2 スマート）と `parent_id`。写真を足せるのは kind 0 だけ（core が Error にする）。スマートアルバムの条件を足すときは `smart_query.cpp`（検証と SQL）・design.md 7.2 章の表・`SmartQuery.swift`（編集の行）をそろえる。名前の一意は「同じ親の下」で、v2 の `albums` は v3 のマイグレーションで作り直している（`album_photos` を先に消してから `albums` を消す）。
+- ルートの `path` は「最後に見たマウントポイントからの絶対パス」。`Catalog::open` と、ボリュームの接続・取り外しの通知（アプリ）で `refresh_volumes()` が合わせ直す。すでに同じ場所を指しているなら書き換えない（サムネイルのキャッシュのキーがパスを含むため）。
+- アプリのスキャンは同時に 1 つだけ（`LibraryModel.scan`。同じルートを 2 つのスキャンが書くと重複するため、待ち行列に積む）。起動時の再スキャンは `AppPaths.isolatedFromDefaults`（UI テスト）のときは行わない。
+- 既知の未確認: GUI のカード取り込みは、実際の SD カードではなくフォルダ（`FOCAL_IMPORT_SOURCE`）でテストしている。カードの検出（`detect_import_sources`）は macOS で DCIM を持つボリュームを探すだけで、実機のカードでは確認していない。

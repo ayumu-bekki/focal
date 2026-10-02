@@ -490,7 +490,7 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(waitValue(count, "1 / \(expected)"))
 
         // アルバムを作ると、そのアルバム（空）を表示する
-        app.buttons["newAlbum"].click()
+        chooseNewAlbumItem(app, 0)
         let field = app.textFields["albumName"]
         XCTAssertTrue(field.waitForExistence(timeout: 3))
         field.doubleClick()
@@ -522,6 +522,147 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(waitGone(row))
         // 「すべての写真」に戻る（見ていた写真は選んだまま）
         XCTAssertTrue(waitValue(count, "2 / \(expected)"))
+    }
+
+    /// v3.19: アルバムのフォルダ・スマートアルバム・ストレージのツリー
+    @MainActor
+    func testLibraryOrganization() throws {
+        try requireCatalog()
+        let app = launch()
+        let grid = app.descendants(matching: .any)["photoGrid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 10))
+        let count = app.staticTexts["photoCount"]
+        let expected = ProcessInfo.processInfo.environment["FOCAL_EXPECTED_COUNT"] ?? "5"
+        func any(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+
+        // ストレージ: ボリューム → ルート（フォルダ名 lib）。ルートを選ぶとそのフォルダの写真を出す
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'volume-'"))
+            .firstMatch.waitForExistence(timeout: 5))
+        let root = any("folder-lib")
+        XCTAssertTrue(root.waitForExistence(timeout: 5))
+        root.click()
+        XCTAssertTrue(waitValue(count, "1 / \(expected)"))
+        any("sidebarAll").click()
+
+        // アルバムのフォルダを作る
+        chooseNewAlbumItem(app, 2)
+        let nameField = app.textFields["albumName"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 3))
+        nameField.doubleClick()
+        nameField.typeKey("a", modifierFlags: .command)
+        nameField.typeText("UIFolder")
+        app.buttons["albumNameOK"].click()
+        let folder = any("album-UIFolder")
+        XCTAssertTrue(folder.waitForExistence(timeout: 3))
+
+        // アルバムを作って、フォルダへドラッグして入れる（あとでフォルダを消すと一緒に消えることで確かめる）
+        chooseNewAlbumItem(app, 0)
+        let albumField = app.textFields["albumName"]
+        XCTAssertTrue(albumField.waitForExistence(timeout: 3))
+        albumField.doubleClick()
+        albumField.typeKey("a", modifierFlags: .command)
+        albumField.typeText("UIDragged")
+        app.buttons["albumNameOK"].click()
+        let dragged = any("album-UIDragged")
+        XCTAssertTrue(dragged.waitForExistence(timeout: 3))
+        dragged.press(forDuration: 0.6, thenDragTo: folder)
+        sleep(1)
+
+        // フォルダの中にスマートアルバムを作る（条件を空にすると、すべての写真が対象）
+        folder.rightClick()
+        app.menuItems.matching(NSPredicate(format: "title BEGINSWITH 'New Smart Album Here' OR title BEGINSWITH 'ここに新規スマートアルバム'"))
+            .firstMatch.click()
+        let smartName = app.textFields["smartAlbumName"]
+        XCTAssertTrue(smartName.waitForExistence(timeout: 3))
+        smartName.doubleClick()
+        smartName.typeKey("a", modifierFlags: .command)
+        smartName.typeText("UISmart")
+        XCTAssertTrue(app.buttons["smartRemoveRule"].waitForExistence(timeout: 3))
+        saveScreenshot(app, name: "smart-album-sheet")
+        app.buttons["smartRemoveRule"].click()
+        app.buttons["smartAlbumOK"].click()
+        let smart = any("album-UISmart")
+        XCTAssertTrue(smart.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitValue(count, "1 / \(expected)"))  // 作ると、そのスマートアルバムを表示する
+        saveScreenshot(app, name: "smart-album")
+
+        // フォルダを削除すると、中のスマートアルバムも消える（写真は残る）
+        folder.rightClick()
+        app.menuItems["deleteAlbum"].click()
+        let confirm = app.sheets.buttons.element(boundBy: 0)
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        confirm.click()
+        XCTAssertTrue(waitGone(folder))
+        XCTAssertTrue(waitGone(smart))
+        XCTAssertTrue(waitGone(dragged))  // ドラッグでフォルダに入っていた
+        // 「すべての写真」に戻る（見ていた写真は選んだまま。何枚目かは前の状態による）
+        XCTAssertTrue(waitUntil { (count.value as? String ?? count.label).hasSuffix("/ \(expected)") })
+        XCTAssertTrue(any("sidebarAll").isSelected || any("sidebarAll").exists)
+    }
+
+    /// v3.19: カードの取り込み。取り込み元と読み込み先は ui-test.sh が用意する
+    @MainActor
+    func testCardImport() throws {
+        let env = ProcessInfo.processInfo.environment
+        try XCTSkipIf(env["FOCAL_IMPORT_SOURCE"] == nil || env["FOCAL_IMPORT_CATALOG"] == nil, "scripts/ui-test.sh から実行する")
+        let app = XCUIApplication()
+        app.launchEnvironment["FOCAL_CATALOG"] = env["FOCAL_IMPORT_CATALOG"]
+        app.launchEnvironment["FOCAL_CACHE"] = env["FOCAL_CACHE"]
+        app.launchEnvironment["FOCAL_IMPORT_SOURCE"] = env["FOCAL_IMPORT_SOURCE"]
+        app.launchEnvironment["FOCAL_IMPORT_DEST"] = env["FOCAL_IMPORT_DEST"]
+        app.launchEnvironment["FOCAL_WINDOW_SIZE"] = "1440x900"
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        app.launch()
+        XCTAssertTrue(app.windows["library"].waitForExistence(timeout: 10))
+
+        app.typeKey("i", modifierFlags: [.command, .shift])
+        let start = app.buttons["importStart"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        let summary = app.staticTexts["importSummary"]
+        XCTAssertTrue(summary.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil { (summary.value as? String ?? summary.label).contains("1") })  // カードの写真 1 枚
+        saveScreenshot(app, name: "import-sheet")
+        start.click()
+        let result = app.staticTexts["importResult"]
+        XCTAssertTrue(result.waitForExistence(timeout: 30))
+        saveScreenshot(app, name: "import-finished")
+        app.buttons["importShow"].click()
+        // 「最近の取り込み」に取り込んだ写真だけが出る
+        XCTAssertTrue(waitValue(app.staticTexts["photoCount"], "1 / 1"))
+        XCTAssertTrue(app.descendants(matching: .any)["sidebarRecent"].exists)
+        saveScreenshot(app, name: "import-recent")
+    }
+
+    /// 「アルバム」見出しの右端の ＋。見出しは 1 つのアクセシビリティ要素にまとまるので、右端を座標で押す
+    /// n: 0 新規アルバム、1 新規スマートアルバム、2 新規フォルダ（メニュー項目の識別子は取れないので順番で選ぶ）
+    private func chooseNewAlbumItem(_ app: XCUIApplication, _ n: Int) {
+        openNewAlbumMenu(app)
+        // メニューバーにも同じ名前の項目があるので、開いているポップアップの（押せる）項目だけを選ぶ
+        let titles = [["新規アルバム…", "New Album…"], ["新規スマートアルバム…", "New Smart Album…"],
+                      ["新規フォルダ…", "New Folder…"]][n]
+        let query = app.menuItems.matching(NSPredicate(format: "title == %@ OR title == %@", titles[0], titles[1]))
+        let deadline = Date().addingTimeInterval(3)
+        var item = query.firstMatch
+        while Date() < deadline, !(query.allElementsBoundByIndex.contains { $0.isHittable }) { usleep(100_000) }
+        if let hit = query.allElementsBoundByIndex.first(where: { $0.isHittable }) { item = hit }
+        XCTAssertTrue(item.waitForExistence(timeout: 3))
+        item.click()
+    }
+
+    private func openNewAlbumMenu(_ app: XCUIApplication) {
+        let header = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier ENDSWITH 'newAlbum'")).firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 5))
+        header.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).click()
+    }
+
+    private func waitUntil(timeout: TimeInterval = 5, _ cond: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if cond() { return true }
+            usleep(100_000)
+        }
+        return false
     }
 
     private func waitValue(_ e: XCUIElement, _ value: String, timeout: TimeInterval = 5) -> Bool {

@@ -40,6 +40,35 @@ std::string blake3_hex(std::string_view data) {
     return finish(h);
 }
 
+struct Blake3Stream::Impl {
+    blake3_hasher h;
+};
+
+Blake3Stream::Blake3Stream() : impl_(new Impl) { blake3_hasher_init(&impl_->h); }
+Blake3Stream::~Blake3Stream() { delete impl_; }
+void Blake3Stream::update(const void* data, size_t size) { blake3_hasher_update(&impl_->h, data, size); }
+std::string Blake3Stream::finish_hex() { return finish(impl_->h); }
+
+std::string blake3_file_hex(const std::filesystem::path& path, const std::atomic<bool>* cancel) {
+    struct Closer {
+        void operator()(FILE* f) const { std::fclose(f); }
+    };
+    std::unique_ptr<FILE, Closer> f(open_file(path, "rb"));
+    if (!f) throw Error(Error::Code::Io, "cannot open: " + path_to_utf8(path));
+    Blake3Stream h;
+    std::vector<uint8_t> buf(kChunk);
+    for (;;) {
+        if (cancel && cancel->load()) throw Error(Error::Code::Cancelled, "cancelled");
+        const size_t got = std::fread(buf.data(), 1, buf.size(), f.get());
+        if (got > 0) h.update(buf.data(), got);
+        if (got < buf.size()) {
+            if (std::ferror(f.get())) throw Error(Error::Code::Io, "read error: " + path_to_utf8(path));
+            break;
+        }
+    }
+    return h.finish_hex();
+}
+
 std::string quick_hash(const std::filesystem::path& path) {
     struct Closer {
         void operator()(FILE* f) const { std::fclose(f); }

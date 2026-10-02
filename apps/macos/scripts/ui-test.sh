@@ -23,11 +23,18 @@ NIKON_ID=$("$FOCAL" ls "${C[@]}" 2>/dev/null | grep "nikon_z7" | awk '{print $1}
 COLOR_REF=$("$FOCAL" colorgrid "$WORK/ref/nikon_z7.jpg" --cols 48 --rows 32 --inset 0.01)
 COLOR_ASPECT=$(sips -g pixelWidth -g pixelHeight "$WORK/ref/nikon_z7.jpg" | awk '/pixelWidth/{w=$2} /pixelHeight/{h=$2} END{print w/h}')
 
+# カード取り込みのテスト用: カード（DCIM 付きのフォルダ）、読み込み先、取り込み用の空のカタログ
+mkdir -p "$WORK/card/DCIM/100TEST" "$WORK/import-dest"
+cp -c "$ROOT/tests/data/canon_eos_m50.CR3" "$WORK/card/DCIM/100TEST/IMG_9001.CR3"
+
 cd "$ROOT/apps/macos"
 xcodegen -q
 TEST_RUNNER_FOCAL_CATALOG="$WORK/catalog.sqlite" \
 TEST_RUNNER_FOCAL_CACHE="$WORK/thumbs" \
 TEST_RUNNER_FOCAL_EXPORT_DIR="$WORK/export" \
+TEST_RUNNER_FOCAL_IMPORT_SOURCE="$WORK/card" \
+TEST_RUNNER_FOCAL_IMPORT_DEST="$WORK/import-dest" \
+TEST_RUNNER_FOCAL_IMPORT_CATALOG="$WORK/import-catalog.sqlite" \
 TEST_RUNNER_FOCAL_COLOR_INDEX="$COLOR_INDEX" \
 TEST_RUNNER_FOCAL_COLOR_REF="$COLOR_REF" \
 TEST_RUNNER_FOCAL_COLOR_ASPECT="$COLOR_ASPECT" \

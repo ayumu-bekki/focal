@@ -13,7 +13,7 @@ struct FocalApp: App {
         // （サイドバーや区分をたたんだ状態が残ると、以降のテストで要素が出ない）
         if ProcessInfo.processInfo.environment["FOCAL_WINDOW_SIZE"] != nil {
             let defaults = UserDefaults.standard
-            for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("NSSplitView Subview Frames") || key.hasPrefix("inspector.") || key.hasPrefix("filmstrip.") {
+            for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("NSSplitView Subview Frames") || key.hasPrefix("inspector.") || key.hasPrefix("sidebar.") || key.hasPrefix("filmstrip.") {
                 defaults.removeObject(forKey: key)
             }
         }
@@ -251,7 +251,15 @@ struct LibraryCommands: Commands {
             Button("New Album…") { model?.albumPrompt = .create(addSelection: false) }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(model == nil)
+            Button("New Smart Album…") { model?.albumPrompt = .smart(editing: nil) }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+                .disabled(model == nil)
+            Button("New Folder…") { model?.albumPrompt = .createFolder() }
+                .disabled(model == nil)
             Divider()
+            Button("Import from Card…") { model?.beginCardImport() }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+                .disabled(model == nil)
             Button("Add Folder…") { if let model { chooseFolderToAdd(model: model) } }
                 .keyboardShortcut("o")
                 .disabled(model == nil)
@@ -298,15 +306,16 @@ struct LibraryCommands: Commands {
             Divider()
             // アルバム（v3.16）
             Menu("Add to Album") {
-                ForEach(model?.albums ?? []) { album in
+                // 写真を足せるのは手で集めるアルバムだけ（フォルダ・スマートアルバムは出さない）
+                ForEach((model?.albums ?? []).filter(\.acceptsPhotos)) { album in
                     Button(album.name) { model?.addToAlbum(album.id) }
                 }
-                if !(model?.albums.isEmpty ?? true) { Divider() }
+                if !(model?.albums.filter(\.acceptsPhotos).isEmpty ?? true) { Divider() }
                 Button("New Album with Selected Photos…") { model?.albumPrompt = .create(addSelection: true) }
             }
             .disabled(model == nil)
             Button("Remove from Album") { model?.removeFromCurrentAlbum() }
-                .disabled({ if case .album = model?.source { return false } else { return true } }())
+                .disabled(!(model?.currentAlbumAcceptsPhotos ?? false))
             Divider()
             Button("Pick") { model?.setFlag(.picked) }
             Button("Reject") { model?.setFlag(.rejected) }

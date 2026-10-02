@@ -6,6 +6,7 @@ import SwiftUI
 struct SettingsView: View {
     let state: AppState
     @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system
+    @AppStorage(AppPaths.rescanOnLaunchKey) private var rescanOnLaunch = true
     @State private var usage: UInt64?
     @State private var clearing = false
 
@@ -26,6 +27,23 @@ struct SettingsView: View {
                     } ?? "—")
                     .accessibilityIdentifier("renderingBackend")
                 }
+            }
+            Section {
+                Toggle("Rescan folders when Focal opens", isOn: $rescanOnLaunch)
+                    .accessibilityIdentifier("rescanOnLaunch")
+                LabeledContent("Import Destination") {
+                    HStack {
+                        pathRow(state.model?.cardImport.destination ?? AppPaths.savedImportDestination)
+                        Button("Choose…") { state.model?.cardImport.chooseDestination() }
+                            .disabled(state.model == nil)
+                    }
+                }
+            } header: {
+                Text("Import")
+            } footer: {
+                Text("Photos imported from a card are copied to Year / Date folders (for example 2026/2026-10-02) inside this folder.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Catalog") {
                 LabeledContent("Location") {

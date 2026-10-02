@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <ctime>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -26,8 +27,13 @@ class DbWriter;
 
 struct RootInfo {
     int64_t id = 0;
-    std::string path;  // 絶対パス（NFC、区切りは '/'）
+    std::string path;  // 絶対パス（NFC、区切りは '/'）。ボリュームがあるときは最後に見たマウントポイントからの位置
     std::string label;
+    // v3.19: ボリュームの ID と、ボリュームのルートからの相対パス。ボリュームを判別できなければ空
+    std::string volume_id;
+    std::string volume_name;
+    std::string volume_rel_path;
+    bool online = true;  // ルートのフォルダにいまアクセスできる（外付けドライブが外れていると false）
 };
 
 struct FolderInfo {
@@ -48,10 +54,16 @@ struct TagInfo {
 
 enum class PhotoStatus { Ok = 0, Missing = 1, Unsupported = 2 };
 
+// アルバム（手で集めた写真）、アルバムのフォルダ（入れ子のための入れ物）、スマートアルバム（保存した検索条件、読み取り専用）
+enum class AlbumKind { Album = 0, Folder = 1, Smart = 2 };
+
 struct AlbumInfo {
     int64_t id = 0;
     std::string name;
-    int64_t photo_count = 0;
+    int64_t photo_count = 0;  // フォルダは 0。スマートアルバムは条件に合う枚数
+    std::optional<int64_t> parent_id;  // 入れ子のとき、親のフォルダ（v3.19）
+    AlbumKind kind = AlbumKind::Album;
+    std::optional<int64_t> cover_photo_id;
 };
 
 struct PhotoRecord {
@@ -90,6 +102,7 @@ struct PhotoFilter {
     std::string date_to;            // "YYYY-MM-DD"（含む）
     bool include_unavailable = true;  // false ならファイルなし・非対応を除く
     std::optional<int64_t> album_id;  // このアルバムの写真だけ（v3.16）
+    std::optional<int64_t> smart_album_id;  // このスマートアルバムの条件に合う写真だけ（v3.19）
     bool recent_import = false;       // 最後に写真を足した取り込み（scan_root）の写真だけ（v3.16）
 };
 
@@ -100,6 +113,7 @@ struct ScanStats {
     int missing = 0;    // 今回のスキャンでファイルなしになった
     int restored = 0;   // ファイルなしから戻った
     int renamed = 0;    // 大文字小文字だけが違う名前に変わった（同じ写真として扱う）
+    int relinked = 0;   // ほかのフォルダから移動してきた（ファイル名・サイズ・撮影日時が同じ）写真をつなぎ直した（v3.19）
     int unsupported = 0;
     int folders_added = 0;
     int thumbnails = 0;
@@ -126,6 +140,16 @@ public:
     int64_t add_root(const std::filesystem::path& dir, std::string_view label = {});
     std::vector<RootInfo> roots();
     std::optional<RootInfo> root_for_path(const std::filesystem::path& dir);
+    // dir を含む（dir 自身も含む）登録済みのルート。いちばん深いもの
+    std::optional<RootInfo> root_containing(const std::filesystem::path& dir);
+    // マウントされているボリュームを見て、ルートの path をいまのマウントポイントに合わせる（v3.19）。
+    // 変えたルートの数を返す。ボリュームが外れているルートは変えない（roots() で online = false になる）
+    int refresh_volumes();
+    // ルートをカタログから外す（v3.19）。そのルートの写真・フォルダの情報と、★・フラグ・タグ・アルバムへの所属・編集も消える。
+    // ディスク上のファイルには触れない。サムネイルのキャッシュは残る
+    void remove_root(int64_t root_id);
+    // ルートの表示名を変える（空なら消す）
+    void set_root_label(int64_t root_id, std::string_view label);
 
     // ルート以下を走査してカタログを更新する（取り込み・再スキャン共通）。
     // ルートのフォルダにアクセスできない場合（外付けドライブを外した等）は何も変えずに Error を投げる。
@@ -155,13 +179,33 @@ public:
     void remove_tag(std::span<const int64_t> ids, int64_t tag_id);
     std::vector<TagInfo> photo_tags(int64_t photo_id);
 
-    // アルバム（v3.16）。写真は参照するだけで、アルバムを消しても写真は消えない。名前は NFC で、重複は Error
+    // アルバム（v3.16）。写真は参照するだけで、アルバムを消しても写真は消えない。名前は NFC で、同じ親の下で重複は Error。
+    // v3.19: フォルダで入れ子にできる（親になれるのはフォルダだけ）。albums() は親が先、同じ親の中は作った順
     std::vector<AlbumInfo> albums();
-    int64_t create_album(std::string_view name);
+    int64_t create_album(std::string_view name, std::optional<int64_t> parent_id = std::nullopt);
+    int64_t create_album_folder(std::string_view name, std::optional<int64_t> parent_id = std::nullopt);
     void rename_album(int64_t album_id, std::string_view name);
+    // フォルダを消すと中のアルバムも消える（写真は消えない）
     void delete_album(int64_t album_id);
+    // 親を変える（nullopt でいちばん上へ）。自分の中へは動かせない
+    void move_album(int64_t album_id, std::optional<int64_t> parent_id);
+    // 手で集めるアルバムだけに足せる（フォルダ・スマートアルバムは Error）
     void add_to_album(int64_t album_id, std::span<const int64_t> ids);
     void remove_from_album(int64_t album_id, std::span<const int64_t> ids);
+    // カバー写真（nullopt で自動 = 先頭の写真）
+    void set_album_cover(int64_t album_id, std::optional<int64_t> photo_id);
+
+    // スマートアルバム（v3.19）。条件は smart_query.h の JSON（不正なら Error）
+    int64_t create_smart_album(std::string_view name, const std::string& query_json,
+                               std::optional<int64_t> parent_id = std::nullopt);
+    void set_smart_query(int64_t album_id, const std::string& query_json);
+    std::optional<std::string> smart_query(int64_t album_id);
+
+    // ファイル名・サイズ・撮影日時がすべて同じ写真（取り込み済みかの判定、v3.19）。なければ nullopt
+    std::optional<int64_t> find_photo_by_identity(std::string_view file_name, int64_t file_size,
+                                                  std::string_view capture_time);
+    // フォルダ（ルートからの相対パス）とファイル名で写真を探す
+    std::optional<int64_t> find_photo(int64_t root_id, std::string_view folder_rel_path, std::string_view file_name);
 
     // 編集パラメータ（6.1 章の JSON、edits テーブル）。編集がなければ nullopt
     std::optional<std::string> edit_json(int64_t photo_id);
@@ -178,5 +222,10 @@ private:
     std::unique_ptr<db::Database> reader_;
     std::mutex reader_mutex_;
 };
+
+// カタログに取り込む RAW のファイル名か（拡張子で判定）
+bool is_raw_file_name(std::string_view name);
+// 撮影日時の保存形式 'YYYY-MM-DDTHH:MM:SS'（ローカル時刻）。t <= 0 なら nullopt
+std::optional<std::string> capture_time_string(std::time_t t);
 
 } // namespace focal

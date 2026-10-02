@@ -121,10 +121,45 @@ CREATE TABLE meta (
 );
 )SQL";
 
+// v3.19: アルバムのフォルダ分け・スマートアルバム・カバー、ルートのボリューム ID。
+// albums は名前の UNIQUE を親ごとの一意に変えるため作り直す（album_photos を先に消してから albums を消す）
+constexpr const char* kSchemaV3 = R"SQL(
+CREATE TABLE albums_v3 (
+    id             INTEGER PRIMARY KEY,
+    parent_id      INTEGER REFERENCES albums_v3(id) ON DELETE CASCADE,
+    kind           INTEGER NOT NULL DEFAULT 0 CHECK (kind IN (0, 1, 2)),
+    name           TEXT NOT NULL,
+    sort_order     INTEGER NOT NULL DEFAULT 0,
+    created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    cover_photo_id INTEGER REFERENCES photos(id) ON DELETE SET NULL,
+    query          TEXT
+);
+INSERT INTO albums_v3 (id, name, sort_order, created_at) SELECT id, name, sort_order, created_at FROM albums;
+CREATE TABLE album_photos_v3 (
+    album_id INTEGER NOT NULL REFERENCES albums_v3(id) ON DELETE CASCADE,
+    photo_id INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+    added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    PRIMARY KEY (album_id, photo_id)
+);
+INSERT INTO album_photos_v3 (album_id, photo_id, added_at) SELECT album_id, photo_id, added_at FROM album_photos;
+DROP TABLE album_photos;
+DROP TABLE albums;
+ALTER TABLE albums_v3 RENAME TO albums;
+ALTER TABLE album_photos_v3 RENAME TO album_photos;
+CREATE INDEX idx_album_photos_photo ON album_photos(photo_id);
+CREATE INDEX idx_albums_parent ON albums(parent_id);
+CREATE UNIQUE INDEX idx_albums_child ON albums(parent_id, name) WHERE parent_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_albums_root  ON albums(name)            WHERE parent_id IS NULL;
+
+ALTER TABLE roots ADD COLUMN volume_id       TEXT;
+ALTER TABLE roots ADD COLUMN volume_name     TEXT;
+ALTER TABLE roots ADD COLUMN volume_rel_path TEXT;
+)SQL";
+
 } // namespace
 
 const std::vector<Migration>& catalog_migrations() {
-    static const std::vector<Migration> m = {{1, kSchemaV1}, {2, kSchemaV2}};
+    static const std::vector<Migration> m = {{1, kSchemaV1}, {2, kSchemaV2}, {3, kSchemaV3}};
     return m;
 }
 

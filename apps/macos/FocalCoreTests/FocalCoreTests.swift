@@ -120,4 +120,101 @@ final class FocalCoreTests: XCTestCase {
         XCTAssertEqual(ok + cancelled, 20)
         XCTAssertGreaterThan(cancelled, 10)
     }
+
+    // MARK: v3.19
+
+    func testAlbumFoldersAndSmartAlbums() async throws {
+        let lib = try requireData()
+        let catalog = try Catalog(url: tmp.appendingPathComponent("c.sqlite"))
+        _ = try await scan(catalog, try catalog.addRoot(lib))
+        let ids = try catalog.photoIDs()
+
+        let trips = try catalog.createAlbumFolder("Trips")
+        let hokkaido = try catalog.createAlbum("Hokkaido", parentID: trips)
+        XCTAssertThrowsError(try catalog.createAlbum("Hokkaido", parentID: trips))
+        XCTAssertThrowsError(try catalog.addToAlbum(trips, photoIDs: ids))  // フォルダには足せない
+        try catalog.addToAlbum(hokkaido, photoIDs: ids)
+
+        var smart = try catalog.createSmartAlbum(
+            "Canon", queryJSON: #"{"rules":[{"field":"camera","op":"contains","value":"Canon"}]}"#)
+        XCTAssertThrowsError(try catalog.createSmartAlbum("Bad", queryJSON: "{"))
+        var f = PhotoFilter()
+        f.smartAlbumID = smart
+        XCTAssertEqual(try catalog.count(f), 1)
+        XCTAssertTrue(try catalog.smartQuery(smart).contains("Canon"))
+        try catalog.setSmartQuery(smart, queryJSON: #"{"rules":[]}"#)
+        XCTAssertEqual(try catalog.count(f), 2)
+
+        let albums = try catalog.albums()
+        XCTAssertEqual(albums.map(\.kind), [.folder, .album, .smart])
+        XCTAssertEqual(albums[1].parentID, trips)
+        XCTAssertEqual(albums[2].photoCount, 2)
+        XCTAssertFalse(albums[0].acceptsPhotos)
+        XCTAssertTrue(albums[1].acceptsPhotos)
+
+        try catalog.moveAlbum(hokkaido, toParent: nil)
+        XCTAssertNil(try catalog.albums().first { $0.id == hokkaido }?.parentID)
+        XCTAssertThrowsError(try catalog.moveAlbum(trips, toParent: hokkaido))  // フォルダでない親
+        try catalog.deleteAlbum(trips)
+        smart = try catalog.createSmartAlbum("All", queryJSON: #"{"rules":[]}"#)
+        XCTAssertEqual(try catalog.albums().count, 3)
+    }
+
+    func testRootsHaveVolumeInfo() throws {
+        let lib = tmp.appendingPathComponent("lib")
+        try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)
+        let catalog = try Catalog(url: tmp.appendingPathComponent("c.sqlite"))
+        try catalog.addRoot(lib)
+        let root = try XCTUnwrap(try catalog.roots().first)
+        XCTAssertTrue(root.isOnline)
+        XCTAssertFalse(root.volumeID.isEmpty)
+        XCTAssertFalse(root.volumeName.isEmpty)
+        XCTAssertEqual(try catalog.refreshVolumes(), 0)
+        try catalog.setRootLabel("Main", rootID: root.id)
+        XCTAssertEqual(try catalog.roots().first?.displayName, "Main")
+    }
+
+    func testImportFromCard() async throws {
+        _ = try requireData()
+        let card = tmp.appendingPathComponent("card/DCIM/100CANON")
+        try FileManager.default.createDirectory(at: card, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: Self.dataDir.appendingPathComponent("canon_eos_m50.CR3"),
+                                         to: card.appendingPathComponent("IMG_0001.CR3"))
+        let catalog = try Catalog(url: tmp.appendingPathComponent("c2.sqlite"))
+        let album = try catalog.createAlbum("FromCard")
+        let source = tmp.appendingPathComponent("card")
+        let summary = try Catalog.summarizeCard(source)
+        XCTAssertEqual(summary.shots, 1)
+
+        var options = CardImportOptions(source: source, destination: tmp.appendingPathComponent("Photos"))
+        options.albumID = album
+        var phases = Set<Catalog.CardImportEvent.Phase>()
+        var result: CardImportResult?
+        for try await ev in catalog.importFromCard(options) {
+            switch ev {
+            case .progress(let phase, _, _, _, _, _): phases.insert(phase)
+            case .finished(let r): result = r
+            }
+        }
+        let r = try XCTUnwrap(result)
+        XCTAssertEqual(r.imported, 1)
+        XCTAssertEqual(r.added, 1)
+        XCTAssertNotNil(r.rootID)
+        XCTAssertTrue(phases.contains(.copying))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: tmp.appendingPathComponent("Photos/2018/2018-07-01/IMG_0001.CR3").path))
+        var f = PhotoFilter()
+        f.albumID = album
+        XCTAssertEqual(try catalog.count(f), 1)
+
+        // 2 回目は取り込み済み
+        var second: CardImportResult?
+        for try await ev in catalog.importFromCard(options) {
+            if case .finished(let r) = ev { second = r }
+        }
+        XCTAssertEqual(second?.skippedDuplicates, 1)
+        XCTAssertEqual(second?.imported, 0)
+
+        XCTAssertNoThrow(try Catalog.importSources())
+    }
 }

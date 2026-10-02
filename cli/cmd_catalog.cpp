@@ -48,16 +48,6 @@ fs::path cache_dir() {
 #endif
 }
 
-fs::path catalog_path(const Args& args) {
-    if (auto p = args.get("catalog")) return utf8_to_path(*p);
-    return env_path("FOCAL_CATALOG", data_dir() / "catalog.sqlite");
-}
-
-fs::path cache_path(const Args& args) {
-    if (auto p = args.get("cache")) return utf8_to_path(*p);
-    return env_path("FOCAL_CACHE", cache_dir() / "thumbs");
-}
-
 std::vector<int64_t> parse_ids(const std::vector<std::string>& v, size_t from, size_t to) {
     std::vector<int64_t> ids;
     for (size_t i = from; i < to; ++i) ids.push_back(std::stoll(v[i]));
@@ -77,6 +67,16 @@ std::string format_shutter(const std::optional<double>& s) {
 const char* flag_mark(int flag) { return flag > 0 ? "P" : flag < 0 ? "X" : "-"; }
 
 } // namespace
+
+fs::path catalog_path(const Args& args) {
+    if (auto p = args.get("catalog")) return utf8_to_path(*p);
+    return env_path("FOCAL_CATALOG", data_dir() / "catalog.sqlite");
+}
+
+fs::path cache_path(const Args& args) {
+    if (auto p = args.get("cache")) return utf8_to_path(*p);
+    return env_path("FOCAL_CACHE", cache_dir() / "thumbs");
+}
 
 int cmd_import(int argc, char** argv) {
     Args args(argc, argv, {"no-thumbs"});
@@ -102,8 +102,8 @@ int cmd_import(int argc, char** argv) {
     const ScanStats s = catalog->scan_root(root, opt);
     const double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     std::fprintf(stderr, "\n");
-    std::printf("added %d, updated %d, unchanged %d, missing %d, restored %d, renamed %d, unsupported %d\n",
-                s.added, s.updated, s.unchanged, s.missing, s.restored, s.renamed, s.unsupported);
+    std::printf("added %d, updated %d, unchanged %d, missing %d, restored %d, renamed %d, relinked %d, unsupported %d\n",
+                s.added, s.updated, s.unchanged, s.missing, s.restored, s.renamed, s.relinked, s.unsupported);
     std::printf("folders added %d, thumbnails %d (failed %d), %.2f s\n", s.folders_added, s.thumbnails,
                 s.thumbnail_failures, sec);
     return 0;
@@ -113,11 +113,23 @@ int cmd_roots(int argc, char** argv) {
     Args args(argc, argv);
     auto catalog = Catalog::open(catalog_path(args));
     for (const auto& r : catalog->roots()) {
-        std::printf("%lld\t%s\n", static_cast<long long>(r.id), r.path.c_str());
+        std::printf("%lld\t%s\t%s%s\n", static_cast<long long>(r.id), r.path.c_str(),
+                    r.volume_name.empty() ? "" : ("[" + r.volume_name + "] ").c_str(), r.online ? "" : "(offline)");
         for (const auto& f : catalog->folders(r.id))
             std::printf("  %lld\t%s/\t(%lld)\n", static_cast<long long>(f.id), f.rel_path.c_str(),
                         static_cast<long long>(f.photo_count));
     }
+    return 0;
+}
+
+int cmd_unroot(int argc, char** argv) {
+    Args args(argc, argv);
+    if (args.positional().size() != 1) {
+        std::fprintf(stderr, "usage: focal unroot <root id>   カタログからルートを外す（ファイルは消さない）\n");
+        return 2;
+    }
+    auto catalog = Catalog::open(catalog_path(args));
+    catalog->remove_root(std::stoll(args.positional()[0]));
     return 0;
 }
 
@@ -139,6 +151,8 @@ int cmd_ls(int argc, char** argv) {
         f.tag_id = catalog->find_tag(*tag);
         if (!f.tag_id) throw Error(Error::Code::NotFound, "no such tag: " + *tag);
     }
+    if (auto a = args.get("album")) f.album_id = std::stoll(*a);
+    if (auto a = args.get("smart")) f.smart_album_id = std::stoll(*a);
     f.date_from = args.get("from").value_or("");
     f.date_to = args.get("to").value_or("");
     f.include_unavailable = !args.has("available");

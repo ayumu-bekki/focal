@@ -14,6 +14,16 @@
         }
       }
     },
+    "“%@” is not connected." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” は接続されていません。"
+          }
+        }
+      }
+    },
     "%lld" : {
 
     },
@@ -23,6 +33,46 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "%lld photos could not be imported." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚は取り込めませんでした。"
+          }
+        }
+      }
+    },
+    "%lld photos have no capture time, so the file’s modified date was used (estimated)." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚は撮影日時がないため、ファイルの更新日で日付を決めました（推定）。"
+          }
+        }
+      }
+    },
+    "%lld photos were already imported and skipped." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚は取り込み済みなのでスキップしました。"
+          }
+        }
+      }
+    },
+    "%lld photos, %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚、%@"
           }
         }
       }
@@ -75,6 +125,16 @@
         }
       }
     },
+    "A smart album only shows photos that match. You cannot add photos to it." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートアルバムは条件に合う写真だけを表示します。写真を足すことはできません。"
+          }
+        }
+      }
+    },
     "Add" : {
       "localizations" : {
         "ja" : {
@@ -101,6 +161,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "フォルダを追加…"
+          }
+        }
+      }
+    },
+    "Add Rule" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "条件を追加"
           }
         }
       }
@@ -135,12 +205,42 @@
         }
       }
     },
+    "Adding to the catalog… %lld / %lld" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カタログに登録中… %1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "Album" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アルバム"
+          }
+        }
+      }
+    },
     "Albums" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "アルバム"
+          }
+        }
+      }
+    },
+    "all" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべて"
           }
         }
       }
@@ -175,12 +275,42 @@
         }
       }
     },
+    "and" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "と"
+          }
+        }
+      }
+    },
+    "any" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "いずれか"
+          }
+        }
+      }
+    },
     "Any" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "すべて"
+          }
+        }
+      }
+    },
+    "Aperture (f/)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "絞り (f/)"
           }
         }
       }
@@ -296,6 +426,16 @@
         }
       }
     },
+    "Capture Date" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "撮影日"
+          }
+        }
+      }
+    },
     "Captured" : {
       "localizations" : {
         "ja" : {
@@ -326,12 +466,32 @@
         }
       }
     },
+    "Choose Folder…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを選択…"
+          }
+        }
+      }
+    },
     "Choose Location…" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "場所を選択…"
+          }
+        }
+      }
+    },
+    "Choose the card or its DCIM folder." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カード、または DCIM フォルダを選んでください。"
           }
         }
       }
@@ -419,12 +579,32 @@
         }
       }
     },
+    "contains" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "を含む"
+          }
+        }
+      }
+    },
     "Contrast" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "コントラスト"
+          }
+        }
+      }
+    },
+    "Copying %lld / %lld" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コピー中 %1$lld / %2$lld"
           }
         }
       }
@@ -529,6 +709,26 @@
         }
       }
     },
+    "Delete Folder" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを削除"
+          }
+        }
+      }
+    },
+    "Delete Folder…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを削除…"
+          }
+        }
+      }
+    },
     "Delete the album “%@”?" : {
       "localizations" : {
         "ja" : {
@@ -569,6 +769,26 @@
         }
       }
     },
+    "does not contain" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "を含まない"
+          }
+        }
+      }
+    },
+    "does not have" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "を持たない"
+          }
+        }
+      }
+    },
     "Done" : {
       "localizations" : {
         "ja" : {
@@ -585,6 +805,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "水平（または垂直）にしたい線に沿ってドラッグします"
+          }
+        }
+      }
+    },
+    "Edit Smart Album" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートアルバムを編集"
+          }
+        }
+      }
+    },
+    "Edit Smart Album…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートアルバムを編集…"
           }
         }
       }
@@ -693,6 +933,16 @@
         }
       }
     },
+    "File Name" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイル名"
+          }
+        }
+      }
+    },
     "Filter" : {
       "localizations" : {
         "ja" : {
@@ -746,6 +996,16 @@
     },
     "Focal" : {
 
+    },
+    "Focal Length" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "焦点距離"
+          }
+        }
+      }
     },
     "Folder" : {
       "localizations" : {
@@ -819,6 +1079,16 @@
         }
       }
     },
+    "has" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "を持つ"
+          }
+        }
+      }
+    },
     "Highlights" : {
       "localizations" : {
         "ja" : {
@@ -840,6 +1110,76 @@
         }
       }
     },
+    "Import" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り込み"
+          }
+        }
+      }
+    },
+    "Import destination" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込み先"
+          }
+        }
+      }
+    },
+    "Import Destination" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込み先"
+          }
+        }
+      }
+    },
+    "Import from “%@”…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” から取り込む…"
+          }
+        }
+      }
+    },
+    "Import from Card" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カードから取り込む"
+          }
+        }
+      }
+    },
+    "Import from Card…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カードから取り込む…"
+          }
+        }
+      }
+    },
+    "Imported %lld of %lld photos." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%2$lld 枚中 %1$lld 枚を取り込みました。"
+          }
+        }
+      }
+    },
     "Importing %lld / %lld" : {
       "localizations" : {
         "ja" : {
@@ -856,6 +1196,106 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "インスペクタ"
+          }
+        }
+      }
+    },
+    "is" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "が"
+          }
+        }
+      }
+    },
+    "is at least" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以上"
+          }
+        }
+      }
+    },
+    "is at most" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以下"
+          }
+        }
+      }
+    },
+    "is between" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "の間"
+          }
+        }
+      }
+    },
+    "is in" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "に含まれる"
+          }
+        }
+      }
+    },
+    "is not" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "が次ではない"
+          }
+        }
+      }
+    },
+    "is not in" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "に含まれない"
+          }
+        }
+      }
+    },
+    "is on or after" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以降"
+          }
+        }
+      }
+    },
+    "is on or before" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以前"
+          }
+        }
+      }
+    },
+    "ISO" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ISO"
           }
         }
       }
@@ -940,12 +1380,32 @@
         }
       }
     },
+    "Look for cards again" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カードを探し直す"
+          }
+        }
+      }
+    },
     "Luma Noise" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "輝度ノイズ"
+          }
+        }
+      }
+    },
+    "Match" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "条件:"
           }
         }
       }
@@ -1014,6 +1474,16 @@
         }
       }
     },
+    "Move to" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移動先"
+          }
+        }
+      }
+    },
     "Name" : {
       "localizations" : {
         "ja" : {
@@ -1030,6 +1500,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "新規アルバム"
+          }
+        }
+      }
+    },
+    "New Album Here…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここに新規アルバム…"
           }
         }
       }
@@ -1084,6 +1564,77 @@
         }
       }
     },
+    "New Folder Here…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここに新規フォルダ…"
+          }
+        }
+      }
+    },
+    "New Smart Album" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規スマートアルバム"
+          }
+        }
+      }
+    },
+    "New Smart Album Here…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここに新規スマートアルバム…"
+          }
+        }
+      }
+    },
+    "New Smart Album…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規スマートアルバム…"
+          }
+        }
+      }
+    },
+    "New…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規…"
+          }
+        }
+      }
+    },
+    "No card" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カードなし"
+          }
+        }
+      }
+    },
+    "No card with a DCIM folder was found." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DCIM フォルダのあるカードが見つかりません。"
+          }
+        }
+      }
+    },
     "No Folders" : {
       "localizations" : {
         "ja" : {
@@ -1124,12 +1675,52 @@
         }
       }
     },
+    "No rules: every photo matches." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "条件がないので、すべての写真が対象です。"
+          }
+        }
+      }
+    },
+    "None" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "なし"
+          }
+        }
+      }
+    },
     "Not rejected" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "リジェクト以外"
+          }
+        }
+      }
+    },
+    "of the following rules:" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "を満たす"
+          }
+        }
+      }
+    },
+    "Offline" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オフライン"
           }
         }
       }
@@ -1194,12 +1785,52 @@
         }
       }
     },
+    "Other Locations" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "その他の場所"
+          }
+        }
+      }
+    },
     "Photo" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "写真"
+          }
+        }
+      }
+    },
+    "Photos are copied to Year / Date folders, for example 2026/2026-10-02." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "写真は 年 / 日付 のフォルダ（例: 2026/2026-10-02）にコピーされます。"
+          }
+        }
+      }
+    },
+    "Photos imported from a card are copied to Year / Date folders (for example 2026/2026-10-02) inside this folder." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カードから取り込んだ写真は、このフォルダの中の 年 / 日付 のフォルダ（例: 2026/2026-10-02）にコピーされます。"
+          }
+        }
+      }
+    },
+    "Photos on the card are never moved or deleted." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カードの写真は移動も削除もしません。"
           }
         }
       }
@@ -1294,6 +1925,26 @@
         }
       }
     },
+    "Reading the card…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カードを読み込み中…"
+          }
+        }
+      }
+    },
+    "Reading the card… %lld / %lld" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カードを読み込み中… %1$lld / %2$lld"
+          }
+        }
+      }
+    },
     "Recent Import" : {
       "localizations" : {
         "ja" : {
@@ -1334,12 +1985,52 @@
         }
       }
     },
+    "Remove “%@” from the catalog?" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” をカタログから外しますか？"
+          }
+        }
+      }
+    },
     "Remove from Album" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "アルバムから外す"
+          }
+        }
+      }
+    },
+    "Remove from Catalog" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カタログから外す"
+          }
+        }
+      }
+    },
+    "Remove from Catalog…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カタログから外す…"
+          }
+        }
+      }
+    },
+    "Remove this rule" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この条件を削除"
           }
         }
       }
@@ -1364,6 +2055,16 @@
         }
       }
     },
+    "Rename Folder" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダの名前を変更"
+          }
+        }
+      }
+    },
     "Rename…" : {
       "localizations" : {
         "ja" : {
@@ -1374,12 +2075,32 @@
         }
       }
     },
+    "Rescan" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再スキャン"
+          }
+        }
+      }
+    },
     "Rescan All Folders" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "すべてのフォルダを再スキャン"
+          }
+        }
+      }
+    },
+    "Rescan folders when Focal opens" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Focal を開くときにフォルダを再スキャンする"
           }
         }
       }
@@ -1454,12 +2175,32 @@
         }
       }
     },
+    "Save" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存"
+          }
+        }
+      }
+    },
     "Scanning…" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "スキャン中…"
+          }
+        }
+      }
+    },
+    "Set as Import Destination" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込み先にする"
           }
         }
       }
@@ -1514,6 +2255,16 @@
         }
       }
     },
+    "Show Imported Photos" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り込んだ写真を表示"
+          }
+        }
+      }
+    },
     "Show in Finder" : {
       "localizations" : {
         "ja" : {
@@ -1544,6 +2295,16 @@
         }
       }
     },
+    "Source" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り込み元"
+          }
+        }
+      }
+    },
     "Status" : {
       "localizations" : {
         "ja" : {
@@ -1570,6 +2331,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "停止しました。%2$lld 枚中 %1$lld 枚を書き出しました。"
+          }
+        }
+      }
+    },
+    "Stopped. Imported %lld of %lld photos." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中止しました。%2$lld 枚中 %1$lld 枚を取り込みました。"
+          }
+        }
+      }
+    },
+    "Storage" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ストレージ"
           }
         }
       }
@@ -1624,12 +2405,32 @@
         }
       }
     },
+    "The albums inside are deleted too. The photos are not deleted." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中のアルバムも削除されます。写真は削除されません。"
+          }
+        }
+      }
+    },
     "The photos are not deleted." : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "写真は削除されません。"
+          }
+        }
+      }
+    },
+    "The photos’ ratings, flags, tags, album memberships and edits in this catalog are deleted. The files on disk are not deleted." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このカタログにある、これらの写真の評価・フラグ・タグ・アルバムへの所属・編集が削除されます。ディスク上のファイルは削除されません。"
           }
         }
       }
@@ -1714,6 +2515,26 @@
         }
       }
     },
+    "Top Level" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最上位"
+          }
+        }
+      }
+    },
+    "Trip/Hokkaido, 2026" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "旅行/北海道, 2026"
+          }
+        }
+      }
+    },
     "Undo" : {
       "localizations" : {
         "ja" : {
@@ -1764,12 +2585,42 @@
         }
       }
     },
+    "Untitled Folder" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規フォルダ"
+          }
+        }
+      }
+    },
+    "Untitled Smart Album" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規スマートアルバム"
+          }
+        }
+      }
+    },
     "Use System Setting" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "システムに合わせる"
+          }
+        }
+      }
+    },
+    "Verify copies" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コピーを検証する"
           }
         }
       }
@@ -1831,6 +2682,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "拡大"
+          }
+        }
+      }
+    },
+    "New Folder…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規フォルダ…"
+          }
+        }
+      }
+    },
+    "New Folder" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規フォルダ"
           }
         }
       }

@@ -12,6 +12,7 @@
 #include "catalog/catalog.h"
 #include "edit/editor.h"
 #include "export/exporter.h"
+#include "import/card_import.h"
 #include "imaging/crop_tool.h"
 #include "thumbs/thumbnail.h"
 #include "thumbs/thumbnail_service.h"
@@ -112,6 +113,7 @@ PhotoFilter to_filter(const fc_photo_filter* f) {
     out.include_unavailable = f->include_unavailable != 0;
     if (f->album_id > 0) out.album_id = f->album_id;
     out.recent_import = f->recent_import != 0;
+    if (f->smart_album_id > 0) out.smart_album_id = f->smart_album_id;
     return out;
 }
 
@@ -130,6 +132,20 @@ struct TagArray : fc_tag_array {
     std::vector<TagInfo> src;
     std::vector<fc_tag> v;
 };
+
+struct StringBox : fc_string {
+    std::string text;
+};
+
+struct ImportSourceArray : fc_import_source_array {
+    std::vector<ImportSource> src;
+    std::vector<std::string> mount, dcim;
+    std::vector<fc_import_source> v;
+};
+
+std::optional<int64_t> optional_id(int64_t id) {
+    return id > 0 ? std::optional<int64_t>(id) : std::nullopt;
+}
 
 struct AlbumArray : fc_album_array {
     std::vector<AlbumInfo> src;
@@ -285,7 +301,9 @@ fc_status fc_catalog_roots(fc_catalog* catalog, fc_root_array** out) {
         require(catalog && out, "catalog and out must not be NULL");
         auto a = std::make_unique<RootArray>();
         a->src = catalog->catalog->roots();
-        for (const auto& r : a->src) a->v.push_back({r.id, r.path.c_str(), r.label.c_str()});
+        for (const auto& r : a->src)
+            a->v.push_back({r.id, r.path.c_str(), r.label.c_str(), r.volume_id.c_str(), r.volume_name.c_str(),
+                            r.volume_rel_path.c_str(), r.online ? 1 : 0});
         a->count = a->v.size();
         a->items = a->v.data();
         *out = a.release();
@@ -293,6 +311,28 @@ fc_status fc_catalog_roots(fc_catalog* catalog, fc_root_array** out) {
 }
 
 void fc_root_array_free(fc_root_array* array) { delete static_cast<RootArray*>(array); }
+
+fc_status fc_catalog_refresh_volumes(fc_catalog* catalog, int32_t* out_changed) {
+    return guard([&] {
+        require(catalog, "catalog must not be NULL");
+        const int n = catalog->catalog->refresh_volumes();
+        if (out_changed) *out_changed = n;
+    });
+}
+
+fc_status fc_catalog_remove_root(fc_catalog* catalog, int64_t root_id) {
+    return guard([&] {
+        require(catalog, "catalog must not be NULL");
+        catalog->catalog->remove_root(root_id);
+    });
+}
+
+fc_status fc_catalog_set_root_label(fc_catalog* catalog, int64_t root_id, const char* label) {
+    return guard([&] {
+        require(catalog && label, "catalog and label must not be NULL");
+        catalog->catalog->set_root_label(root_id, label);
+    });
+}
 
 fc_status fc_catalog_folders(fc_catalog* catalog, int64_t root_id, fc_folder_array** out) {
     return guard([&] {
@@ -354,7 +394,9 @@ fc_status fc_catalog_albums(fc_catalog* catalog, fc_album_array** out) {
         require(catalog && out, "catalog and out must not be NULL");
         auto a = std::make_unique<AlbumArray>();
         a->src = catalog->catalog->albums();
-        for (const auto& s : a->src) a->v.push_back({s.id, s.name.c_str(), s.photo_count});
+        for (const auto& s : a->src)
+            a->v.push_back({s.id, s.name.c_str(), s.photo_count, s.parent_id.value_or(0), static_cast<int32_t>(s.kind),
+                            s.cover_photo_id.value_or(0)});
         a->count = a->v.size();
         a->items = a->v.data();
         *out = a.release();
@@ -363,11 +405,65 @@ fc_status fc_catalog_albums(fc_catalog* catalog, fc_album_array** out) {
 
 void fc_album_array_free(fc_album_array* array) { delete static_cast<AlbumArray*>(array); }
 
-fc_status fc_catalog_create_album(fc_catalog* catalog, const char* name, int64_t* out_album_id) {
+fc_status fc_catalog_create_album(fc_catalog* catalog, const char* name, int64_t parent_id, int64_t* out_album_id) {
     return guard([&] {
         require(catalog && name, "catalog and name must not be NULL");
-        const int64_t id = catalog->catalog->create_album(name);
+        const int64_t id = catalog->catalog->create_album(name, optional_id(parent_id));
         if (out_album_id) *out_album_id = id;
+    });
+}
+
+fc_status fc_catalog_create_album_folder(fc_catalog* catalog, const char* name, int64_t parent_id,
+                                         int64_t* out_album_id) {
+    return guard([&] {
+        require(catalog && name, "catalog and name must not be NULL");
+        const int64_t id = catalog->catalog->create_album_folder(name, optional_id(parent_id));
+        if (out_album_id) *out_album_id = id;
+    });
+}
+
+fc_status fc_catalog_create_smart_album(fc_catalog* catalog, const char* name, const char* query_json,
+                                        int64_t parent_id, int64_t* out_album_id) {
+    return guard([&] {
+        require(catalog && name && query_json, "catalog, name and query_json must not be NULL");
+        const int64_t id = catalog->catalog->create_smart_album(name, query_json, optional_id(parent_id));
+        if (out_album_id) *out_album_id = id;
+    });
+}
+
+fc_status fc_catalog_set_smart_query(fc_catalog* catalog, int64_t album_id, const char* query_json) {
+    return guard([&] {
+        require(catalog && query_json, "catalog and query_json must not be NULL");
+        catalog->catalog->set_smart_query(album_id, query_json);
+    });
+}
+
+fc_status fc_catalog_smart_query(fc_catalog* catalog, int64_t album_id, fc_string** out) {
+    return guard([&] {
+        require(catalog && out, "catalog and out must not be NULL");
+        *out = nullptr;
+        const auto q = catalog->catalog->smart_query(album_id);
+        if (!q) throw Error(Error::Code::NotFound, "not a smart album");
+        auto b = std::make_unique<StringBox>();
+        b->text = *q;
+        b->value = b->text.c_str();
+        *out = b.release();
+    });
+}
+
+void fc_string_free(fc_string* string) { delete static_cast<StringBox*>(string); }
+
+fc_status fc_catalog_move_album(fc_catalog* catalog, int64_t album_id, int64_t parent_id) {
+    return guard([&] {
+        require(catalog, "catalog must not be NULL");
+        catalog->catalog->move_album(album_id, optional_id(parent_id));
+    });
+}
+
+fc_status fc_catalog_set_album_cover(fc_catalog* catalog, int64_t album_id, int64_t photo_id) {
+    return guard([&] {
+        require(catalog, "catalog must not be NULL");
+        catalog->catalog->set_album_cover(album_id, optional_id(photo_id));
     });
 }
 
@@ -482,8 +578,9 @@ fc_status fc_catalog_scan_async(fc_catalog* catalog, int64_t root_id, const char
                 opt.cancel = &t->cancel;
                 if (progress) opt.progress = [progress, user](int d, int n) { progress(user, d, n); };
                 const ScanStats s = c->scan_root(root_id, opt);
-                stats = {s.added,       s.updated,       s.unchanged,  s.missing,          s.restored,
-                         s.renamed,     s.unsupported,   s.folders_added, s.thumbnails, s.thumbnail_failures};
+                stats = {s.added,         s.updated,    s.unchanged,    s.missing,   s.restored,
+                         s.renamed,       s.unsupported, s.relinked,    s.folders_added, s.thumbnails,
+                         s.thumbnail_failures};
             } catch (const Error& e) {
                 status = to_status(e.code());
                 message = e.what();
@@ -492,6 +589,90 @@ fc_status fc_catalog_scan_async(fc_catalog* catalog, int64_t root_id, const char
                 message = e.what();
             }
             done(user, status, &stats, message.c_str());
+        });
+        *out_task = task.release();
+    });
+}
+
+// ---- カードの取り込み（v3.19）---------------------------------------------------
+
+fc_status fc_import_sources(fc_import_source_array** out) {
+    return guard([&] {
+        require(out, "out must not be NULL");
+        *out = nullptr;
+        auto a = std::make_unique<ImportSourceArray>();
+        a->src = detect_import_sources();
+        for (const auto& s : a->src) {
+            a->mount.push_back(path_to_utf8(s.volume.mount_point));
+            a->dcim.push_back(path_to_utf8(s.dcim));
+        }
+        for (size_t i = 0; i < a->src.size(); ++i)
+            a->v.push_back({a->src[i].volume.id.c_str(), a->src[i].volume.name.c_str(), a->mount[i].c_str(),
+                            a->dcim[i].c_str(), a->src[i].volume.removable ? 1 : 0});
+        a->count = a->v.size();
+        a->items = a->v.data();
+        *out = a.release();
+    });
+}
+
+void fc_import_source_array_free(fc_import_source_array* array) { delete static_cast<ImportSourceArray*>(array); }
+
+fc_status fc_card_summarize(const char* source, fc_card_summary* out) {
+    return guard([&] {
+        require(source && out, "source and out must not be NULL");
+        const CardSummary s = summarize_card(utf8_to_path(source));
+        *out = {s.shots, s.files, s.bytes};
+    });
+}
+
+fc_status fc_card_import_start(fc_catalog* catalog, const fc_card_import_options* options,
+                               fc_card_progress_fn progress, fc_card_done_fn done, void* user, fc_task** out_task) {
+    return guard([&] {
+        require(catalog && options && options->source && options->dest_root && done && out_task,
+                "catalog, options, done and out_task must not be NULL");
+        require(options->tag_ids != nullptr || options->tag_count == 0, "tag_ids is NULL");
+        *out_task = nullptr;
+        CardImportOptions opt;
+        opt.source = utf8_to_path(options->source);
+        opt.dest_root = utf8_to_path(options->dest_root);
+        opt.verify = options->verify != 0;
+        opt.dry_run = options->dry_run != 0;
+        opt.album_id = optional_id(options->album_id);
+        opt.tag_ids.assign(options->tag_ids, options->tag_ids + options->tag_count);
+        std::optional<std::string> cache_dir;
+        if (options->thumbnail_cache_dir) cache_dir = options->thumbnail_cache_dir;
+
+        auto task = std::make_unique<fc_task>();
+        fc_task* t = task.get();
+        Catalog* c = catalog->catalog.get();
+        task->thread = std::thread([t, c, opt = std::move(opt), cache_dir, progress, done, user]() mutable {
+            fc_card_import_result out{};
+            fc_status status = FC_OK;
+            std::string message;
+            try {
+                std::optional<ThumbnailCache> cache;
+                if (cache_dir) cache.emplace(utf8_to_path(*cache_dir));
+                opt.thumbnails = cache ? &*cache : nullptr;
+                opt.cancel = &t->cancel;
+                if (progress)
+                    opt.progress = [progress, user](const CardImportProgress& p) {
+                        progress(user, static_cast<int32_t>(p.phase), p.done, p.total, p.bytes_done, p.bytes_total,
+                                 p.current.c_str());
+                    };
+                const CardImportResult r = import_from_card(*c, opt);
+                out = {r.shots,           r.imported,           r.skipped_duplicates, r.failed,
+                       r.estimated_dates, r.files_copied,       r.bytes_copied,       r.cancelled ? 1 : 0,
+                       r.root_id.value_or(0), r.scan.added};
+                for (const auto& e : r.errors) message += (message.empty() ? "" : "\n") + e;
+                if (r.cancelled) status = FC_ERR_CANCELLED;
+            } catch (const Error& e) {
+                status = to_status(e.code());
+                message = e.what();
+            } catch (const std::exception& e) {
+                status = FC_ERR_INTERNAL;
+                message = e.what();
+            }
+            done(user, status, &out, message.c_str());
         });
         *out_task = task.release();
     });

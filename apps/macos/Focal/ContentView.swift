@@ -81,17 +81,41 @@ struct ContentView: View {
             }
         }
         .sheet(item: $model.albumPrompt) { prompt in
-            AlbumNameSheet(model: model, prompt: prompt)
+            if case .smart(let editing, let parent) = prompt {
+                SmartAlbumSheet(model: model, editing: editing, parent: parent)
+            } else {
+                AlbumNameSheet(model: model, prompt: prompt)
+            }
+        }
+        .sheet(isPresented: $model.showImport) {
+            ImportSheet(model: model, importer: model.cardImport) {
+                if model.cardImport.phase == .running { model.cardImport.cancel() }
+                model.showImport = false
+            }
         }
         .confirmationDialog(
             Text("Delete the album “\(model.albumToDelete?.name ?? "")”?"),
             isPresented: Binding(get: { model.albumToDelete != nil }, set: { if !$0 { model.albumToDelete = nil } })) {
-            Button("Delete Album", role: .destructive) {
+            Button(model.albumToDelete?.kind == .folder ? "Delete Folder" : "Delete Album", role: .destructive) {
                 if let a = model.albumToDelete { model.deleteAlbum(a) }
                 model.albumToDelete = nil
             }
         } message: {
-            Text("The photos are not deleted.")
+            if model.albumToDelete?.kind == .folder {
+                Text("The albums inside are deleted too. The photos are not deleted.")
+            } else {
+                Text("The photos are not deleted.")
+            }
+        }
+        .confirmationDialog(
+            Text("Remove “\(model.rootToRemove?.node.name ?? "")” from the catalog?"),
+            isPresented: Binding(get: { model.rootToRemove != nil }, set: { if !$0 { model.rootToRemove = nil } })) {
+            Button("Remove from Catalog", role: .destructive) {
+                if let r = model.rootToRemove { model.removeRoot(r) }
+                model.rootToRemove = nil
+            }
+        } message: {
+            Text("The photos’ ratings, flags, tags, album memberships and edits in this catalog are deleted. The files on disk are not deleted.")
         }
         .alert("Error", isPresented: Binding(get: { model.lastError != nil }, set: { if !$0 { model.clearError() } })) {
             Button("OK") { model.clearError() }
@@ -253,20 +277,26 @@ struct AlbumNameSheet: View {
         .onAppear {
             switch prompt {
             case .create: name = model.untitledAlbumName()
+            case .createFolder: name = model.untitledFolderName()
             case .rename(let a): name = a.name
+            case .smart: break
             }
         }
     }
 
     private var isCreate: Bool {
-        if case .create = prompt { return true }
-        return false
+        switch prompt {
+        case .create, .createFolder: true
+        default: false
+        }
     }
 
     private var title: LocalizedStringKey {
         switch prompt {
-        case .create(let addSelection): addSelection ? "New Album with Selected Photos" : "New Album"
-        case .rename: "Rename Album"
+        case .create(let addSelection, _): addSelection ? "New Album with Selected Photos" : "New Album"
+        case .createFolder: "New Folder"
+        case .rename(let a): a.kind == .folder ? "Rename Folder" : "Rename Album"
+        case .smart: "New Smart Album"
         }
     }
 
@@ -274,8 +304,10 @@ struct AlbumNameSheet: View {
         let n = name.trimmingCharacters(in: .whitespaces)
         guard !n.isEmpty else { return }
         switch prompt {
-        case .create(let addSelection): model.createAlbum(named: n, addSelection: addSelection)
+        case .create(let addSelection, let parent): model.createAlbum(named: n, addSelection: addSelection, parent: parent)
+        case .createFolder(let parent): model.createAlbumFolder(named: n, parent: parent)
         case .rename(let a): model.renameAlbum(a, to: n)
+        case .smart: break
         }
         dismiss()
     }

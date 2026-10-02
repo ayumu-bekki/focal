@@ -13,6 +13,8 @@ add_executable(focal_tests
     test_unicode_file.cpp
     test_schema.cpp
     test_catalog.cpp
+    test_library.cpp
+    test_card_import.cpp
     test_thumbnail.cpp
     test_editor.cpp
     test_crop_tool.cpp

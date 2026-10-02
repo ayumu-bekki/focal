@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import FocalCore
 import Observation
@@ -18,6 +19,31 @@ struct TagNode: Identifiable, Hashable {
     var children: [TagNode]?
 }
 
+/// ストレージの 1 つのルート（ライブラリのルートフォルダ）とそのフォルダツリー（v3.19）
+struct RootEntry: Identifiable, Hashable {
+    let id: Int64
+    let path: String
+    let node: FolderNode
+    let isOnline: Bool
+    /// 読み込み先（設定の既定のコピー先）になっている
+    let isImportDestination: Bool
+}
+
+/// ストレージ（ボリューム）の節。外付けドライブが外れていると isOnline = false（グレー表示）
+struct VolumeGroup: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let isOnline: Bool
+    var roots: [RootEntry]
+}
+
+/// アルバムのツリーの節（フォルダなら children を持つ）
+struct AlbumNode: Identifiable, Hashable {
+    let album: Album
+    var children: [AlbumNode]?
+    var id: Int64 { album.id }
+}
+
 enum MainMode: String { case grid, viewer }
 
 /// ライブラリ画面の状態（9 章）。画像処理・カタログのロジックは持たず、FocalCore を呼ぶだけ（ADR-10）。
@@ -28,9 +54,16 @@ final class LibraryModel {
 
     private(set) var roots: [PhotoRoot] = []
     private(set) var folderTree: [FolderNode] = []
+    /// ストレージ（ボリューム）ごとのルートとフォルダ（v3.19）
+    private(set) var volumes: [VolumeGroup] = []
     private(set) var tagTree: [TagNode] = []
-    /// アルバム（v3.16、作った順）
+    /// すべてのタグ（"親/子" のパスつき。スマートアルバムの条件の選択肢）
+    private(set) var tags: [PhotoTag] = []
+    /// アルバム（v3.16）。親が先、同じ親の中は作った順（v3.19 でフォルダ・スマートアルバムを含む）
     private(set) var albums: [Album] = []
+    private(set) var albumTree: [AlbumNode] = []
+    /// いま接続されている DCIM のあるボリューム（SD カードなど。v3.19）
+    private(set) var importSources: [ImportSource] = []
 
     var filter = PhotoFilter() { didSet { if filter != oldValue { reloadPhotos() } } }
 
@@ -54,6 +87,9 @@ final class LibraryModel {
     var showFilterBar = false
     var showExport = false
     let export = ExportModel()
+    /// カードの取り込みのシート（v3.19）
+    var showImport = false
+    let cardImport = CardImportModel()
 
     private(set) var importProgress: (done: Int, total: Int)? = nil
     private(set) var lastError: String? = nil
@@ -77,7 +113,13 @@ final class LibraryModel {
         reloadSidebar()
         try develop.setThumbnailCache(cacheURL) { [weak self] id in self?.thumbnailUpdated(id) }
         try develop.editor.setPreviewCache(previewCacheURL, limitBytes: previewCacheLimit)
+        cardImport.configure(model: self)
         reloadPhotos()
+        observeVolumes()
+        refreshImportSources()
+        if !AppPaths.isolatedFromDefaults && UserDefaults.standard.bool(forKey: AppPaths.rescanOnLaunchKey, default: true) {
+            rescanAll()  // 起動時の再スキャン（外でフォルダやファイルが変わっていた場合に追従する）
+        }
     }
 
     // MARK: 読み込み
@@ -89,8 +131,11 @@ final class LibraryModel {
                 let folders = try catalog.folders(rootID: root.id)
                 return Self.buildFolderTree(root: root, folders: folders)
             }
-            tagTree = Self.buildTagTree(try catalog.tags())
+            tags = try catalog.tags()
+            tagTree = Self.buildTagTree(tags)
             albums = try catalog.albums()
+            albumTree = Self.buildAlbumTree(albums)
+            volumes = Self.buildVolumes(roots: roots, trees: folderTree, importDestination: cardImport.destination)
         } catch {
             report(error)
         }
@@ -176,6 +221,8 @@ final class LibraryModel {
 
     /// アプリの終了時: 編集を保存し、書き込みが終わるまで待つ（7.4 章）
     func prepareForTermination() {
+        stopObservingVolumes()
+        watcher.stop()
         develop.close()
         try? catalog.flush()
     }
@@ -240,7 +287,8 @@ final class LibraryModel {
     private func afterPhotoChange(_ ids: [Int64]) {
         pageCache.removeAll()
         // 絞り込みの条件に関わる変更なら並びを作り直す
-        if filter.minRating > 0 || filter.flag != .any || filter.tagID != nil {
+        if albums.contains(where: { $0.kind == .smart }) { reloadSidebar() }  // スマートアルバムの枚数
+        if filter.minRating > 0 || filter.flag != .any || filter.tagID != nil || filter.smartAlbumID != nil {
             reloadPhotos()
         } else {
             changedPhotos = (changedPhotos.generation + 1, Set(ids))
@@ -253,10 +301,29 @@ final class LibraryModel {
         Task { await scan(addingRoot: url) }
     }
 
+    /// 登録したフォルダをすべて再スキャンする。ドライブが外れているルートは飛ばす
     func rescanAll() {
         Task {
-            for root in roots { await scan(rootID: root.id) }
+            for root in roots where root.isOnline { await scan(rootID: root.id) }
         }
+    }
+
+    /// 外す確認を出すルート（SidebarView の確認ダイアログ）
+    var rootToRemove: RootEntry?
+
+    /// ルートをカタログから外す（ファイルは消えない）。見ていたフォルダなら「すべての写真」に戻す
+    func removeRoot(_ root: RootEntry) {
+        do {
+            if case .folder(let id) = source, Self.find(id, in: [root.node]) != nil { source = .all }
+            try catalog.removeRoot(root.id)
+            reloadSidebar()
+            reloadPhotos()
+            updateWatcher()
+        } catch { report(error) }
+    }
+
+    func rescan(rootID: Int64) {
+        Task { await scan(rootID: rootID) }
     }
 
     private func scan(addingRoot url: URL) async {
@@ -267,9 +334,21 @@ final class LibraryModel {
         } catch { report(error) }
     }
 
+    /// 同時に走らせるのは 1 つだけ（同じルートを 2 つのスキャンが同時に書くと重複するため）
+    private var scanQueue: [Int64] = []
+    private(set) var isScanning = false
+
     private func scan(rootID: Int64) async {
+        if isScanning || cardImport.phase == .running {
+            if !scanQueue.contains(rootID) { scanQueue.append(rootID) }
+            return
+        }
+        isScanning = true
         importProgress = (0, 0)
-        defer { importProgress = nil }
+        defer {
+            importProgress = nil
+            isScanning = false
+        }
         do {
             // サムネイルは表示時に作る（取り込みを早く終わらせる）
             for try await ev in catalog.scan(rootID: rootID, thumbnailCache: nil) {
@@ -278,6 +357,90 @@ final class LibraryModel {
         } catch { report(error) }
         reloadSidebar()
         reloadPhotos()
+        if !scanQueue.isEmpty {
+            let next = scanQueue.removeFirst()
+            await scan(rootID: next)
+        }
+    }
+
+    // MARK: ボリューム・フォルダの監視（v3.19）
+
+    private var volumeObservers: [NSObjectProtocol] = []
+    private let watcher = FolderWatcher()
+
+    private func observeVolumes() {
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
+            volumeObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.volumesChanged() }
+            })
+        }
+    }
+
+    private func stopObservingVolumes() {
+        for o in volumeObservers { NSWorkspace.shared.notificationCenter.removeObserver(o) }
+        volumeObservers = []
+    }
+
+    /// ドライブがつながった・外れた: ルートの場所をいまのマウントポイントに合わせ、サイドバーを更新する
+    private func volumesChanged() {
+        let catalog = catalog
+        Task {
+            _ = await Task.detached { try? catalog.refreshVolumes() }.value
+            reloadSidebar()
+            refreshImportSources()
+            updateWatcher()
+        }
+    }
+
+    func refreshImportSources() {
+        Task {
+            let sources = await Task.detached { (try? Catalog.importSources()) ?? [] }.value
+            if sources != importSources {
+                importSources = sources
+                cardImport.updateSources(sources)
+            }
+        }
+    }
+
+    /// 表示中のフォルダだけ監視する（FSEvents。全体の常時監視はしない）。変わったらそのルートを再スキャンする
+    private func updateWatcher() {
+        guard case .folder(let id) = source, let entry = rootEntry(containingFolder: id), entry.isOnline else {
+            watcher.stop()
+            return
+        }
+        watcher.watch(path: entry.path) { [weak self] in
+            guard let self, !self.isScanning, self.cardImport.phase != .running else { return }
+            self.rescan(rootID: entry.id)
+        }
+    }
+
+    private func rootEntry(containingFolder id: Int64) -> RootEntry? {
+        for v in volumes {
+            for r in v.roots where Self.find(id, in: [r.node]) != nil { return r }
+        }
+        return nil
+    }
+
+    // MARK: カードの取り込み（v3.19）
+
+    func beginCardImport(source: ImportSource? = nil) {
+        cardImport.prepare(sources: importSources, preferred: source)
+        showImport = true
+    }
+
+    /// 取り込みが終わった（コピーした分は登録済み）: 画面を更新する
+    func cardImportFinished(showRecent: Bool) {
+        reloadSidebar()
+        if showRecent {
+            source = .recentImport
+        } else {
+            reloadPhotos()
+        }
+        if !scanQueue.isEmpty {
+            let next = scanQueue.removeFirst()
+            Task { await scan(rootID: next) }
+        }
     }
 
     private func report(_ error: Error) { lastError = String(describing: error) }
@@ -298,6 +461,48 @@ final class LibraryModel {
         }
         let label = root.label.isEmpty ? (root.path.split(separator: "/").last.map(String.init) ?? root.path) : root.label
         return node(top, name: label)
+    }
+
+    /// ルートをボリュームごとにまとめる。ボリュームを判別できないルートは「その他」に入れる
+    private static func buildVolumes(roots: [PhotoRoot], trees: [FolderNode], importDestination: URL) -> [VolumeGroup] {
+        let destination = importDestination.standardizedFileURL.path
+        var groups: [String: VolumeGroup] = [:]
+        var order: [String] = []
+        for (root, tree) in zip(roots, trees) {
+            let key = root.volumeID.isEmpty ? "" : root.volumeID
+            let entry = RootEntry(id: root.id, path: root.path, node: tree, isOnline: root.isOnline,
+                                  isImportDestination: URL(fileURLWithPath: root.path).standardizedFileURL.path == destination)
+            if groups[key] == nil {
+                let name = root.volumeID.isEmpty ? String(localized: "Other Locations") : root.volumeName
+                groups[key] = VolumeGroup(id: key, name: name, isOnline: false, roots: [])
+                order.append(key)
+            }
+            groups[key]!.roots.append(entry)
+        }
+        var result = order.map { key -> VolumeGroup in
+            let g = groups[key]!
+            return VolumeGroup(id: g.id, name: g.name, isOnline: g.roots.contains { $0.isOnline }, roots: g.roots)
+        }
+        // つながっているボリュームが先、外れているものは後ろ。「その他」は最後
+        result.sort { a, b in
+            if a.id.isEmpty != b.id.isEmpty { return !a.id.isEmpty }
+            if a.isOnline != b.isOnline { return a.isOnline }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+        return result
+    }
+
+    private static func buildAlbumTree(_ albums: [Album]) -> [AlbumNode] {
+        var children: [Int64: [Album]] = [:]
+        var tops: [Album] = []
+        for a in albums {
+            if let p = a.parentID { children[p, default: []].append(a) } else { tops.append(a) }
+        }
+        func node(_ a: Album) -> AlbumNode {
+            let kids = (children[a.id] ?? []).map(node)
+            return AlbumNode(album: a, children: a.kind == .folder ? kids : nil)
+        }
+        return tops.map(node)
     }
 
     private static func buildTagTree(_ tags: [PhotoTag]) -> [TagNode] {
@@ -369,35 +574,50 @@ final class LibraryModel {
 
     // MARK: 何を表示するか・アルバム（9.5 章、v3.16）
 
-    /// サイドバーで選ぶ写真の集まり。絞り込みバーの条件はこれに重ねる
+    /// サイドバーで選ぶ写真の集まり。絞り込みバーの条件はこれに重ねる。
+    /// album(id) は手で集めるアルバムとスマートアルバムの両方（id は同じ表）。folder(id) はストレージのフォルダ（v3.19）
     enum Source: Hashable {
-        case all, recentImport, album(Int64)
+        case all, recentImport, album(Int64), folder(Int64)
     }
 
     var source: Source {
         get {
-            if let id = filter.albumID { return .album(id) }
-            return filter.recentImport ? .recentImport : .all
+            if let id = filter.albumID ?? filter.smartAlbumID { return .album(id) }
+            if filter.recentImport { return .recentImport }
+            if let id = filter.folderID { return .folder(id) }
+            return .all
         }
         set {
             var f = filter
+            f.albumID = nil
+            f.smartAlbumID = nil
+            f.recentImport = false
+            f.folderID = nil
             switch newValue {
-            case .all: f.albumID = nil; f.recentImport = false
-            case .recentImport: f.albumID = nil; f.recentImport = true
-            case .album(let id): f.albumID = id; f.recentImport = false
+            case .all: break
+            case .recentImport: f.recentImport = true
+            case .album(let id):
+                if albums.first(where: { $0.id == id })?.kind == .smart { f.smartAlbumID = id } else { f.albumID = id }
+            case .folder(let id): f.folderID = id
             }
             filter = f
+            updateWatcher()
         }
     }
 
     /// アルバムの名前を聞くダイアログ（ContentView が出す）
     enum AlbumPrompt: Identifiable {
-        case create(addSelection: Bool)
+        case create(addSelection: Bool, parent: Int64? = nil)
+        case createFolder(parent: Int64? = nil)
         case rename(Album)
+        /// スマートアルバムの作成（editing が nil）・条件の編集
+        case smart(editing: Album?, parent: Int64? = nil)
         var id: String {
             switch self {
-            case .create(let s): "create-\(s)"
+            case .create(let s, let p): "create-\(s)-\(p ?? 0)"
+            case .createFolder(let p): "folder-\(p ?? 0)"
             case .rename(let a): "rename-\(a.id)"
+            case .smart(let a, let p): "smart-\(a?.id ?? 0)-\(p ?? 0)"
             }
         }
     }
@@ -416,15 +636,101 @@ final class LibraryModel {
         return name
     }
 
+    func untitledFolderName() -> String {
+        let base = String(localized: "Untitled Folder")
+        var name = base, n = 2
+        while albums.contains(where: { $0.name == name }) {
+            name = "\(base) \(n)"
+            n += 1
+        }
+        return name
+    }
+
+    func untitledSmartAlbumName() -> String {
+        let base = String(localized: "Untitled Smart Album")
+        var name = base, n = 2
+        while albums.contains(where: { $0.name == name }) {
+            name = "\(base) \(n)"
+            n += 1
+        }
+        return name
+    }
+
     /// 作ったアルバムを表示する。addSelection なら選択中の写真を入れる
-    func createAlbum(named name: String, addSelection: Bool) {
+    func createAlbum(named name: String, addSelection: Bool, parent: Int64? = nil) {
         let ids = addSelection ? targetIDs : []
         do {
-            let id = try catalog.createAlbum(name)
+            let id = try catalog.createAlbum(name, parentID: parent)
             if !ids.isEmpty { try catalog.addToAlbum(id, photoIDs: ids) }
             reloadSidebar()
             if !addSelection { source = .album(id) }
         } catch { report(error) }
+    }
+
+    func createAlbumFolder(named name: String, parent: Int64?) {
+        do {
+            try catalog.createAlbumFolder(name, parentID: parent)
+            reloadSidebar()
+        } catch { report(error) }
+    }
+
+    /// スマートアルバムを作る（editing が nil）か、条件を変える。条件が不正ならエラーを投げる（シートに出す）
+    func saveSmartAlbum(editing: Album?, name: String, queryJSON: String, parent: Int64?) throws {
+        if let a = editing {
+            try catalog.setSmartQuery(a.id, queryJSON: queryJSON)
+            if a.name != name { try catalog.renameAlbum(a.id, to: name) }
+            reloadSidebar()
+            if filter.smartAlbumID == a.id { reloadPhotos() }
+        } else {
+            let id = try catalog.createSmartAlbum(name, queryJSON: queryJSON, parentID: parent)
+            reloadSidebar()
+            source = .album(id)
+        }
+    }
+
+    func smartQuery(of album: Album) -> SmartQuery {
+        (try? catalog.smartQuery(album.id)).flatMap(SmartQuery.init(jsonString:)) ?? SmartQuery()
+    }
+
+    /// 親を変える（nil でいちばん上）
+    func moveAlbum(_ album: Album, toParent parent: Int64?) {
+        do {
+            try catalog.moveAlbum(album.id, toParent: parent)
+            reloadSidebar()
+        } catch { report(error) }
+    }
+
+    /// ドラッグで動かす（フォルダの中へ、または nil でいちばん上へ）。自分の中・同じ名前がある場所など動かせないものは飛ばす。
+    /// 1 つでも動かしたら true
+    @discardableResult
+    func moveAlbums(_ ids: [Int64], toParent parent: Int64?) -> Bool {
+        var moved = false
+        for id in ids {
+            guard let album = albums.first(where: { $0.id == id }), album.parentID != parent else { continue }
+            if let parent, !folders(forMoving: album).contains(where: { $0.id == parent }) { continue }
+            do {
+                try catalog.moveAlbum(id, toParent: parent)
+                moved = true
+            } catch { report(error) }
+        }
+        if moved { reloadSidebar() }
+        return moved
+    }
+
+    /// album の下に移せるフォルダ（自分と自分の子孫は除く）
+    func folders(forMoving album: Album) -> [Album] {
+        var excluded: Set<Int64> = [album.id]
+        var changed = true
+        while changed {
+            changed = false
+            for a in albums where !excluded.contains(a.id) {
+                if let p = a.parentID, excluded.contains(p) {
+                    excluded.insert(a.id)
+                    changed = true
+                }
+            }
+        }
+        return albums.filter { $0.kind == .folder && !excluded.contains($0.id) }
     }
 
     func renameAlbum(_ album: Album, to name: String) {
@@ -434,11 +740,19 @@ final class LibraryModel {
         } catch { report(error) }
     }
 
-    /// アルバムを消す（写真は消えない）。表示中なら「すべての写真」に戻す
+    /// アルバムを消す（写真は消えない）。フォルダなら中のアルバムも消える。表示中なら「すべての写真」に戻す
     func deleteAlbum(_ album: Album) {
         do {
+            let removed = Set([album.id] + albums.filter { a in
+                var p = a.parentID
+                while let id = p {
+                    if id == album.id { return true }
+                    p = albums.first { $0.id == id }?.parentID
+                }
+                return false
+            }.map(\.id))
             try catalog.deleteAlbum(album.id)
-            if source == .album(album.id) { source = .all }
+            if case .album(let shown) = source, removed.contains(shown) { source = .all }
             reloadSidebar()
         } catch { report(error) }
     }
@@ -453,9 +767,15 @@ final class LibraryModel {
         } catch { report(error) }
     }
 
+    /// 表示中の集まりが、手で集めるアルバム（写真を外せる）か
+    var currentAlbumAcceptsPhotos: Bool {
+        if case .album(let id) = source { return albums.first { $0.id == id }?.acceptsPhotos ?? false }
+        return false
+    }
+
     /// 表示中のアルバムから外す
     func removeFromCurrentAlbum() {
-        guard case .album(let albumID) = source else { return }
+        guard case .album(let albumID) = source, currentAlbumAcceptsPhotos else { return }
         let ids = targetIDs
         guard !ids.isEmpty else { return }
         do {
