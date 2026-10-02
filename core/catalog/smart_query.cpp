@@ -2,6 +2,8 @@
 
 #include <cctype>
 #include <nlohmann/json.hpp>
+#include <string>
+#include <vector>
 
 #include "util/error.h"
 #include "util/unicode.h"

@@ -3,6 +3,10 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <ctime>
+#include <memory>
+#include <string>
+#include <vector>
 #include <map>
 #include <set>
 #include <thread>

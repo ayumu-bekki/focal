@@ -186,7 +186,10 @@ TEST_CASE("カード取り込み: 撮影日時が読めないものはファイ�
     tm.tm_hour = 12;
     tm.tm_isdst = -1;
     const std::time_t t = std::mktime(&tm);
-    fs::last_write_time(jpg, fs::file_time_type::clock::from_sys(std::chrono::system_clock::from_time_t(t)));
+    // file_clock::from_sys は古い libstdc++（Ubuntu 22.04 の GCC 11）にないので、いまとの差で作る
+    const auto delta = std::chrono::system_clock::from_time_t(t) - std::chrono::system_clock::now();
+    fs::last_write_time(jpg, fs::file_time_type::clock::now() +
+                                 std::chrono::duration_cast<fs::file_time_type::duration>(delta));
 
     auto c = Catalog::open(db / "c.sqlite");
     CardImportOptions opt;

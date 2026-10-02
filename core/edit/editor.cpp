@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 #include "catalog/catalog.h"
 #include "imaging/color_pipeline.h"

@@ -56,7 +56,7 @@ Thumbnail render_thumbnail(const fs::path& raw_path, int long_edge, const Settin
 //   2. 大きさ不明（0x0）の JPEG（多くは原寸のプレビュー）
 //   3. long_edge 未満の JPEG のうち最大のもの
 int choose_preview(const libraw_thumbnail_list_t& list, int long_edge) {
-    int big = -1, big_edge = 0, small = -1, small_edge = 0, unknown = -1;
+    int big = -1, big_edge = 0, under = -1, under_edge = 0, unknown = -1;
     for (int i = 0; i < list.thumbcount && i < LIBRAW_THUMBNAIL_MAXCOUNT; ++i) {
         const auto& t = list.thumblist[i];
         if (t.tformat != LIBRAW_INTERNAL_THUMBNAIL_JPEG) continue;
@@ -65,13 +65,13 @@ int choose_preview(const libraw_thumbnail_list_t& list, int long_edge) {
             if (unknown < 0) unknown = i;
         } else if (edge >= long_edge) {
             if (big < 0 || edge < big_edge) big = i, big_edge = edge;
-        } else if (small < 0 || edge > small_edge) {
-            small = i, small_edge = edge;
+        } else if (under < 0 || edge > under_edge) {
+            under = i, under_edge = edge;
         }
     }
     if (big >= 0) return big;
     if (unknown >= 0) return unknown;
-    return small;
+    return under;
 }
 
 } // namespace
