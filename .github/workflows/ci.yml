@@ -27,7 +27,8 @@ jobs:
             preset: windows-release
             cache: ~\AppData\Local\vcpkg\archives
     env:
-      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      # msvc-dev-cmd が VCPKG_ROOT を Visual Studio 付属の vcpkg に上書きするので、別の名前で持ち、vcpkg の手順で設定し直す
+      VCPKG_DIR: ${{ github.workspace }}/vcpkg
     steps:
       - uses: actions/checkout@v4
 
@@ -44,6 +45,8 @@ jobs:
       - name: vcpkg
         shell: bash
         run: |
+          export VCPKG_ROOT="$VCPKG_DIR"
+          echo "VCPKG_ROOT=$VCPKG_DIR" >> "$GITHUB_ENV"
           git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
           git -C "$VCPKG_ROOT" checkout "$VCPKG_COMMIT"
           if [ "$RUNNER_OS" = "Windows" ]; then "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics; else "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics; fi
