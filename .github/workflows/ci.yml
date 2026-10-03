@@ -72,6 +72,16 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }}
       - name: Test
         run: ctest --preset ${{ matrix.preset }} -j4
+      - name: Diagnose test start-up (Windows)
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dir = "build/windows-release/tests"
+          Get-ChildItem $dir -Filter *.dll | ForEach-Object { $_.Name }
+          & "$dir/focal_tests.exe" --list-tests | Select-Object -First 3
+          "exit code: $LASTEXITCODE (0xC0000135 = DLL not found, 0xC000007B = bad image)"
+          dumpbin /dependents "$dir/raw_r.dll"
+          dumpbin /dependents "$dir/focal_tests.exe"
 
   macos-app:
     name: macOS app
