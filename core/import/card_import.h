@@ -19,6 +19,9 @@ class ThumbnailCache;
 // カードのファイルをライブラリのルートの下 <ルート>/YYYY/YYYY-MM-DD/ にコピーし、カタログに登録する。
 // カードには一切書き込まない（移動・削除はしない）。コピー先には新しいファイルを作るだけで、既存のファイルは上書きしない。
 
+// path（なければいちばん近い親）があるボリュームの空き容量（バイト）。取れなければ -1
+int64_t free_space_bytes(const std::filesystem::path& path);
+
 // DCIM フォルダを持つボリューム（DCF 規格のカメラのメディア）
 struct ImportSource {
     VolumeInfo volume;
@@ -66,6 +69,8 @@ struct CardImportResult {
     int files_copied = 0;
     int64_t bytes_copied = 0;
     bool cancelled = false;
+    int64_t bytes_needed = 0;      // コピーするはずの大きさ（取り込み済みを除く）
+    int64_t space_available = -1;  // 読み込み先の空き容量。取れなければ -1
     std::vector<std::string> errors;
     std::optional<int64_t> root_id;      // 登録先のルート（dry_run では nullopt）
     ScanStats scan;                      // コピー後のカタログ登録

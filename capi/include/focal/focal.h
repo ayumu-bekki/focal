@@ -162,7 +162,10 @@ fc_status fc_catalog_move_album(fc_catalog* catalog, int64_t album_id, int64_t p
 /* 写真を足せるのは FC_ALBUM_ALBUM だけ */
 fc_status fc_catalog_add_to_album(fc_catalog* catalog, int64_t album_id, const int64_t* photo_ids, size_t count);
 fc_status fc_catalog_remove_from_album(fc_catalog* catalog, int64_t album_id, const int64_t* photo_ids, size_t count);
-/* photo_id が 0 ならカバーの指定をやめる */
+/* 同じ親の中でサイドバーの並びを動かす。delta < 0 で上、> 0 で下。端なら何もしない */
+fc_status fc_catalog_move_album_order(fc_catalog* catalog, int64_t album_id, int32_t delta);
+/* photo_id が 0 ならカバーの指定をやめる（先頭の写真になる）。そのアルバムの写真でなければ FC_ERR_INVALID_ARGUMENT。
+   fc_album.cover_photo_id は、指定がなければ先頭の写真 */
 fc_status fc_catalog_set_album_cover(fc_catalog* catalog, int64_t album_id, int64_t photo_id);
 
 /* core が持つ文字列（fc_string_free で解放する） */
@@ -341,7 +344,12 @@ typedef struct fc_card_import_result {
     int32_t cancelled;
     int64_t root_id;         /* 登録先のルート。dry_run では 0 */
     int32_t added;           /* カタログに新しく足した写真の数 */
+    int64_t bytes_needed;    /* コピーするはずの大きさ（取り込み済みを除く） */
+    int64_t space_available; /* 読み込み先の空き容量。取れなければ -1 */
 } fc_card_import_result;
+
+/* path（なければいちばん近い親）があるボリュームの空き容量。取れなければ -1 */
+int64_t fc_free_space(const char* path);
 
 /* 進捗。ワーカースレッドから呼ばれる。current はコールバックの間だけ有効 */
 typedef void (*fc_card_progress_fn)(void* user, int32_t phase, int32_t done, int32_t total, int64_t bytes_done,

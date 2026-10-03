@@ -1,6 +1,7 @@
 #include "util/volume.h"
 
 #include <algorithm>
+#include <cctype>
 #include <system_error>
 
 #include "util/file.h"
@@ -33,6 +34,21 @@
 namespace focal {
 
 namespace fs = std::filesystem;
+
+std::string network_volume_id(const std::string& source) {
+    std::string s = source;
+    if (s.rfind("//", 0) == 0) {  // SMB・AFP: //[user[:pass]@]host/share
+        s = s.substr(2);
+        if (const auto at = s.find('@'); at != std::string::npos && at < s.find('/')) s = s.substr(at + 1);
+    } else if (s.find(':') != std::string::npos && s.rfind("/dev/", 0) != 0) {  // NFS: host:/path
+        if (s.size() > 1 && s[1] == ':' && std::isalpha(static_cast<unsigned char>(s[0]))) return {};  // C:\ のようなドライブ
+    } else {
+        return {};
+    }
+    for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    while (s.size() > 1 && s.back() == '/') s.pop_back();
+    return s.empty() ? std::string() : "net:" + s;
+}
 
 namespace {
 
@@ -88,7 +104,7 @@ std::vector<VolumeInfo> list_volumes() {
         if ((mnts[i].f_flags & MNT_DONTBROWSE) && !is_data) continue;
         VolumeInfo v;
         const VolumeAttrs a = volume_attrs(mount.c_str());
-        v.id = a.uuid;
+        v.id = a.uuid.empty() ? network_volume_id(mnts[i].f_mntfromname) : a.uuid;  // SMB・NFS は UUID がない
         v.mount_point = is_data ? fs::path("/") : fs::path(mount);
         v.name = is_data && !root_name.empty() ? root_name : (a.name.empty() ? v.mount_point.filename().string() : a.name);
         v.removable = false;
@@ -205,6 +221,15 @@ std::vector<VolumeInfo> list_volumes() {
         if (f.size() < 7 || dash == f.end() || dash + 2 >= f.end()) continue;
         const std::string mount = unescape_mountinfo(f[4]);
         const std::string source = *(dash + 2);
+        const std::string net = network_volume_id(source);
+        if (!net.empty()) {  // ネットワークの共有（SMB・NFS）
+            VolumeInfo v;
+            v.id = net;
+            v.mount_point = fs::path(mount);
+            v.name = mount == "/" ? "/" : v.mount_point.filename().string();
+            out.push_back(std::move(v));
+            continue;
+        }
         if (source.rfind("/dev/", 0) != 0) continue;  // 実デバイスのボリュームだけ
         if (mount.rfind("/boot", 0) == 0 || mount.rfind("/snap", 0) == 0) continue;
         VolumeInfo v;

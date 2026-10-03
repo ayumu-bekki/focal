@@ -192,8 +192,11 @@ public:
     // 手で集めるアルバムだけに足せる（フォルダ・スマートアルバムは Error）
     void add_to_album(int64_t album_id, std::span<const int64_t> ids);
     void remove_from_album(int64_t album_id, std::span<const int64_t> ids);
-    // カバー写真（nullopt で自動 = 先頭の写真）
+    // カバー写真。そのアルバムの写真でなければ Error。nullopt で自動（先頭の写真）に戻す。
+    // albums() の cover_photo_id は、指定がなければ先頭の写真（手で集めるアルバムだけ。空なら nullopt）
     void set_album_cover(int64_t album_id, std::optional<int64_t> photo_id);
+    // 同じ親の中で、サイドバーの並びを 1 つ上（delta < 0）・下（delta > 0）へ動かす。端なら何もしない（v3.19）
+    void move_album_order(int64_t album_id, int delta);
 
     // スマートアルバム（v3.19）。条件は smart_query.h の JSON（不正なら Error）
     int64_t create_smart_album(std::string_view name, const std::string& query_json,

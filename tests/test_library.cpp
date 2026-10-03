@@ -1,6 +1,7 @@
 // v3.19: アルバムのフォルダ分け・スマートアルバム・ボリューム・移動した写真のつなぎ直し
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
 #include <fstream>
 
 #include "catalog/catalog.h"
@@ -344,4 +345,76 @@ TEST_CASE("ルートを外すと写真の情報は消え、ファイルは残る
     // もう一度追加できる
     c->scan_root(c->add_root(lib.root));
     CHECK(c->count(PhotoFilter{}) == 3);
+}
+
+TEST_CASE("ネットワークの共有は、ユーザー名やマウントポイントが変わっても同じボリューム ID になる", "[library][volume]") {
+    CHECK(network_volume_id("//guest@NAS.local/Photos") == "net:nas.local/photos");
+    CHECK(network_volume_id("//other:pw@nas.local/Photos/") == "net:nas.local/photos");
+    CHECK(network_volume_id("//nas.local/Photos") == "net:nas.local/photos");
+    CHECK(network_volume_id("nas:/export/Photos") == "net:nas:/export/photos");
+    CHECK(network_volume_id("/dev/disk3s1").empty());  // ローカルのデバイス
+    CHECK(network_volume_id("C:\\").empty());          // ドライブレター
+    CHECK(network_volume_id("tmpfs").empty());
+    CHECK(network_volume_id("").empty());
+}
+
+TEST_CASE("到達できるかの確認: あるフォルダは true、ないフォルダは false で、待たされない", "[library][volume]") {
+    TempDir dir;
+    fs::create_directories(dir / "a");
+    const auto t0 = std::chrono::steady_clock::now();
+    const auto r = directories_reachable({normalized_path_string(dir / "a"), normalized_path_string(dir / "missing"),
+                                          normalized_path_string(dir / "a" / "nothing")},
+                                         std::chrono::milliseconds(1500));
+    REQUIRE(r.size() == 3);
+    CHECK(r[0]);
+    CHECK_FALSE(r[1]);
+    CHECK_FALSE(r[2]);
+    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(1400));
+    CHECK(directories_reachable({}, std::chrono::milliseconds(10)).empty());
+}
+
+TEST_CASE("アルバムの並べ替えとカバー写真", "[library][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Lib lib;
+    TempDir dir;
+    auto c = Catalog::open(dir / "c.sqlite");
+    c->scan_root(c->add_root(lib.root));
+    const int64_t a = c->create_album("A"), b = c->create_album("B"), cc = c->create_album("C");
+    const int64_t folder = c->create_album_folder("F");
+    const int64_t inner = c->create_album("Inner", folder);
+    auto names = [&] {
+        std::string s;
+        for (const auto& al : c->albums()) s += al.name + ",";
+        return s;
+    };
+    CHECK(names() == "A,B,C,F,Inner,");
+    c->move_album_order(c->albums()[1].id, -1);  // B を上へ
+    CHECK(names() == "B,A,C,F,Inner,");
+    c->move_album_order(a, 1);  // A を下へ
+    CHECK(names() == "B,C,A,F,Inner,");
+    c->move_album_order(b, -1);  // 端は何もしない
+    c->move_album_order(folder, 1);  // 端
+    CHECK(names() == "B,C,A,F,Inner,");
+    c->move_album_order(inner, 1);  // 兄弟がいない
+    CHECK(names() == "B,C,A,F,Inner,");
+    c->move_album_order(folder, -1);
+    CHECK(names() == "B,C,F,Inner,A,");
+    CHECK_THROWS_AS(c->move_album_order(9999, 1), Error);
+    (void)cc;
+
+    // カバー: 指定がなければ先頭の写真（撮影日時順）。そのアルバムの写真しか指定できない
+    const int64_t p1 = id_of(*c, "A.ARW"), p2 = id_of(*c, "B.CR3");
+    c->add_to_album(a, std::vector<int64_t>{p1, p2});
+    auto cover = [&](int64_t id) {
+        for (const auto& al : c->albums())
+            if (al.id == id) return al.cover_photo_id;
+        return std::optional<int64_t>();
+    };
+    CHECK(cover(a) == p1);  // 2018-03-13 の Sony が先
+    CHECK_FALSE(cover(b).has_value());  // 空
+    c->set_album_cover(a, p2);
+    CHECK(cover(a) == p2);
+    CHECK_THROWS_AS(c->set_album_cover(b, p1), Error);  // B の写真ではない
+    c->set_album_cover(a, std::nullopt);
+    CHECK(cover(a) == p1);
 }

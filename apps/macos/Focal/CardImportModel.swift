@@ -15,6 +15,8 @@ final class CardImportModel {
     }
     /// 手で選んだフォルダ（DCIM フォルダか、その親）
     private(set) var chosenFolder: URL?
+    /// 読み込み先の空き容量（カードの大きさと比べて、足りなければ警告する）
+    private(set) var freeSpace: Int64?
     private(set) var summary: CardSummary?
     private(set) var isSummarizing = false
 
@@ -70,6 +72,7 @@ final class CardImportModel {
             if chosenFolder == nil { selectedSourceID = sources.first?.id }
         }
         summarize()
+        refreshFreeSpace()
     }
 
     /// カードの抜き差しで一覧が変わった
@@ -108,8 +111,36 @@ final class CardImportModel {
         if panel.runModal() == .OK, let url = panel.url { setDestination(url) }
     }
 
+    func refreshFreeSpace() {
+        let dest = destination
+        Task {
+            let n = await Task.detached { Catalog.freeSpace(at: dest) }.value
+            if n != freeSpace { freeSpace = n }
+        }
+    }
+
+    /// 選んだカードを取り出す（macOS の取り出し）。カードの写真は消えない
+    func ejectSelected() {
+        guard let url = sourceURL, selectedSourceID != nil else { return }
+        do {
+            try NSWorkspace.shared.unmountAndEjectDevice(at: url)
+            selectedSourceID = nil
+            model?.refreshImportSources()
+        } catch {
+            failure = error.localizedDescription
+        }
+    }
+
+    var canEject: Bool { selectedSourceID != nil && phase != .running }
+
+    /// 取り込みが終わったあとに 1 回呼ぶ（終了を待つ用）
+    var afterFinish: (() -> Void)?
+
+    var isRunning: Bool { phase == .running }
+
     func setDestination(_ url: URL) {
         destination = url
+        refreshFreeSpace()
         persistDestination()
         model?.reloadSidebar()
     }
@@ -184,6 +215,8 @@ final class CardImportModel {
             phase = .finished
             model.reloadSidebar()
             model.cardImportFinished(showRecent: false)
+            afterFinish?()
+            afterFinish = nil
         }
     }
 

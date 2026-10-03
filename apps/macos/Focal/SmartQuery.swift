@@ -5,7 +5,7 @@ import SwiftUI
 /// 条件の意味づけ・検証は core（catalog/smart_query）が行う。ここは編集画面の行と JSON（design.md 7.2 章）の変換だけ
 struct SmartRule: Identifiable, Equatable {
     enum Field: String, CaseIterable, Identifiable {
-        case rating, flag, tag, album, camera, lens
+        case rating, flag, tag, album, folder, camera, lens
         case fileName = "file_name"
         case iso
         case focalLength = "focal_length"
@@ -20,6 +20,7 @@ struct SmartRule: Identifiable, Equatable {
             case .flag: "Flag"
             case .tag: "Tag"
             case .album: "Album"
+            case .folder: "Folder"
             case .camera: "Camera"
             case .lens: "Lens"
             case .fileName: "File Name"
@@ -37,7 +38,7 @@ struct SmartRule: Identifiable, Equatable {
                 [(">=", "is at least"), ("<=", "is at most"), ("=", "is")]
             case .flag: [("is", "is"), ("is_not", "is not")]
             case .tag: [("has", "has"), ("not_has", "does not have")]
-            case .album: [("in", "is in"), ("not_in", "is not in")]
+            case .album, .folder: [("in", "is in"), ("not_in", "is not in")]
             case .camera, .lens, .fileName: [("contains", "contains"), ("not_contains", "does not contain")]
             case .date: [(">=", "is on or after"), ("<=", "is on or before"), ("between", "is between")]
             }
@@ -50,7 +51,7 @@ struct SmartRule: Identifiable, Equatable {
     var number = 3.0  // ★、ISO、焦点距離、F 値
     var text = ""  // カメラ、レンズ、ファイル名
     var flag = "pick"  // pick / reject / none
-    var itemID: Int64 = 0  // タグ・アルバムの id
+    var itemID: Int64 = 0  // タグ・アルバム・フォルダの id
     var date = Date.now
     var dateEnd = Date.now
 
@@ -85,7 +86,7 @@ struct SmartRule: Identifiable, Equatable {
         case .iso: value = Int(number)
         case .focalLength, .fNumber: value = number
         case .flag: value = flag
-        case .tag, .album: value = itemID
+        case .tag, .album, .folder: value = itemID
         case .camera, .lens, .fileName: value = text
         case .date:
             let a = Self.dateFormatter.string(from: date)
@@ -102,7 +103,7 @@ struct SmartRule: Identifiable, Equatable {
         switch f {
         case .rating, .iso, .focalLength, .fNumber: number = (value as? NSNumber)?.doubleValue ?? 0
         case .flag: flag = value as? String ?? "pick"
-        case .tag, .album: itemID = (value as? NSNumber)?.int64Value ?? 0
+        case .tag, .album, .folder: itemID = (value as? NSNumber)?.int64Value ?? 0
         case .camera, .lens, .fileName: text = value as? String ?? ""
         case .date:
             if let pair = value as? [String], pair.count == 2 {

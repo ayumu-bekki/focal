@@ -161,6 +161,11 @@ public final class Catalog: @unchecked Sendable {
         try check(fc_catalog_move_album(handle, id, parentID ?? 0))
     }
 
+    /// 同じ親の中でサイドバーの並びを動かす（delta < 0 で上、> 0 で下）
+    public func moveAlbumOrder(_ id: Int64, by delta: Int) throws {
+        try check(fc_catalog_move_album_order(handle, id, Int32(delta)))
+    }
+
     public func setAlbumCover(_ id: Int64, photoID: Int64?) throws {
         try check(fc_catalog_set_album_cover(handle, id, photoID ?? 0))
     }
@@ -288,6 +293,12 @@ public final class Catalog: @unchecked Sendable {
                          mountPoint: String(cString: $0.mount_point), dcimPath: String(cString: $0.dcim_path),
                          isRemovable: $0.removable != 0)
         }
+    }
+
+    /// path（なければいちばん近い親）があるボリュームの空き容量。取れなければ nil
+    public static func freeSpace(at url: URL) -> Int64? {
+        let n = url.path.withCString { fc_free_space($0) }
+        return n >= 0 ? n : nil
     }
 
     /// カードの中身の概算。遅いカードでは時間がかかるので、メインスレッド以外で呼ぶこと

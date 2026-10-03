@@ -27,7 +27,14 @@ if(TARGET focal_gpu)
     target_sources(focal_tests PRIVATE test_gpu.cpp)
     target_link_libraries(focal_tests PRIVATE focal_gpu)
 endif()
-catch_discover_tests(focal_tests SKIP_RETURN_CODE 4)
+if(WIN32)
+    # テスト名が日本語なので、catch_discover_tests が作る「名前を引数に渡す」実行は、Windows のコマンドラインの
+    # 文字コードで名前が化けて「該当なし」になる（CI で全件が 0.02 秒で失敗した）。Windows は全体を 1 回で走らせる
+    add_test(NAME focal_tests COMMAND focal_tests)
+    set_tests_properties(focal_tests PROPERTIES SKIP_RETURN_CODE 4)
+else()
+    catch_discover_tests(focal_tests SKIP_RETURN_CODE 4)
+endif()
 
 # ゴールデン画像テスト（12 章）。CLI でレンダリングして保存済み画像と比較する（最大差 2/255）。
 # 更新: cmake -DFOCAL_UPDATE_GOLDEN=ON ... で再構成してから ctest -R golden（process_version を変えるときだけ）

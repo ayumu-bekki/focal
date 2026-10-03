@@ -633,27 +633,25 @@ final class FocalUITests: XCTestCase {
         saveScreenshot(app, name: "import-recent")
     }
 
-    /// 「アルバム」見出しの右端の ＋。見出しは 1 つのアクセシビリティ要素にまとまるので、右端を座標で押す
-    /// n: 0 新規アルバム、1 新規スマートアルバム、2 新規フォルダ（メニュー項目の識別子は取れないので順番で選ぶ）
+    /// n: 0 新規アルバム、1 新規スマートアルバム、2 新規フォルダ（メニュー項目の識別子は取れないので名前で選ぶ）
     private func chooseNewAlbumItem(_ app: XCUIApplication, _ n: Int) {
         openNewAlbumMenu(app)
-        // メニューバーにも同じ名前の項目があるので、開いているポップアップの（押せる）項目だけを選ぶ
         let titles = [["新規アルバム…", "New Album…"], ["新規スマートアルバム…", "New Smart Album…"],
                       ["新規フォルダ…", "New Folder…"]][n]
+        // メニューバーにも同じ名前の項目があるので、開いているポップアップの（押せる）項目だけを選ぶ
         let query = app.menuItems.matching(NSPredicate(format: "title == %@ OR title == %@", titles[0], titles[1]))
         let deadline = Date().addingTimeInterval(3)
-        var item = query.firstMatch
         while Date() < deadline, !(query.allElementsBoundByIndex.contains { $0.isHittable }) { usleep(100_000) }
-        if let hit = query.allElementsBoundByIndex.first(where: { $0.isHittable }) { item = hit }
+        let item = query.allElementsBoundByIndex.first(where: { $0.isHittable }) ?? query.firstMatch
         XCTAssertTrue(item.waitForExistence(timeout: 3))
         item.click()
     }
 
+    /// 「アルバム」見出しの ＋ メニューを開く
     private func openNewAlbumMenu(_ app: XCUIApplication) {
-        let header = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier ENDSWITH 'newAlbum'")).firstMatch
-        XCTAssertTrue(header.waitForExistence(timeout: 5))
-        header.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).click()
+        let plus = app.descendants(matching: .any).matching(identifier: "newAlbum").firstMatch
+        XCTAssertTrue(plus.waitForExistence(timeout: 5))
+        plus.click()
     }
 
     private func waitUntil(timeout: TimeInterval = 5, _ cond: () -> Bool) -> Bool {

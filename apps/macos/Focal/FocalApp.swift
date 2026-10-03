@@ -88,6 +88,17 @@ private func applyTestWindowSize() {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor weak var state: AppState?
 
+    /// カードの取り込み中に終了するときは、取り込みを止めて（コピー済みの分は登録され、書きかけのファイルは消える）、
+    /// 終わるのを待ってから終了する。10 秒待っても終わらなければ終了する
+    @MainActor
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let importer = state?.model?.cardImport, importer.isRunning else { return .terminateNow }
+        importer.afterFinish = { NSApp.reply(toApplicationShouldTerminate: true) }
+        importer.cancel()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { NSApp.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
+    }
+
     @MainActor
     func applicationWillTerminate(_ notification: Notification) {
         state?.model?.prepareForTermination()
@@ -314,6 +325,8 @@ struct LibraryCommands: Commands {
                 Button("New Album with Selected Photos…") { model?.albumPrompt = .create(addSelection: true) }
             }
             .disabled(model == nil)
+            Button("Use as Album Cover") { model?.setCurrentAlbumCover() }
+                .disabled(!(model?.canSetAlbumCover ?? false))
             Button("Remove from Album") { model?.removeFromCurrentAlbum() }
                 .disabled(!(model?.currentAlbumAcceptsPhotos ?? false))
             Divider()

@@ -1,5 +1,9 @@
 #include "util/file.h"
 
+#include <future>
+#include <memory>
+#include <thread>
+
 #include <sys/stat.h>
 
 #include <cstring>
@@ -71,6 +75,25 @@ std::string normalized_path_string(const fs::path& p) {
     std::string s(reinterpret_cast<const char*>(g.data()), g.size());
     while (s.size() > 1 && s.back() == '/') s.pop_back();
     return to_nfc(s);
+}
+
+std::vector<bool> directories_reachable(const std::vector<std::string>& paths, std::chrono::milliseconds timeout) {
+    // 応答しない共有に当たった確認スレッドは、戻ってくるまで残る（結果は共有の状態に書くので、呼び出し側が先に戻ってよい）
+    std::vector<std::future<bool>> futures;
+    for (const auto& p : paths) {
+        auto task = std::make_shared<std::promise<bool>>();
+        futures.push_back(task->get_future());
+        std::thread([task, p] {
+            std::error_code ec;
+            const auto disk = resolve_nfc_path(p);
+            task->set_value(disk && std::filesystem::is_directory(*disk, ec));
+        }).detach();
+    }
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    std::vector<bool> result;
+    for (auto& f : futures)
+        result.push_back(f.wait_until(deadline) == std::future_status::ready && f.get());
+    return result;
 }
 
 } // namespace focal

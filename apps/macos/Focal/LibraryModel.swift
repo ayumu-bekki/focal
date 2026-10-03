@@ -368,7 +368,25 @@ final class LibraryModel {
     private var volumeObservers: [NSObjectProtocol] = []
     private let watcher = FolderWatcher()
 
+    private var pollTask: Task<Void, Never>?
+
+    /// 数秒おきに、ルートに届くかを見直す。ケーブルが抜けた・NAS が落ちたなど、アンマウントの通知が来ない切断も反映する。
+    /// 確認は別のスレッドで行い（応答しない共有で画面を止めない）、接続状態が変わったときだけサイドバーを更新する
+    private func startVolumePolling() {
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard let self, !Task.isCancelled else { return }
+                let catalog = self.catalog
+                let latest = await Task.detached { (try? catalog.roots()) ?? [] }.value
+                let known = Dictionary(uniqueKeysWithValues: self.roots.map { ($0.id, $0.isOnline) })
+                if latest.contains(where: { known[$0.id] != $0.isOnline }) { self.volumesChanged() }
+            }
+        }
+    }
+
     private func observeVolumes() {
+        startVolumePolling()
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
             volumeObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -378,6 +396,8 @@ final class LibraryModel {
     }
 
     private func stopObservingVolumes() {
+        pollTask?.cancel()
+        pollTask = nil
         for o in volumeObservers { NSWorkspace.shared.notificationCenter.removeObserver(o) }
         volumeObservers = []
     }
@@ -461,6 +481,23 @@ final class LibraryModel {
         }
         let label = root.label.isEmpty ? (root.path.split(separator: "/").last.map(String.init) ?? root.path) : root.label
         return node(top, name: label)
+    }
+
+    /// スマートアルバムの条件で選べるフォルダ（"ルート/2018/旅行" の形。ルートのフォルダも含む）
+    struct FolderChoice: Identifiable, Hashable {
+        let id: Int64
+        let title: String
+    }
+
+    var folderChoices: [FolderChoice] {
+        var out: [FolderChoice] = []
+        func walk(_ n: FolderNode, prefix: String) {
+            let title = prefix.isEmpty ? n.name : prefix + "/" + n.name
+            out.append(FolderChoice(id: n.id, title: title))
+            for c in n.children ?? [] { walk(c, prefix: title) }
+        }
+        for v in volumes { for r in v.roots { walk(r.node, prefix: "") } }
+        return out
     }
 
     /// ルートをボリュームごとにまとめる。ボリュームを判別できないルートは「その他」に入れる
@@ -731,6 +768,31 @@ final class LibraryModel {
             }
         }
         return albums.filter { $0.kind == .folder && !excluded.contains($0.id) }
+    }
+
+    /// 同じ親の中で動かせるか（端なら false）
+    func canMoveAlbum(_ album: Album, by delta: Int) -> Bool {
+        let siblings = albums.filter { $0.parentID == album.parentID }
+        guard let i = siblings.firstIndex(where: { $0.id == album.id }) else { return false }
+        return siblings.indices.contains(i + delta)
+    }
+
+    func moveAlbumOrder(_ album: Album, by delta: Int) {
+        do {
+            try catalog.moveAlbumOrder(album.id, by: delta)
+            reloadSidebar()
+        } catch { report(error) }
+    }
+
+    /// 表示中のアルバムのカバーを、選んでいる 1 枚にする
+    var canSetAlbumCover: Bool { currentAlbumAcceptsPhotos && targetIDs.count == 1 }
+
+    func setCurrentAlbumCover() {
+        guard case .album(let albumID) = source, canSetAlbumCover, let id = targetIDs.first else { return }
+        do {
+            try catalog.setAlbumCover(albumID, photoID: id)
+            reloadSidebar()
+        } catch { report(error) }
     }
 
     func renameAlbum(_ album: Album, to name: String) {

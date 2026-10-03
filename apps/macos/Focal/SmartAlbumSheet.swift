@@ -154,6 +154,13 @@ private struct SmartRuleRow: View {
             }
             .labelsHidden()
             .onAppear { if rule.itemID == 0, let first = model.albums.first(where: { $0.kind != .smart }) { rule.itemID = first.id } }
+        case .folder:
+            Picker("", selection: $rule.itemID) {
+                if rule.itemID == 0 { Text("Choose…").tag(Int64(0)) }
+                ForEach(model.folderChoices) { Text($0.title).tag($0.id) }
+            }
+            .labelsHidden()
+            .onAppear { if rule.itemID == 0, let first = model.folderChoices.first { rule.itemID = first.id } }
         case .camera, .lens, .fileName:
             TextField("", text: $rule.text)
                 .accessibilityIdentifier("smartText")

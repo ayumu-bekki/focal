@@ -489,11 +489,11 @@ std::vector<RootInfo> Catalog::roots() {
             out.push_back({st.column_int64(0), st.column_text(1), st.column_text(2), st.column_text(3),
                            st.column_text(4), st.column_text(5), true});
     }
-    for (auto& r : out) {
-        std::error_code ec;
-        const auto disk = resolve_nfc_path(r.path);
-        r.online = disk && fs::is_directory(*disk, ec);
-    }
+    // 応答しないネットワークボリュームで待ち続けないよう、時間切れのものは未接続とみなす
+    std::vector<std::string> paths;
+    for (const auto& r : out) paths.push_back(r.path);
+    const auto reachable = directories_reachable(paths, std::chrono::milliseconds(1500));
+    for (size_t i = 0; i < out.size(); ++i) out[i].online = reachable[i];
     return out;
 }
 
@@ -835,7 +835,10 @@ int64_t insert_album(Database& db, const std::string& name, std::optional<int64_
 std::vector<AlbumInfo> Catalog::albums() {
     std::lock_guard lock(reader_mutex_);
     auto st = reader_->prepare(
-        "SELECT a.id, a.name, a.parent_id, a.kind, a.cover_photo_id, a.query,"
+        "SELECT a.id, a.name, a.parent_id, a.kind,"
+        " COALESCE(a.cover_photo_id, (SELECT ap.photo_id FROM album_photos ap JOIN photos p ON p.id = ap.photo_id"
+        "   WHERE ap.album_id = a.id ORDER BY p.capture_time IS NULL, p.capture_time, p.file_name, p.id LIMIT 1)),"
+        " a.query,"
         " (SELECT COUNT(*) FROM album_photos ap WHERE ap.album_id = a.id)"
         " FROM albums a ORDER BY a.sort_order, a.id");
     std::vector<AlbumInfo> all;
@@ -967,8 +970,34 @@ void Catalog::remove_from_album(int64_t album_id, std::span<const int64_t> ids) 
     });
 }
 
+void Catalog::move_album_order(int64_t album_id, int delta) {
+    if (delta == 0) return;
+    writer_->call([&](Database& db) {
+        auto cur = db.prepare("SELECT parent_id FROM albums WHERE id = ?");
+        cur.bind(1, album_id);
+        if (!cur.step()) throw Error(Error::Code::NotFound, "unknown album id " + std::to_string(album_id));
+        const std::optional<int64_t> parent = cur.column_opt_int64(0);
+        std::vector<int64_t> ids;
+        auto sib = db.prepare("SELECT id FROM albums WHERE parent_id IS ? ORDER BY sort_order, id");
+        sib.bind(1, parent);
+        while (sib.step()) ids.push_back(sib.column_int64(0));
+        const auto at = std::find(ids.begin(), ids.end(), album_id) - ids.begin();
+        const auto to = at + (delta < 0 ? -1 : 1);
+        if (to < 0 || to >= static_cast<std::ptrdiff_t>(ids.size())) return;
+        std::swap(ids[at], ids[to]);
+        // 並びの値は同じ親の中でだけ比べる。重なりがないよう、連番にし直す
+        auto up = db.prepare("UPDATE albums SET sort_order = ? WHERE id = ?");
+        for (size_t i = 0; i < ids.size(); ++i) up.bind(1, static_cast<int64_t>(i + 1)).bind(2, ids[i]).run();
+    });
+}
+
 void Catalog::set_album_cover(int64_t album_id, std::optional<int64_t> photo_id) {
     writer_->call([&](Database& db) {
+        if (photo_id) {
+            auto member = db.prepare("SELECT 1 FROM album_photos WHERE album_id = ? AND photo_id = ?");
+            member.bind(1, album_id).bind(2, *photo_id);
+            if (!member.step()) throw Error(Error::Code::InvalidArgument, "the photo is not in the album");
+        }
         auto st = db.prepare("UPDATE albums SET cover_photo_id = ? WHERE id = ?");
         st.bind(1, photo_id).bind(2, album_id).run();
     });

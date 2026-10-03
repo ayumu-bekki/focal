@@ -105,6 +105,8 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 - `core/catalog/` — `sqlite`（RAII ラッパー）、`schema`（7.2 章とマイグレーション。移行前に `VACUUM INTO` でバックアップ）、`db_writer`（書き込み専用スレッド。最大 500 件を 1 トランザクションにまとめ、ジョブごとに SAVEPOINT）、`catalog`（ルート登録・スキャン・照合・絞り込み・★/フラグ/タグ・アルバム・最近の取り込み）
 - `core/thumbs/thumbnail` — 埋め込みプレビューの選択と抽出、向き補正、フォールバック（half_size + 既定パイプライン、同時実行はコア数の半分、OpenMP 1 スレッド）、ディスクキャッシュ、`rendered_key`（現像結果のキー）、`PreviewCache`（大きいプレビュー、上限付き LRU）
 - `core/util/volume` — ボリュームの ID・名前・マウントポイント（macOS は `getattrlist` の UUID、Windows はボリューム GUID、Linux は `/dev/disk/by-uuid`）。macOS は Data ボリュームを "/" として扱う。Linux / Windows の実装は未確認（macOS 以外ではビルドしていない）
+- `Localizable.xcstrings` に文言を足したら `apps/macos/scripts/sort-strings.py` を実行する（Xcode と同じ並びにそろえ、Xcode で開いたときの差分を減らす）。
+- ルートの接続確認は `directories_reachable`（別スレッド + 時間切れ。応答しない NAS で止まらない）。SMB・NFS のボリューム ID は共有の場所から作る（`network_volume_id`）。実際の NAS では未確認（ユニットテストと macOS のローカルボリュームのみ）。
 - `core/import/card_import` — SD カードなどの取り込み（v3.19、design.md 5.10 章）。1 枚の単位（RAW + JPEG + サイドカー）、日付フォルダ、重複判定、一時ファイル + BLAKE3 検証のコピー、登録、アルバム・タグ付け
 - `core/catalog/smart_query` — スマートアルバムの条件（JSON → SQL の断片。検証も）
 - `core/util/` — スレッドプール（latest-wins 用の `CancelToken`）、行列、画像バッファ、例外、`unicode`（utf8proc で NFC と case folding）、`hash`（BLAKE3、quick_hash）、`file`（UTF-8 ⇔ path、NFC のパスから実ファイルを解決）、`omp_threads`

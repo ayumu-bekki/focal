@@ -460,6 +460,13 @@ fc_status fc_catalog_move_album(fc_catalog* catalog, int64_t album_id, int64_t p
     });
 }
 
+fc_status fc_catalog_move_album_order(fc_catalog* catalog, int64_t album_id, int32_t delta) {
+    return guard([&] {
+        require(catalog, "catalog must not be NULL");
+        catalog->catalog->move_album_order(album_id, delta);
+    });
+}
+
 fc_status fc_catalog_set_album_cover(fc_catalog* catalog, int64_t album_id, int64_t photo_id) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
@@ -617,6 +624,15 @@ fc_status fc_import_sources(fc_import_source_array** out) {
 
 void fc_import_source_array_free(fc_import_source_array* array) { delete static_cast<ImportSourceArray*>(array); }
 
+int64_t fc_free_space(const char* path) {
+    int64_t n = -1;
+    guard([&] {
+        require(path, "path must not be NULL");
+        n = free_space_bytes(utf8_to_path(path));
+    });
+    return n;
+}
+
 fc_status fc_card_summarize(const char* source, fc_card_summary* out) {
     return guard([&] {
         require(source && out, "source and out must not be NULL");
@@ -662,7 +678,7 @@ fc_status fc_card_import_start(fc_catalog* catalog, const fc_card_import_options
                 const CardImportResult r = import_from_card(*c, opt);
                 out = {r.shots,           r.imported,           r.skipped_duplicates, r.failed,
                        r.estimated_dates, r.files_copied,       r.bytes_copied,       r.cancelled ? 1 : 0,
-                       r.root_id.value_or(0), r.scan.added};
+                       r.root_id.value_or(0), r.scan.added, r.bytes_needed, r.space_available};
                 for (const auto& e : r.errors) message += (message.empty() ? "" : "\n") + e;
                 if (r.cancelled) status = FC_ERR_CANCELLED;
             } catch (const Error& e) {

@@ -26,19 +26,18 @@ struct SidebarView: View {
                 }
             }
             } header: {
-                HStack {
-                    InspectorSectionHeader(title: "Storage", expanded: $storageExpanded, identifier: "sidebarStorageHeader")
-                    Button {
-                        chooseFolderToAdd(model: model)
-                    } label: {
-                        Image(systemName: "plus")
+                InspectorSectionHeader(title: "Storage", expanded: $storageExpanded, identifier: "sidebarStorageHeader")
+                    .overlay(alignment: .trailing) {
+                        Button {
+                            chooseFolderToAdd(model: model)
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Add Folder…")
+                        .accessibilityLabel("Add Folder…")
+                        .accessibilityIdentifier("sidebarAddFolder")
                     }
-                    .buttonStyle(.borderless)
-                    .help("Add Folder…")
-                    .accessibilityLabel("Add Folder…")
-                    .accessibilityIdentifier("sidebarAddFolder")
-                }
-                .accessibilityElement(children: .contain)
             }
             Section {
                 if libraryExpanded {
@@ -52,35 +51,34 @@ struct SidebarView: View {
             }
             Section {
                 if albumsExpanded {
-                ForEach(model.albumTree) { node in
-                    AlbumRows(model: model, node: node)
-                }
-            }
-            } header: {
-                HStack {
-                    InspectorSectionHeader(title: "Albums", expanded: $albumsExpanded, identifier: "sidebarAlbumsHeader")
-                    Menu {
-                        Button("New Album…") { model.albumPrompt = .create(addSelection: false) }
-                            .accessibilityIdentifier("newAlbumItem")
-                        Button("New Smart Album…") { model.albumPrompt = .smart(editing: nil) }
-                            .accessibilityIdentifier("newSmartAlbumItem")
-                        Button("New Folder…") { model.albumPrompt = .createFolder() }
-                            .accessibilityIdentifier("newFolderItem")
-                    } label: {
-                        Image(systemName: "plus")
+                    ForEach(model.albumTree) { node in
+                        AlbumRows(model: model, node: node)
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .help("New Album")
-                    .accessibilityLabel("New Album")
-                    .accessibilityIdentifier("newAlbum")
                 }
+            } header: {
+                InspectorSectionHeader(title: "Albums", expanded: $albumsExpanded, identifier: "sidebarAlbumsHeader")
+                    .overlay(alignment: .trailing) {
+                        Menu {
+                            Button("New Album…") { model.albumPrompt = .create(addSelection: false) }
+                                .accessibilityIdentifier("newAlbumItem")
+                            Button("New Smart Album…") { model.albumPrompt = .smart(editing: nil) }
+                                .accessibilityIdentifier("newSmartAlbumItem")
+                            Button("New Folder…") { model.albumPrompt = .createFolder() }
+                                .accessibilityIdentifier("newFolderItem")
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help("New Album")
+                        .accessibilityLabel("New Album")
+                        .accessibilityIdentifier("newAlbum")
+                    }
                 // アルバムを見出しにドロップすると、いちばん上へ出す
                 .dropDestination(for: String.self) { items, _ in
                     model.moveAlbums(AlbumDrag.ids(from: items), toParent: nil)
                 }
-                .accessibilityElement(children: .contain)
             }
             if !model.importSources.isEmpty {
                 Section("Import") {
@@ -221,7 +219,9 @@ private struct AlbumRow: View {
 
     var body: some View {
         let row = HStack {
-            Label { Text(album.name).lineLimit(1).truncationMode(.middle) } icon: { Image(systemName: icon) }
+            Label { Text(album.name).lineLimit(1).truncationMode(.middle) } icon: {
+                AlbumIcon(model: model, album: album, symbol: icon)
+            }
             Spacer(minLength: 4)
             if album.kind != .folder {
                 Text("\(album.photoCount)").foregroundStyle(.secondary).monospacedDigit()
@@ -285,9 +285,47 @@ private struct AlbumRow: View {
                 }
             }
         }
+        if model.canMoveAlbum(album, by: -1) || model.canMoveAlbum(album, by: 1) {
+            Button("Move Up") { model.moveAlbumOrder(album, by: -1) }
+                .disabled(!model.canMoveAlbum(album, by: -1))
+                .accessibilityIdentifier("moveAlbumUp")
+            Button("Move Down") { model.moveAlbumOrder(album, by: 1) }
+                .disabled(!model.canMoveAlbum(album, by: 1))
+                .accessibilityIdentifier("moveAlbumDown")
+        }
         Divider()
         Button(album.kind == .folder ? "Delete Folder…" : "Delete Album…") { model.albumToDelete = album }
             .accessibilityIdentifier("deleteAlbum")
+    }
+}
+
+/// アルバムの行のアイコン: カバー写真があればその小さなサムネイル、なければ記号
+private struct AlbumIcon: View {
+    let model: LibraryModel
+    let album: Album
+    let symbol: String
+    @State private var image: CGImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 18, height: 18)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+            } else {
+                Image(systemName: symbol)
+            }
+        }
+        .task(id: album.coverPhotoID) {
+            guard album.kind == .album, let id = album.coverPhotoID else {
+                image = nil
+                return
+            }
+            image = model.thumbnails.cached(id)
+            if image == nil { image = await model.thumbnails.image(for: id) }
+        }
     }
 }
 

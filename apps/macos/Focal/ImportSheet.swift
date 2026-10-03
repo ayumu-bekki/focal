@@ -37,6 +37,15 @@ struct ImportSheet: View {
                         }
                         .buttonStyle(.borderless)
                         .help("Look for cards again")
+                        Button {
+                            importer.ejectSelected()
+                        } label: {
+                            Image(systemName: "eject")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Eject the card")
+                        .disabled(!importer.canEject)
+                        .accessibilityIdentifier("importEject")
                         Button("Choose Folder…") { importer.chooseFolder() }
                             .accessibilityIdentifier("importChooseFolder")
                     }
@@ -63,6 +72,14 @@ struct ImportSheet: View {
                             .help(importer.destination.path)
                         Button("Choose…") { importer.chooseDestination() }
                             .accessibilityIdentifier("importChooseDestination")
+                    }
+                }
+                if let s = importer.summary, let free = importer.freeSpace, s.bytes > free {
+                    LabeledContent("") {
+                        Text("The destination has \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) free; the card holds \(ByteCountFormatter.string(fromByteCount: s.bytes, countStyle: .file)). Photos already imported are skipped, but there may not be enough space.")
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                            .accessibilityIdentifier("importSpaceWarning")
                     }
                 }
                 LabeledContent("") {
@@ -176,6 +193,10 @@ struct ImportSheet: View {
                 }
                 .disabled((importer.result?.added ?? 0) == 0)
                 .accessibilityIdentifier("importShow")
+                if importer.canEject {
+                    Button("Eject Card") { importer.ejectSelected() }
+                        .accessibilityIdentifier("importEjectAfter")
+                }
                 Spacer()
                 Button("Close", action: onClose)
                     .keyboardShortcut(.defaultAction)

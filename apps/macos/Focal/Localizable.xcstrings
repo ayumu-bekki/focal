@@ -829,6 +829,26 @@
         }
       }
     },
+    "Eject Card" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カードを取り出す"
+          }
+        }
+      }
+    },
+    "Eject the card" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カードを取り出す"
+          }
+        }
+      }
+    },
     "Error" : {
       "localizations" : {
         "ja" : {
@@ -1474,12 +1494,32 @@
         }
       }
     },
+    "Move Down" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下へ移動"
+          }
+        }
+      }
+    },
     "Move to" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "移動先"
+          }
+        }
+      }
+    },
+    "Move Up" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上へ移動"
           }
         }
       }
@@ -1564,12 +1604,32 @@
         }
       }
     },
+    "New Folder" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規フォルダ"
+          }
+        }
+      }
+    },
     "New Folder Here…" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "ここに新規フォルダ…"
+          }
+        }
+      }
+    },
+    "New Folder…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規フォルダ…"
           }
         }
       }
@@ -2415,6 +2475,16 @@
         }
       }
     },
+    "The destination has %@ free; the card holds %@. Photos already imported are skipped, but there may not be enough space." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込み先の空きは %1$@、カードは %2$@ あります。取り込み済みの写真はスキップしますが、容量が足りないかもしれません。"
+          }
+        }
+      }
+    },
     "The photos are not deleted." : {
       "localizations" : {
         "ja" : {
@@ -2605,6 +2675,16 @@
         }
       }
     },
+    "Use as Album Cover" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アルバムのカバーにする"
+          }
+        }
+      }
+    },
     "Use System Setting" : {
       "localizations" : {
         "ja" : {
@@ -2682,26 +2762,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "拡大"
-          }
-        }
-      }
-    },
-    "New Folder…" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新規フォルダ…"
-          }
-        }
-      }
-    },
-    "New Folder" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新規フォルダ"
           }
         }
       }

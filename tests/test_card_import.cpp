@@ -263,3 +263,19 @@ TEST_CASE("カード取り込み: 中身がない・存在しないソース", "
     CHECK_THROWS_AS(import_from_card(*c, opt), Error);
     CHECK_THROWS_AS(summarize_card(card.path() / "missing"), Error);
 }
+
+TEST_CASE("カード取り込み: 空き容量が足りなければ、コピーを始める前に止める", "[import]") {
+    TempDir card, lib, db;
+    write_file(card.path() / "DCIM" / "100A" / "IMG_0001.JPG", "some bytes");
+    CHECK(free_space_bytes(lib.path()) > 0);
+    CHECK(free_space_bytes(lib / "not" / "yet" / "created") > 0);  // 無い場所は近い親で数える
+
+    auto c = Catalog::open(db / "c.sqlite");
+    CardImportOptions opt;
+    opt.source = card.path();
+    opt.dest_root = lib / "Photos";
+    opt.dry_run = true;
+    const CardImportResult dry = import_from_card(*c, opt);
+    CHECK(dry.bytes_needed == 10);
+    CHECK(dry.space_available > 10);
+}

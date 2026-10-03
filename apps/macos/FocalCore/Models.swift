@@ -229,6 +229,9 @@ public struct CardImportResult: Sendable {
     public var rootID: Int64?
     /// カタログに新しく足した写真の数
     public var added = 0
+    /// コピーするはずだった大きさ（取り込み済みを除く）と、読み込み先の空き容量（取れなければ nil）
+    public var bytesNeeded: Int64 = 0
+    public var spaceAvailable: Int64?
     /// 失敗した写真のメッセージ（改行区切り）
     public var errors = ""
 
@@ -243,6 +246,8 @@ public struct CardImportResult: Sendable {
         cancelled = r.cancelled != 0
         rootID = r.root_id > 0 ? r.root_id : nil
         added = Int(r.added)
+        bytesNeeded = r.bytes_needed
+        spaceAvailable = r.space_available >= 0 ? r.space_available : nil
         self.errors = errors
     }
 }

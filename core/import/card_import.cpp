@@ -222,6 +222,18 @@ std::vector<ImportSource> detect_import_sources() {
     return out;
 }
 
+int64_t free_space_bytes(const fs::path& path) {
+    std::error_code ec;
+    fs::path p = fs::absolute(path, ec);
+    while (!p.empty() && !fs::exists(p, ec)) {
+        const fs::path parent = p.parent_path();
+        if (parent == p) break;
+        p = parent;
+    }
+    const auto info = fs::space(p, ec);
+    return ec ? -1 : static_cast<int64_t>(info.available);
+}
+
 CardSummary summarize_card(const fs::path& source) {
     CardSummary s;
     for (const auto& shot : list_shots(source)) {
@@ -351,10 +363,16 @@ CardImportResult import_from_card(Catalog& catalog, const CardImportOptions& opt
         for (size_t i = 0; i < s.files.size(); ++i)
             if (!s.already_copied[i]) bytes_total += s.files[i].size;
     }
+    result.bytes_needed = bytes_total;
+    result.space_available = free_space_bytes(opt.dest_root);
     if (opt.dry_run) {
         result.imported = to_copy;
         return result;
     }
+    // コピーを始めてから足りなくなって中途半端にならないよう、先に確かめる
+    if (result.space_available >= 0 && bytes_total > result.space_available)
+        throw Error(Error::Code::Io, "not enough space at the destination: need " + std::to_string(bytes_total) +
+                                         " bytes, " + std::to_string(result.space_available) + " available");
 
     // ---- コピー（1 枚ずつ。ペアのファイルは同じ幹の名前で同じフォルダへ）
     struct Copied {
