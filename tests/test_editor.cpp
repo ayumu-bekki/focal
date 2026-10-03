@@ -306,9 +306,15 @@ TEST_CASE("Editor: 先読みした写真はすぐ現像可能になる", "[edito
     Events ev2;
     auto s2 = editor.open(f.sony, 512, 1024, ev2.callback());
     editor.close(s2);
+    // close が戻るまでに届いたイベントは正当（遅い環境では open の間にプレビューが届く）。戻ったあとは増えない
+    size_t after_close;
+    {
+        std::lock_guard lock(ev2.m);
+        after_close = ev2.events.size();
+    }
     std::this_thread::sleep_for(1500ms);
     std::lock_guard lock(ev2.m);
-    CHECK(ev2.events.empty());
+    CHECK(ev2.events.size() == after_close);
 }
 
 TEST_CASE("Editor: 回転・傾き補正・クロップ後の 100% 表示は全体を等倍で描いた画像と同じ位置を表示する", "[editor][data]") {
