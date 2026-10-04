@@ -183,9 +183,6 @@ private struct FolderRows: View {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: root.path)])
                 }
                 .disabled(!root.isOnline)
-                Divider()
-                Button("Remove from Catalog…") { model.requestRemoveRoot(root) }
-                    .accessibilityIdentifier("removeRoot")
             }
         }
     }

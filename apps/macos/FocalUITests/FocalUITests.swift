@@ -748,7 +748,10 @@ final class FocalUITests: XCTestCase {
 
         func remove(_ name: String) {
             any("folder-\(name)").rightClick()
-            let item = app.menuItems.matching(NSPredicate(format: "title BEGINSWITH 'カタログから外す' OR title BEGINSWITH 'Remove from Catalog'")).firstMatch
+            let info = app.menuItems.matching(NSPredicate(format: "title == '情報を見る…' OR title == 'Get Info…'")).firstMatch
+            XCTAssertTrue(info.waitForExistence(timeout: 3))
+            info.click()
+            let item = app.popovers.firstMatch.buttons.matching(NSPredicate(format: "label BEGINSWITH 'カタログから外す' OR label BEGINSWITH 'Remove from Catalog'")).firstMatch
             XCTAssertTrue(item.waitForExistence(timeout: 3))
             item.click()
             let confirm = app.sheets.buttons.element(boundBy: 0)

@@ -3,7 +3,7 @@ import FocalCore
 import SwiftUI
 
 /// 追加したフォルダの情報（サイドバーの右クリック ▸「情報を見る…」、v3.19）。場所・ディスク・容量・カタログの内容と、
-/// 読み込み先・表示名・再スキャン・カタログから外す。ディスクの容量は応答しない共有で待たされることがあるので、
+/// 読み込み先・表示名・再スキャン・場所の変更・カタログから外す（誤操作を防ぐため右クリックのメニューには置かない）。ディスクの容量は応答しない共有で待たされることがあるので、
 /// 別のスレッドで取り、取れるまでは「読み込み中…」を出す
 struct RootInfoView: View {
     let model: LibraryModel
@@ -78,6 +78,9 @@ struct RootInfoView: View {
             if d.missing > 0 {
                 row("Missing") { Text("\(d.missing) photos").foregroundStyle(.orange) }
             }
+            if d.editedPhotos > 0 {
+                row("Edited") { Text("\(d.editedPhotos) photos") }
+            }
             if d.photos > 0 {
                 row("Total Size") { Text(bytes(d.totalFileBytes)) }
             }
@@ -123,6 +126,7 @@ struct RootInfoView: View {
                     dismiss()
                     model.requestRemoveRoot(root)
                 }
+                .accessibilityIdentifier("rootInfoRemove")
             }
         }
         .font(.callout)

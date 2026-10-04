@@ -1060,6 +1060,16 @@
         }
       }
     },
+    "Edited" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "編集・評価あり"
+          }
+        }
+      }
+    },
     "Eject Card" : {
       "localizations" : {
         "ja" : {
