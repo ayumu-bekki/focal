@@ -82,6 +82,17 @@ final class LibraryModel {
         didSet { if mode != oldValue { syncDevelop() } }
     }
     var thumbnailSize: Double = 160
+    /// 現像画面のフィルムストリップの高さ（ドラッグで変える。次回の起動でも保つ）
+    var filmstripHeight: Double = {
+        let v = UserDefaults.standard.double(forKey: LibraryModel.filmstripHeightKey)
+        return v > 0 ? min(max(v, LibraryModel.filmstripHeightRange.lowerBound), LibraryModel.filmstripHeightRange.upperBound)
+            : LibraryModel.filmstripHeightDefault
+    }() {
+        didSet { UserDefaults.standard.set(filmstripHeight, forKey: Self.filmstripHeightKey) }
+    }
+    static let filmstripHeightKey = "filmstrip.height"
+    static let filmstripHeightDefault = 92.0
+    static let filmstripHeightRange = 64.0...280.0
     var showInspector = true
     /// 絞り込みバー（9.5 章）を出しているか
     var showFilterBar = false

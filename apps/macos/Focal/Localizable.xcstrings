@@ -1179,6 +1179,16 @@
         }
       }
     },
+    "Hide Filmstrip" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フィルムストリップを隠す"
+          }
+        }
+      }
+    },
     "Highlights" : {
       "localizations" : {
         "ja" : {
@@ -2431,6 +2441,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "絞り込みバーを表示 / 非表示"
+          }
+        }
+      }
+    },
+    "Show Filmstrip" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フィルムストリップを表示"
           }
         }
       }

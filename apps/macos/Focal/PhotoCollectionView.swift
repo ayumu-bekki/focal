@@ -12,7 +12,6 @@ struct PhotoCollectionView: NSViewRepresentable {
     var style: Style = .grid
 
     /// フィルムストリップの高さ（pt）
-    static let filmstripHeight: CGFloat = 92
 
     func makeCoordinator() -> Coordinator { Coordinator(model: model, style: style) }
 
@@ -62,6 +61,7 @@ struct PhotoCollectionView: NSViewRepresentable {
         private var changedGeneration = 0
         private var thumbnailGeneration = 0
         private var itemSize: Double = 0
+        private var filmstripHeight: Double = 0
         private var syncingSelection = false
 
         init(model: LibraryModel, style: Style) {
@@ -90,6 +90,10 @@ struct PhotoCollectionView: NSViewRepresentable {
             }
             if itemSize != model.thumbnailSize {
                 itemSize = model.thumbnailSize
+                cv.collectionViewLayout?.invalidateLayout()
+            }
+            if style == .filmstrip, filmstripHeight != model.filmstripHeight {  // フィルムストリップの高さを変えた
+                filmstripHeight = model.filmstripHeight
                 cv.collectionViewLayout?.invalidateLayout()
             }
             // 選択（キー操作で動いたとき）をグリッドに反映してスクロールする
@@ -131,7 +135,7 @@ struct PhotoCollectionView: NSViewRepresentable {
         func collectionView(_ cv: NSCollectionView, layout: NSCollectionViewLayout,
                             sizeForItemAt indexPath: IndexPath) -> NSSize {
             if style == .filmstrip {
-                let h = PhotoCollectionView.filmstripHeight - 12
+                let h = model.filmstripHeight - 12
                 return NSSize(width: (h * 1.3).rounded(), height: h)
             }
             return NSSize(width: model.thumbnailSize, height: model.thumbnailSize + 22)

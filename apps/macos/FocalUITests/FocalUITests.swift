@@ -644,6 +644,47 @@ final class FocalUITests: XCTestCase {
         sleep(1)
     }
 
+    /// 現像画面のフィルムストリップ: 取っ手のドラッグで高さが変わり、下へ引くと隠れ、ボタンで戻る
+    @MainActor
+    func testFilmstripResize() throws {
+        try requireCatalog()
+        let app = launch()
+        let grid = app.descendants(matching: .any)["photoGrid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 10))
+        grid.click()
+        app.typeText("v")
+        let filmstrip = app.descendants(matching: .any)["filmstrip"]
+        XCTAssertTrue(filmstrip.waitForExistence(timeout: 5))
+        let handle = app.descendants(matching: .any)["filmstripHandle"]
+        XCTAssertTrue(handle.waitForExistence(timeout: 3))
+        sleep(2)  // レイアウトが落ち着いてから、最初の高さを測る
+        let h0 = filmstrip.frame.height
+
+        func drag(_ dy: CGFloat) {
+            let from = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+            from.press(forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: 0, dy: dy)))
+            sleep(1)
+        }
+        drag(-80)  // 上へ引く: 高くなる
+        XCTAssertGreaterThan(filmstrip.frame.height, h0 + 50, "h0=\(h0) now=\(filmstrip.frame.height)")
+        saveScreenshot(app, name: "filmstrip-tall")
+        drag(100)  // 下へ引く: 低くなる（172 → 72。最小は 64）
+        XCTAssertLessThan(filmstrip.frame.height, h0, "h0=\(h0) now=\(filmstrip.frame.height)")
+        XCTAssertGreaterThan(filmstrip.frame.height, 50)
+        drag(400)  // さらに下へ引く: 隠れる
+        XCTAssertTrue(waitGone(filmstrip))
+        saveScreenshot(app, name: "filmstrip-hidden")
+
+        // ボタンで出す（高さは直前のまま）
+        app.buttons["filmstripToggle"].click()
+        XCTAssertTrue(filmstrip.waitForExistence(timeout: 3))
+        // 隠れているところから上へ引いても出る
+        app.buttons["filmstripToggle"].click()
+        XCTAssertTrue(waitGone(filmstrip))
+        drag(-100)
+        XCTAssertTrue(filmstrip.waitForExistence(timeout: 3))
+    }
+
     /// 一覧の選択: クリックは 1 枚、⌘クリックは 1 枚ずつ追加・解除、⇧クリックは起点からその写真までの範囲
     @MainActor
     func testGridSelection() throws {

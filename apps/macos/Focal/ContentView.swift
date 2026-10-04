@@ -40,10 +40,10 @@ struct ContentView: View {
                     case .viewer:
                         VStack(spacing: 0) {
                             ViewerView(model: model)
+                            FilmstripHandle(model: model, visible: $showFilmstrip)
                             if showFilmstrip {
-                                Divider()
                                 PhotoCollectionView(model: model, style: .filmstrip)
-                                    .frame(height: PhotoCollectionView.filmstripHeight)
+                                    .frame(height: model.filmstripHeight)
                             }
                         }
                     }
@@ -355,5 +355,63 @@ extension ContentView {
         }
         lines.append(String(localized: "Ratings, flags, tags, album memberships and edits in the catalog are deleted. This cannot be undone."))
         return lines.joined(separator: "\n")
+    }
+}
+
+/// 現像画面の写真とフィルムストリップの間の取っ手。上下にドラッグすると、フィルムストリップの高さが変わる。
+/// 小さくしすぎるように下へドラッグすると隠れ、隠れているときに上へドラッグすると出てくる。
+/// 右端のボタン、取っ手のダブルクリック、表示メニューの「フィルムストリップを表示 / 非表示」（⌥⌘B）でも切り替えられる
+struct FilmstripHandle: View {
+    let model: LibraryModel
+    @Binding var visible: Bool
+    @State private var dragStart: Double?
+    @State private var hovering = false
+
+    private static let hideBelow = 44.0  // これより小さくなるまで下へ引くと隠れる
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.bar)
+            Capsule().fill(.tertiary).frame(width: 36, height: 4)
+            HStack {
+                Spacer()
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { visible.toggle() }
+                } label: {
+                    Image(systemName: visible ? "chevron.down" : "chevron.up").font(.caption2.weight(.bold))
+                }
+                .buttonStyle(.borderless)
+                .help(visible ? "Hide Filmstrip" : "Show Filmstrip")
+                .accessibilityLabel(visible ? "Hide Filmstrip" : "Show Filmstrip")
+                .accessibilityIdentifier("filmstripToggle")
+                .padding(.trailing, 10)
+            }
+        }
+        .frame(height: 14)
+        .overlay(alignment: .top) { Divider() }
+        .contentShape(Rectangle())
+        .onHover { inside in
+            if inside, !hovering { NSCursor.resizeUpDown.push(); hovering = true }
+            if !inside, hovering { NSCursor.pop(); hovering = false }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 3, coordinateSpace: .global)
+                .onChanged { value in
+                    let start = dragStart ?? (visible ? model.filmstripHeight : 0)
+                    dragStart = start
+                    let h = start - value.translation.height  // 上へ引くと高くなる
+                    if h < Self.hideBelow {
+                        if visible { visible = false }
+                    } else {
+                        if !visible { visible = true }
+                        let r = LibraryModel.filmstripHeightRange
+                        model.filmstripHeight = min(max(h, r.lowerBound), r.upperBound)
+                    }
+                }
+                .onEnded { _ in dragStart = nil }
+        )
+        .simultaneousGesture(TapGesture(count: 2).onEnded { withAnimation(.easeInOut(duration: 0.15)) { visible.toggle() } })
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("filmstripHandle")
     }
 }
