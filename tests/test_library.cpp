@@ -1,6 +1,7 @@
 // v3.19: アルバムのフォルダ分け・スマートアルバム・ボリューム・移動した写真のつなぎ直し
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 
@@ -417,4 +418,25 @@ TEST_CASE("アルバムの並べ替えとカバー写真", "[library][data]") {
     CHECK_THROWS_AS(c->set_album_cover(b, p1), Error);  // B の写真ではない
     c->set_album_cover(a, std::nullopt);
     CHECK(cover(a) == p1);
+}
+
+TEST_CASE("スキャン: 「写真」などのライブラリ（.photoslibrary ほか）の中へは入らない", "[library][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Lib lib;
+    for (const char* pkg : {"Photos Library.photoslibrary", "Old.aplibrary", "Previews.lrdata", "UPPER.PHOTOSLIBRARY"}) {
+        fs::create_directories(lib.root / pkg / "originals" / "0");
+        fs::copy_file(data_file("canon_eos_m50.CR3"), lib.root / pkg / "originals" / "0" / "X.CR3");
+    }
+    fs::create_directories(lib.root / "Trip.photos" / "sub");  // 拡張子が似ていても別物は入る
+    fs::copy_file(data_file("canon_eos_m50.CR3"), lib.root / "Trip.photos" / "sub" / "D.CR3");
+
+    TempDir dir;
+    auto c = Catalog::open(dir / "c.sqlite");
+    const int64_t root = c->add_root(lib.root);
+    c->scan_root(root);
+    std::vector<std::string> names;
+    for (const auto& p : c->query(PhotoFilter{})) names.push_back(p.file_name);
+    std::sort(names.begin(), names.end());
+    CHECK(names == std::vector<std::string>{"A.ARW", "B.CR3", "C.CR3", "D.CR3"});  // X.CR3 は入らない
+    for (const auto& f : c->folders(root)) CHECK(f.rel_path.find("library") == std::string::npos);
 }

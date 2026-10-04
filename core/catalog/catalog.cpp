@@ -114,6 +114,17 @@ struct FoundFile {
     FileStat st;
 };
 
+// 他のアプリが管理するライブラリ（中身を触る必要がなく、macOS では「写真」ライブラリの中へ入ると
+// 「写真」へのアクセスの許可を求められる）。スキャンは中へ入らず、フォルダとしても登録しない（v3.19）
+bool is_managed_library(const std::string& name) {
+    const auto dot = name.find_last_of('.');
+    if (dot == std::string::npos) return false;
+    std::string ext = name.substr(dot + 1);
+    for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return ext == "photoslibrary" || ext == "aplibrary" || ext == "migratedphotolibrary" ||
+           ext == "migratedaplibrary" || ext == "lrdata";
+}
+
 void walk(const fs::path& disk_root, std::vector<std::string>& dirs, std::vector<FoundFile>& files) {
     dirs.push_back("");
     std::error_code ec;
@@ -132,6 +143,10 @@ void walk(const fs::path& disk_root, std::vector<std::string>& dirs, std::vector
         const auto rel_u8 = it->path().lexically_relative(disk_root).generic_u8string();
         const std::string rel = to_nfc(std::string(reinterpret_cast<const char*>(rel_u8.data()), rel_u8.size()));
         if (it->is_directory(ec)) {
+            if (is_managed_library(name)) {
+                it.disable_recursion_pending();
+                continue;
+            }
             if (it->is_symlink(ec)) {
                 it.disable_recursion_pending();  // シンボリックリンクのフォルダはたどらない（循環を避ける）
                 continue;

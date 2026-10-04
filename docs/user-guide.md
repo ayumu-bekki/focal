@@ -90,6 +90,7 @@ Focal の新しい版でカタログの形式が変わるときは、**変更の
 サイドバー「ストレージ」見出しの **＋** ボタン、またはファイル ▸ **フォルダを追加…**（⌘O）で、RAW の入ったフォルダを登録します。
 
 - 登録したフォルダを**ルート**と呼びます。ルートの中のサブフォルダも、すべて取り込まれます（隠しフォルダ・隠しファイルは対象外）。
+- `.photoslibrary`（Apple の「写真」のライブラリ）、`.aplibrary`（Aperture）、`.lrdata`（Lightroom のプレビュー）などのフォルダの**中は調べません**。`~/Pictures` を登録しても、「写真」ライブラリには入りません（Focal は「写真」アプリのライブラリを読みません）。
 - 登録される RAW は、拡張子が `3FR` `ARW` `CR2` `CR3` `CRW` `DCR` `DNG` `ERF` `FFF` `GPR` `IIQ` `KDC` `MEF` `MOS` `MRW` `NEF` `NRW` `ORF` `PEF` `RAF` `RAW` `RW2` `RWL` `SR2` `SRF` `SRW` `X3F` のファイルです（Canon・Nikon・Sony・Fujifilm・Olympus・Panasonic・Pentax・Ricoh・Leica・Hasselblad・Phase One・Sigma・Samsung など。読み込みは LibRaw）。JPEG などは写真として登録されません。壊れていて読めないファイルは「非対応」として扱います。
 - 取り込みの進み具合は、画面上部に出ます。
 
