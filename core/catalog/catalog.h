@@ -210,6 +210,10 @@ public:
     // フォルダ（ルートからの相対パス）とファイル名で写真を探す
     std::optional<int64_t> find_photo(int64_t root_id, std::string_view folder_rel_path, std::string_view file_name);
 
+    // 写真の行をカタログから消す（★・フラグ・タグ・アルバムの所属・編集も消える）。ファイルには触れない。
+    // ファイルも消すときは catalog/photo_delete.h の delete_photos を使う
+    void remove_photos(std::span<const int64_t> ids);
+
     // 編集パラメータ（6.1 章の JSON、edits テーブル）。編集がなければ nullopt
     std::optional<std::string> edit_json(int64_t photo_id);
     // 書き込みスレッドに積む（完了を待たない）。json が nullopt なら行を消す（編集なし = すべて既定値、6.1 章）

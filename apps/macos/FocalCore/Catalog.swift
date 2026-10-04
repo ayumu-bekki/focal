@@ -281,6 +281,37 @@ public final class Catalog: @unchecked Sendable {
         }
     }
 
+    // MARK: 写真の削除（v3.19）
+
+    public func planDelete(_ ids: [Int64]) throws -> DeletePlan {
+        var p = fc_delete_plan()
+        try ids.withUnsafeBufferPointer { try check(fc_catalog_plan_delete(handle, $0.baseAddress, $0.count, &p)) }
+        return DeletePlan(photos: Int(p.photos), files: Int(p.files), networkPhotos: Int(p.network_photos),
+                          missingPhotos: Int(p.missing_photos))
+    }
+
+    /// 写真を削除する。ローカルのファイルは trash で（ゴミ箱へ送って成功なら true）、ネットワークボリュームは
+    /// ゴミ箱を使わず完全に消す。RAW を消せた写真だけカタログから消す。時間がかかることがあるので、メインスレッド以外で呼ぶこと
+    public func deletePhotos(_ ids: [Int64], trash: @escaping @Sendable (URL) -> Bool) throws -> DeleteResult {
+        final class Box { let trash: @Sendable (URL) -> Bool; init(_ t: @escaping @Sendable (URL) -> Bool) { trash = t } }
+        let box = Box(trash)
+        let user = Unmanaged.passRetained(box).toOpaque()
+        defer { Unmanaged<Box>.fromOpaque(user).release() }
+        var r = fc_delete_result()
+        var errors: UnsafeMutablePointer<fc_string>?
+        let callback: fc_trash_fn = { user, path in
+            let box = Unmanaged<Box>.fromOpaque(user!).takeUnretainedValue()
+            return box.trash(URL(fileURLWithPath: String(cString: path!))) ? 0 : 1
+        }
+        try ids.withUnsafeBufferPointer {
+            try check(fc_catalog_delete_photos(handle, $0.baseAddress, $0.count, callback, user, &r, &errors))
+        }
+        defer { fc_string_free(errors) }
+        return DeleteResult(photosDeleted: Int(r.photos_deleted), photosFailed: Int(r.photos_failed),
+                            filesTrashed: Int(r.files_trashed), filesRemoved: Int(r.files_removed),
+                            filesFailed: Int(r.files_failed), errors: errors.map { String(cString: $0.pointee.value) } ?? "")
+    }
+
     // MARK: カードの取り込み（v3.19）
 
     /// DCIM フォルダを持つボリューム（SD カードなど）

@@ -10,7 +10,7 @@
 - C++ 例外を C API の外に出さない。
 - Swift 側に画像処理・カタログのロジックを書かない。
 - LibRaw のインスタンスをスレッド間で共有しない（`libraw::raw_r` をリンク）。
-- 元の RAW ファイルには一切書き込まない。カードからの取り込みもカードには書き込まない（ADR-12。コピー先に新規作成するだけで、既存のファイルは上書きしない）。
+- 元の RAW ファイルには一切書き込まない。消すのは、利用者が ⌥⌃⇧ Delete（確認ダイアログつき）で明示的に削除したときだけ（design.md 5.11 章、ADR-12）。カードからの取り込みもカードには書き込まない（ADR-12。コピー先に新規作成するだけで、既存のファイルは上書きしない）。
 - 画像処理の正しさは GUI ではなく CLI とゴールデン画像で確認する。
 - ゴールデン画像を更新するのは process_version を変えるときだけ。
 
@@ -108,6 +108,7 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 - `Localizable.xcstrings` に文言を足したら `apps/macos/scripts/sort-strings.py` を実行する（Xcode と同じ並びにそろえ、Xcode で開いたときの差分を減らす）。
 - ルートの接続確認は `directories_reachable`（別スレッド + 時間切れ。応答しない NAS で止まらない）。SMB・NFS のボリューム ID は共有の場所から作る（`network_volume_id`）。実際の NAS では未確認（ユニットテストと macOS のローカルボリュームのみ）。
 - `core/import/card_import` — SD カードなどの取り込み（v3.19、design.md 5.10 章）。1 枚の単位（RAW + JPEG + サイドカー）、日付フォルダ、重複判定、一時ファイル + BLAKE3 検証のコピー、登録、アルバム・タグ付け
+- `core/catalog/photo_delete` — 写真の削除（v3.19、5.11 章）。RAW + 同じ名前の幹の JPEG・サイドカー、ネットワークボリュームは完全削除、ローカルはゴミ箱（呼び出し側の `TrashFn`）。RAW を消せなければファイルもカタログも残す
 - `core/catalog/smart_query` — スマートアルバムの条件（JSON → SQL の断片。検証も）
 - `core/util/` — スレッドプール（latest-wins 用の `CancelToken`）、行列、画像バッファ、例外、`unicode`（utf8proc で NFC と case folding）、`hash`（BLAKE3、quick_hash）、`file`（UTF-8 ⇔ path、NFC のパスから実ファイルを解決）、`omp_threads`
 - `gpu/` — 表示用の GPU レンダラー（Metal、metal-cpp、macOS のみ）。`src/shaders.metal` は CPU 版と同じ式で書き、実行時にコンパイルする（CMake が C++ の文字列にする）。capi が Editor に渡す。`tests/test_gpu.cpp` で CPU 版との一致を確かめる

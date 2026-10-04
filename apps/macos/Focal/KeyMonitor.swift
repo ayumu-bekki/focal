@@ -18,6 +18,13 @@ final class KeyMonitor {
             guard let model else { return event }
             if NSApp.keyWindow?.firstResponder is NSText { return event }  // 入力中
             if NSApp.keyWindow?.isSheet == true || NSApp.keyWindow?.attachedSheet != nil { return event }  // シート
+            // 写真の削除: ⌥⌃⇧ Delete だけ（普通の Delete・⌘ Delete には何も割り当てない）
+            let chord: NSEvent.ModifierFlags = [.option, .control, .shift]
+            if (event.keyCode == 51 || event.keyCode == 117),
+               event.modifierFlags.intersection([.command, .control, .option, .shift]) == chord {
+                model.requestDelete()
+                return nil
+            }
             if model.mode == .viewer, event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
                 let ch = event.charactersIgnoringModifiers?.lowercased()
                 if ch == "c" {  // クロップモードの開始・確定（9.2 章）

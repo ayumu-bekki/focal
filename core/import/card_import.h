@@ -19,6 +19,9 @@ class ThumbnailCache;
 // カードのファイルをライブラリのルートの下 <ルート>/YYYY/YYYY-MM-DD/ にコピーし、カタログに登録する。
 // カードには一切書き込まない（移動・削除はしない）。コピー先には新しいファイルを作るだけで、既存のファイルは上書きしない。
 
+// RAW と一緒に扱うファイル（JPEG などの画像・動画・サイドカー）の名前か。RAW 自身は含まない
+bool is_companion_file_name(const std::string& name);
+
 // path（なければいちばん近い親）があるボリュームの空き容量（バイト）。取れなければ -1
 int64_t free_space_bytes(const std::filesystem::path& path);
 

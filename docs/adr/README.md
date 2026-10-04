@@ -15,7 +15,7 @@
 | [ADR-09](adr-09-geometry.md) | ジオメトリ | 出力座標 → ソース座標の**逆写像サンプリング**で実装、座標は正規化値で保存 |
 | [ADR-10](adr-10-modules.md) | モジュール構成 | `core`（C++20、OS 非依存）/ `capi`（C API）/ `cli` / `apps/macos`（SwiftUI） |
 | [ADR-11](adr-11-build.md) | ビルド | core / capi / cli: **CMake + vcpkg manifest**。macOS アプリ: **Xcode プロジェクト**。core と capi は静的ライブラリ + ヘッダ + modulemap の **XCFramework** にまとめてアプリにリンクする。vcpkg はオーバーレイトリプレットで**LibRaw と libomp（OpenMP ランタイム）を動的リンク**、他は静的リンク。LibRaw は **OpenMP 有効**でビルドし、macOS の libomp は LLVM のソースからビルドする**オーバーレイポート**（`ports/llvm-openmp`）で用意する |
-| [ADR-12](adr-12-import.md) | 取り込み | **参照方式を基本**とする。**例外として、SD カードなどからの取り込みだけライブラリのルートの下にコピーする**（v3.19 で変更）。元ファイルは移動・削除・変更しない |
+| [ADR-12](adr-12-import.md) | 取り込み | **参照方式を基本**とする。**例外として、SD カードなどからの取り込みだけライブラリのルートの下にコピーする**（v3.19 で変更）。元ファイルは、利用者の明示的な削除操作（5.11 章）を除いて移動・削除・変更しない |
 | [ADR-13](adr-13-bridge.md) | ブリッジ | **C API（`extern "C"`、不透明ハンドル）**を core と UI の唯一の境界とする。macOS では Swift ラッパー（`FocalCore` モジュール）で Swift らしい API に包む |
 | [ADR-14](adr-14-distribution.md) | 配布 | **Developer ID 署名 + 公証（notarization）、App Sandbox なし**、Hardened Runtime 有効 |
 | [ADR-15](adr-15-minimum-os.md) | 最低対応 OS | **macOS 14（Sonoma）** |

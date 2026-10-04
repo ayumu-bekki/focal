@@ -327,6 +327,9 @@ struct LibraryCommands: Commands {
             .disabled(model == nil)
             Button("Use as Album Cover") { model?.setCurrentAlbumCover() }
                 .disabled(!(model?.canSetAlbumCover ?? false))
+            // 写真をディスクから削除する。⌥⌃ を押しながらメニューを開いたときだけ有効（キーは ⌥⌃⇧ Delete）
+            Button("Move to Trash…") { model?.requestDelete() }
+                .disabled(!(model?.deleteArmed ?? false))
             Button("Remove from Album") { model?.removeFromCurrentAlbum() }
                 .disabled(!(model?.currentAlbumAcceptsPhotos ?? false))
             Divider()

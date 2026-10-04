@@ -124,6 +124,22 @@ static void on_card_done(void* user, fc_status status, const fc_card_import_resu
     waiter_signal(&ctx->w);
 }
 
+/* ---- 写真の削除 ---- */
+
+static int trash_count = 0;
+
+static int32_t trash_fail(void* user, const char* path) {
+    (void)user;
+    (void)path;
+    return 1;
+}
+
+static int32_t trash_remove(void* user, const char* path) {
+    (void)user;
+    trash_count++;
+    return remove(path) == 0 ? 0 : 1;
+}
+
 /* ---- 現像 ---- */
 
 typedef struct session_ctx {
@@ -456,6 +472,63 @@ int main(void) {
         REQUIRE_OK(fc_catalog_delete_album(cat, flat));
     }
 
+    /* 写真の削除（v3.19）: ゴミ箱の代わりに、呼ばれたパスを数えてファイルを消す */
+    {
+        char del_lib[1024], del_photo[1024], del_jpg[1024];
+        snprintf(del_lib, sizeof del_lib, "%s/dellib", tmp);
+        snprintf(del_photo, sizeof del_photo, "%s/DEL_0001.CR3", del_lib);
+        snprintf(del_jpg, sizeof del_jpg, "%s/DEL_0001.JPG", del_lib);
+        char canon_src[1024];
+        snprintf(canon_src, sizeof canon_src, "%s/canon_eos_m50.CR3", data);
+        mkdir(del_lib, 0755);
+        copy_file(canon_src, del_photo);
+        copy_file(canon_src, del_jpg); /* 中身は何でもよい。JPEG として一緒に消える */
+        int64_t del_root = 0;
+        REQUIRE_OK(fc_catalog_add_root(cat, del_lib, &del_root));
+        scan_ctx dctx = run_scan(cat, del_root, NULL);
+        CHECK(dctx.status == FC_OK && dctx.stats.added == 1);
+        fc_photo_filter_init(&f);
+        REQUIRE_OK(fc_catalog_count(cat, &f, &n));
+        int64_t before = n;
+        fc_id_array* del_ids = NULL;
+        f.folder_id = 0;
+        REQUIRE_OK(fc_catalog_query_ids(cat, &f, &del_ids));
+        int64_t victim = 0;
+        for (size_t i = 0; i < del_ids->count; ++i) {
+            fc_photo_array* one = NULL;
+            REQUIRE_OK(fc_catalog_photos_by_ids(cat, &del_ids->items[i], 1, &one));
+            if (one->count == 1 && strcmp(one->items[0].file_name, "DEL_0001.CR3") == 0) victim = one->items[0].id;
+            fc_photo_array_free(one);
+        }
+        fc_id_array_free(del_ids);
+        CHECK(victim != 0);
+
+        fc_delete_plan plan;
+        REQUIRE_OK(fc_catalog_plan_delete(cat, &victim, 1, &plan));
+        CHECK(plan.photos == 1 && plan.files == 2 && plan.network_photos == 0 && plan.missing_photos == 0);
+
+        fc_delete_result res;
+        fc_string* errors = NULL;
+        /* ゴミ箱が使えない: RAW を消せないので、ファイルもカタログも残る */
+        REQUIRE_OK(fc_catalog_delete_photos(cat, &victim, 1, trash_fail, NULL, &res, &errors));
+        CHECK(res.photos_deleted == 0 && res.photos_failed == 1);
+        CHECK(errors != NULL && strlen(errors->value) > 0);
+        fc_string_free(errors);
+        CHECK(access(del_photo, R_OK) == 0);
+        REQUIRE_OK(fc_catalog_delete_photos(cat, &victim, 1, NULL, NULL, &res, NULL)); /* trash なしも安全側 */
+        CHECK(res.photos_failed == 1 && access(del_photo, R_OK) == 0);
+
+        trash_count = 0;
+        REQUIRE_OK(fc_catalog_delete_photos(cat, &victim, 1, trash_remove, NULL, &res, &errors));
+        CHECK(res.photos_deleted == 1 && res.files_trashed == 2 && res.files_failed == 0);
+        CHECK(trash_count == 2);
+        fc_string_free(errors);
+        CHECK(access(del_photo, R_OK) != 0 && access(del_jpg, R_OK) != 0);
+        fc_photo_filter_init(&f);
+        REQUIRE_OK(fc_catalog_count(cat, &f, &n));
+        CHECK(n == before - 1);
+    }
+
     /* カードの取り込み（v3.19） */
     {
         char card_dir[1024], dcim[1024], card_photo[1024], dest[1024], src[1024];
@@ -530,7 +603,7 @@ int main(void) {
         /* ルートにはボリュームの情報が付き、オンライン */
         fc_root_array* roots2 = NULL;
         REQUIRE_OK(fc_catalog_roots(cat, &roots2));
-        CHECK(roots2->count == 2);
+        CHECK(roots2->count == 3); /* ライブラリ、削除のテスト、取り込み先 */
         for (size_t i = 0; i < roots2->count; ++i) CHECK(roots2->items[i].online == 1);
         fc_root_array_free(roots2);
         int32_t changed = -1;

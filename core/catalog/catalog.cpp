@@ -563,6 +563,14 @@ void Catalog::remove_root(int64_t root_id) {
     });
 }
 
+void Catalog::remove_photos(std::span<const int64_t> ids) {
+    std::vector<int64_t> v(ids.begin(), ids.end());
+    writer_->call([&](Database& db) {
+        auto st = db.prepare("DELETE FROM photos WHERE id = ?");  // edits・タグ・アルバムの所属は ON DELETE CASCADE
+        for (int64_t id : v) st.bind(1, id).run();
+    });
+}
+
 void Catalog::set_root_label(int64_t root_id, std::string_view label) {
     const std::string l = to_nfc(label);
     writer_->call([&](Database& db) {

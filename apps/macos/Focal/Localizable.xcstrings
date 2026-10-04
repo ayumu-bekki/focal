@@ -37,6 +37,26 @@
         }
       }
     },
+    "%lld photos are already missing from the disk; only their catalog entries are removed." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚はディスクにすでにないため、カタログの情報だけを削除します。"
+          }
+        }
+      }
+    },
+    "%lld photos are on a network volume. They are deleted immediately and permanently, and cannot be recovered from the Trash." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚はネットワークボリュームにあります。すぐに完全に削除され、ゴミ箱から戻すことはできません。"
+          }
+        }
+      }
+    },
     "%lld photos could not be imported." : {
       "localizations" : {
         "ja" : {
@@ -689,6 +709,26 @@
         }
       }
     },
+    "Delete" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "削除"
+          }
+        }
+      }
+    },
+    "Delete %lld photos permanently?" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚の写真を完全に削除しますか？"
+          }
+        }
+      }
+    },
     "Delete Album" : {
       "localizations" : {
         "ja" : {
@@ -729,12 +769,32 @@
         }
       }
     },
+    "Delete Permanently" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完全に削除"
+          }
+        }
+      }
+    },
     "Delete the album “%@”?" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "アルバム“%@”を削除しますか？"
+          }
+        }
+      }
+    },
+    "Deleted %lld photos. %lld photos could not be deleted and were kept." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld 枚を削除しました。%2$lld 枚は削除できなかったため残しています。"
           }
         }
       }
@@ -1494,6 +1554,16 @@
         }
       }
     },
+    "Move %lld photos to the Trash?" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚の写真をゴミ箱に移動しますか？"
+          }
+        }
+      }
+    },
     "Move Down" : {
       "localizations" : {
         "ja" : {
@@ -1510,6 +1580,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "移動先"
+          }
+        }
+      }
+    },
+    "Move to Trash" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ゴミ箱に移動"
+          }
+        }
+      }
+    },
+    "Move to Trash…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ゴミ箱に移動…"
           }
         }
       }
@@ -1895,6 +1985,16 @@
         }
       }
     },
+    "Photos on this Mac are moved to the Trash." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この Mac にある写真はゴミ箱に移動します。"
+          }
+        }
+      }
+    },
     "Photos shown in the viewer are kept here so they appear instantly next time. When the limit is exceeded, the least recently used previews are removed." : {
       "localizations" : {
         "ja" : {
@@ -1981,6 +2081,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "評価"
+          }
+        }
+      }
+    },
+    "Ratings, flags, tags, album memberships and edits in the catalog are deleted. This cannot be undone." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カタログの評価・フラグ・タグ・アルバムへの所属・編集も削除されます。取り消せません。"
           }
         }
       }
@@ -2481,6 +2591,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "読み込み先の空きは %1$@、カードは %2$@ あります。取り込み済みの写真はスキップしますが、容量が足りないかもしれません。"
+          }
+        }
+      }
+    },
+    "The photos and their JPEG, video and sidecar files with the same name (%lld files) will be deleted from the disk." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "写真と、同じ名前の JPEG・動画・サイドカー（合計 %lld ファイル）をディスクから削除します。"
           }
         }
       }

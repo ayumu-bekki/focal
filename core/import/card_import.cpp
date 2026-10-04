@@ -222,6 +222,11 @@ std::vector<ImportSource> detect_import_sources() {
     return out;
 }
 
+bool is_companion_file_name(const std::string& name) {
+    const FileClass c = classify(name);
+    return c == FileClass::Image || c == FileClass::Video || c == FileClass::Sidecar;
+}
+
 int64_t free_space_bytes(const fs::path& path) {
     std::error_code ec;
     fs::path p = fs::absolute(path, ec);

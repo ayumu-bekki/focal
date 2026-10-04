@@ -188,6 +188,31 @@ func withOptionalCString<R>(_ s: String?, _ body: (UnsafePointer<CChar>?) throws
     return try body(nil)
 }
 
+// MARK: 写真の削除（v3.19）
+
+/// 削除の前に数えたもの。写真 = カタログの RAW と、同じフォルダで同じ名前の幹の JPEG・動画・サイドカー
+public struct DeletePlan: Sendable, Equatable {
+    public let photos: Int
+    /// 消すファイルの数（すでにないものは数えない）
+    public let files: Int
+    /// ネットワークボリューム（ゴミ箱を使わず完全に消える）にある写真の数
+    public let networkPhotos: Int
+    /// ファイルがすでにない写真（カタログの情報だけ消える）
+    public let missingPhotos: Int
+}
+
+public struct DeleteResult: Sendable {
+    public let photosDeleted: Int
+    /// RAW を消せなかったので、ファイルもカタログも残した写真
+    public let photosFailed: Int
+    public let filesTrashed: Int
+    /// 完全に削除したファイル
+    public let filesRemoved: Int
+    public let filesFailed: Int
+    /// 失敗の内容（改行区切り）
+    public let errors: String
+}
+
 // MARK: カードの取り込み（v3.19）
 
 /// DCIM フォルダを持つボリューム（SD カードなど）

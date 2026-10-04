@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "catalog/catalog.h"
+#include "catalog/photo_delete.h"
 #include "edit/editor.h"
 #include "export/exporter.h"
 #include "import/card_import.h"
@@ -598,6 +599,35 @@ fc_status fc_catalog_scan_async(fc_catalog* catalog, int64_t root_id, const char
             done(user, status, &stats, message.c_str());
         });
         *out_task = task.release();
+    });
+}
+
+// ---- 写真の削除（v3.19）-----------------------------------------------------------
+
+fc_status fc_catalog_plan_delete(fc_catalog* catalog, const int64_t* photo_ids, size_t count, fc_delete_plan* out) {
+    return guard([&] {
+        require(catalog && out, "catalog and out must not be NULL");
+        const DeletePlan p = plan_delete(*catalog->catalog, id_span(photo_ids, count));
+        *out = {static_cast<int32_t>(p.items.size()), p.files, p.network_photos, p.missing_photos};
+    });
+}
+
+fc_status fc_catalog_delete_photos(fc_catalog* catalog, const int64_t* photo_ids, size_t count, fc_trash_fn trash,
+                                   void* user, fc_delete_result* out, fc_string** errors) {
+    return guard([&] {
+        require(catalog && out, "catalog and out must not be NULL");
+        if (errors) *errors = nullptr;
+        const DeletePlan plan = plan_delete(*catalog->catalog, id_span(photo_ids, count));
+        TrashFn fn;
+        if (trash) fn = [trash, user](const std::filesystem::path& p) { return trash(user, path_to_utf8(p).c_str()) == 0; };
+        const DeleteResult r = delete_photos(*catalog->catalog, plan, fn);
+        *out = {r.photos_deleted, r.photos_failed, r.files_trashed, r.files_removed, r.files_failed};
+        if (errors) {
+            auto b = std::make_unique<StringBox>();
+            for (const auto& e : r.errors) b->text += (b->text.empty() ? "" : "\n") + e;
+            b->value = b->text.c_str();
+            *errors = b.release();
+        }
     });
 }
 

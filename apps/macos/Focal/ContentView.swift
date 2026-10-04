@@ -117,6 +117,22 @@ struct ContentView: View {
         } message: {
             Text("The photos’ ratings, flags, tags, album memberships and edits in this catalog are deleted. The files on disk are not deleted.")
         }
+        .confirmationDialog(
+            deleteTitle,
+            isPresented: Binding(get: { model.deleteRequest != nil }, set: { if !$0 { model.deleteRequest = nil } }),
+            presenting: model.deleteRequest) { request in
+            Button(request.plan.networkPhotos > 0 ? "Delete Permanently" : "Move to Trash", role: .destructive) {
+                model.confirmDelete(request)
+            }
+            .accessibilityIdentifier("deleteConfirm")
+        } message: { request in
+            Text(deleteMessage(request.plan))
+        }
+        .alert("Delete", isPresented: Binding(get: { model.deleteReport != nil }, set: { if !$0 { model.deleteReport = nil } })) {
+            Button("OK") { model.deleteReport = nil }
+        } message: {
+            Text(model.deleteReport ?? "")
+        }
         .alert("Error", isPresented: Binding(get: { model.lastError != nil }, set: { if !$0 { model.clearError() } })) {
             Button("OK") { model.clearError() }
         } message: {
@@ -310,5 +326,28 @@ struct AlbumNameSheet: View {
         case .smart: break
         }
         dismiss()
+    }
+}
+
+extension ContentView {
+    var deleteTitle: Text {
+        guard let p = model.deleteRequest?.plan else { return Text("") }
+        return p.networkPhotos > 0 ? Text("Delete \(p.photos) photos permanently?") : Text("Move \(p.photos) photos to the Trash?")
+    }
+
+    func deleteMessage(_ p: DeletePlan) -> String {
+        var lines: [String] = []
+        lines.append(String(localized: "The photos and their JPEG, video and sidecar files with the same name (\(p.files) files) will be deleted from the disk."))
+        if p.networkPhotos > 0 {
+            lines.append(String(localized: "\(p.networkPhotos) photos are on a network volume. They are deleted immediately and permanently, and cannot be recovered from the Trash."))
+        }
+        if p.networkPhotos < p.photos - p.missingPhotos {
+            lines.append(String(localized: "Photos on this Mac are moved to the Trash."))
+        }
+        if p.missingPhotos > 0 {
+            lines.append(String(localized: "\(p.missingPhotos) photos are already missing from the disk; only their catalog entries are removed."))
+        }
+        lines.append(String(localized: "Ratings, flags, tags, album memberships and edits in the catalog are deleted. This cannot be undone."))
+        return lines.joined(separator: "\n")
     }
 }

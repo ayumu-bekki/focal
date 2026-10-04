@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 11
+#define FC_API_VERSION 12
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -286,6 +286,36 @@ fc_status fc_catalog_scan_async(fc_catalog* catalog, int64_t root_id, const char
 void fc_task_cancel(fc_task* task);
 /* 実行中なら完了まで待ってから解放する */
 void fc_task_release(fc_task* task);
+
+/* ---- 写真の削除（v3.19、design.md 5.11 章） ------------------------------ */
+
+/* 削除の前に、何がどうなるかを数える。写真 = カタログの RAW と、同じフォルダで同じ名前の幹の JPEG・動画・サイドカー */
+typedef struct fc_delete_plan {
+    int32_t photos;
+    int32_t files;          /* 消すファイルの数（すでにないものは数えない） */
+    int32_t network_photos; /* ネットワークボリューム（ゴミ箱を使わず完全に消える）にある写真の数 */
+    int32_t missing_photos; /* ファイルがすでにない写真（カタログの情報だけ消える） */
+} fc_delete_plan;
+
+fc_status fc_catalog_plan_delete(fc_catalog* catalog, const int64_t* photo_ids, size_t count, fc_delete_plan* out);
+
+/* ローカルのファイルをゴミ箱へ送る（OS の操作なので呼び出し側が行う）。成功なら 0 を返す。
+   ネットワークボリュームのファイルには呼ばれず、core が即座に完全削除する */
+typedef int32_t (*fc_trash_fn)(void* user, const char* path);
+
+typedef struct fc_delete_result {
+    int32_t photos_deleted; /* ファイルを消し、カタログからも消した写真 */
+    int32_t photos_failed;  /* RAW を消せなかったので、ファイルもカタログも残した写真 */
+    int32_t files_trashed;
+    int32_t files_removed;  /* 完全に削除したファイル */
+    int32_t files_failed;   /* 同時に消すファイルの失敗も含む */
+} fc_delete_result;
+
+/* 写真を削除する。RAW を消せた写真だけカタログから消す（★・フラグ・タグ・アルバムの所属・編集も消える）。
+   trash が NULL なら、ローカルのファイルは消さず失敗として扱う。errors は失敗の内容（改行区切り）で、
+   NULL でもよい。fc_string_free で解放する。時間がかかることがあるので、メインスレッドで呼ばないこと */
+fc_status fc_catalog_delete_photos(fc_catalog* catalog, const int64_t* photo_ids, size_t count, fc_trash_fn trash,
+                                   void* user, fc_delete_result* out, fc_string** errors);
 
 /* ---- カードの取り込み（v3.19、design.md 5.10 章） ----------------------- */
 

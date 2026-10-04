@@ -116,6 +116,7 @@ final class LibraryModel {
         cardImport.configure(model: self)
         reloadPhotos()
         observeVolumes()
+        observeMenuTracking()
         refreshImportSources()
         if !AppPaths.isolatedFromDefaults && UserDefaults.standard.bool(forKey: AppPaths.rescanOnLaunchKey, default: true) {
             rescanAll()  // 起動時の再スキャン（外でフォルダやファイルが変わっていた場合に追従する）
@@ -222,6 +223,8 @@ final class LibraryModel {
     /// アプリの終了時: 編集を保存し、書き込みが終わるまで待つ（7.4 章）
     func prepareForTermination() {
         stopObservingVolumes()
+        for o in menuObservers { NotificationCenter.default.removeObserver(o) }
+        menuObservers = []
         watcher.stop()
         develop.close()
         try? catalog.flush()
@@ -440,6 +443,81 @@ final class LibraryModel {
             for r in v.roots where Self.find(id, in: [r.node]) != nil { return r }
         }
         return nil
+    }
+
+    // MARK: 写真の削除（v3.19、design.md 5.11 章）
+
+    /// 確認ダイアログを出している削除（対象の id と、事前に数えた内容）
+    struct DeleteRequest: Identifiable {
+        let id = UUID()
+        let ids: [Int64]
+        let plan: DeletePlan
+    }
+
+    var deleteRequest: DeleteRequest?
+    /// 削除の結果（失敗があったときだけ出す）
+    var deleteReport: String?
+    /// ⌥⌃ を押しながらメニューを開いている（写真メニューの「ゴミ箱へ移動…」が有効になる）
+    private(set) var deleteArmed = false
+
+    private var menuObservers: [NSObjectProtocol] = []
+
+    private func observeMenuTracking() {
+        let center = NotificationCenter.default
+        menuObservers.append(center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+            let held = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask).isSuperset(of: [.option, .control])
+            Task { @MainActor in self?.deleteArmed = held }
+        })
+        menuObservers.append(center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.deleteArmed = false }
+        })
+    }
+
+    /// ⌥⌃⇧ Delete、または ⌥⌃ を押しながら開いたメニューの「ゴミ箱へ移動…」。選択中の写真を、確認のうえディスクから削除する。
+    /// 普通の Delete では何も起きない
+    func requestDelete() {
+        let ids = targetIDs
+        guard !ids.isEmpty, deleteRequest == nil else { return }
+        let catalog = catalog
+        Task {
+            let plan = await Task.detached { try? catalog.planDelete(ids) }.value
+            guard let plan, plan.photos > 0 else { return }
+            deleteRequest = DeleteRequest(ids: ids, plan: plan)
+        }
+    }
+
+    func confirmDelete(_ request: DeleteRequest) {
+        deleteRequest = nil
+        // 現像中の写真を消すなら、先にセッションを閉じる
+        if mode == .viewer, let current = currentIndex.flatMap({ photoIDs.indices.contains($0) ? photoIDs[$0] : nil }),
+           request.ids.contains(current) {
+            develop.close()
+        }
+        let catalog = catalog
+        importProgress = (0, 0)
+        Task {
+            let outcome = await Task.detached { () -> Result<DeleteResult, Error> in
+                Result {
+                    try catalog.deletePhotos(request.ids) { url in
+                        // UI テスト用: FOCAL_TRASH_DIR があれば、ゴミ箱の代わりにそこへ移す（実際のゴミ箱を汚さない）
+                        if let dir = ProcessInfo.processInfo.environment["FOCAL_TRASH_DIR"] {
+                            return (try? FileManager.default.moveItem(at: url, to: URL(fileURLWithPath: dir).appendingPathComponent(url.lastPathComponent))) != nil
+                        }
+                        return (try? FileManager.default.trashItem(at: url, resultingItemURL: nil)) != nil
+                    }
+                }
+            }.value
+            importProgress = nil
+            switch outcome {
+            case .success(let r):
+                if r.photosFailed > 0 || r.filesFailed > 0 {
+                    deleteReport = String(localized: "Deleted \(r.photosDeleted) photos. \(r.photosFailed) photos could not be deleted and were kept.") + "\n" + r.errors
+                }
+            case .failure(let error): report(error)
+            }
+            reloadSidebar()
+            reloadPhotos()
+        }
     }
 
     // MARK: カードの取り込み（v3.19）

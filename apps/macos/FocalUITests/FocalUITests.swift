@@ -650,6 +650,81 @@ final class FocalUITests: XCTestCase {
         }
     }
 
+    /// v3.19: 写真の削除。普通の Delete では何も起きず、⌥⌃⇧ Delete だけが確認を出す。メニューは ⌥⌃ を押して開いたときだけ有効
+    @MainActor
+    func testDeleteRequiresChord() throws {
+        try requireCatalog()
+        let app = launch()
+        let grid = app.descendants(matching: .any)["photoGrid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 10))
+        let count = app.staticTexts["photoCount"]
+        let expected = ProcessInfo.processInfo.environment["FOCAL_EXPECTED_COUNT"] ?? "5"
+        grid.click()
+
+        // 普通の Delete・⌘ Delete・⌥ Delete では何も起きない
+        for mods: XCUIElement.KeyModifierFlags in [[], .command, .option] {
+            app.typeKey(.delete, modifierFlags: mods)
+            XCTAssertFalse(app.buttons["deleteConfirm"].waitForExistence(timeout: 1))
+        }
+        XCTAssertTrue(app.sheets.count == 0)
+
+        // ⌥⌃⇧ Delete: 確認が出る。取り消すと何も消えない
+        app.typeKey(.delete, modifierFlags: [.option, .control, .shift])
+        let confirm = app.buttons["deleteConfirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        saveScreenshot(app, name: "delete-confirm")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitGone(confirm))
+        XCTAssertEqual(count.value as? String ?? count.label, "1 / \(expected)")
+
+        // メニュー: 修飾キーなしで開くと「ゴミ箱に移動…」は無効
+        let menu = app.menuBars.menuBarItems.matching(NSPredicate(format: "title == '写真' OR title == 'Photo'")).firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 3))
+        menu.click()
+        let item = app.menuItems.matching(NSPredicate(format: "title == 'ゴミ箱に移動…' OR title == 'Move to Trash…'")).firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 3))
+        XCTAssertFalse(item.isEnabled)
+        app.typeKey(.escape, modifierFlags: [])
+        // ⌥⌃ を押して開くと有効
+        XCUIElement.perform(withKeyModifiers: [.option, .control]) { menu.click() }
+        XCTAssertTrue(item.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitUntil { item.isEnabled })
+        saveScreenshot(app, name: "delete-menu")
+        app.typeKey(.escape, modifierFlags: [])
+    }
+
+    /// v3.19: 取り込んだ写真を ⌥⌃⇧ Delete で削除する（ゴミ箱の代わりに FOCAL_TRASH_DIR へ移す）
+    @MainActor
+    func testDeleteImportedPhoto() throws {
+        let env = ProcessInfo.processInfo.environment
+        try XCTSkipIf(env["FOCAL_IMPORT_SOURCE"] == nil || env["FOCAL_DELETE_CATALOG"] == nil, "scripts/ui-test.sh から実行する")
+        let app = XCUIApplication()
+        app.launchEnvironment["FOCAL_CATALOG"] = env["FOCAL_DELETE_CATALOG"]
+        app.launchEnvironment["FOCAL_CACHE"] = env["FOCAL_CACHE"]
+        app.launchEnvironment["FOCAL_IMPORT_SOURCE"] = env["FOCAL_IMPORT_SOURCE"]
+        app.launchEnvironment["FOCAL_IMPORT_DEST"] = env["FOCAL_DELETE_DEST"]
+        app.launchEnvironment["FOCAL_TRASH_DIR"] = env["FOCAL_DELETE_TRASH"]
+        app.launchEnvironment["FOCAL_WINDOW_SIZE"] = "1440x900"
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        app.launch()
+        XCTAssertTrue(app.windows["library"].waitForExistence(timeout: 10))
+        app.typeKey("i", modifierFlags: [.command, .shift])
+        XCTAssertTrue(app.buttons["importStart"].waitForExistence(timeout: 5))
+        app.buttons["importStart"].click()
+        XCTAssertTrue(app.staticTexts["importResult"].waitForExistence(timeout: 30))
+        app.buttons["importShow"].click()
+        let count = app.staticTexts["photoCount"]
+        XCTAssertTrue(waitValue(count, "1 / 1"))
+        app.descendants(matching: .any)["photoGrid"].click()
+
+        app.typeKey(.delete, modifierFlags: [.option, .control, .shift])
+        let confirm = app.buttons["deleteConfirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        confirm.click()
+        XCTAssertTrue(waitValue(count, "0 / 0"))
+        saveScreenshot(app, name: "deleted")
+    }
+
     /// v3.19: カードの取り込み。取り込み元と読み込み先は ui-test.sh が用意する
     @MainActor
     func testCardImport() throws {
