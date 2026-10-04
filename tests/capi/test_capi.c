@@ -605,7 +605,36 @@ int main(void) {
         REQUIRE_OK(fc_catalog_roots(cat, &roots2));
         CHECK(roots2->count == 3); /* ライブラリ、削除のテスト、取り込み先 */
         for (size_t i = 0; i < roots2->count; ++i) CHECK(roots2->items[i].online == 1);
+        {
+            fc_root_details* det = NULL;
+            REQUIRE_OK(fc_catalog_root_details(cat, roots2->items[0].id, &det));
+            CHECK(det->id == roots2->items[0].id);
+            CHECK(det->online == 1);
+            CHECK(det->photos >= 0);
+            CHECK(det->total_bytes > 0 && det->free_bytes >= 0);
+            CHECK(strlen(det->path) > 0);
+            fc_root_details_free(det);
+            CHECK(fc_catalog_root_details(cat, 987654, &det) == FC_ERR_NOT_FOUND);
+        }
         fc_root_array_free(roots2);
+        {
+            /* 重なり・場所の付け替え・フォルダの場所（v3.19） */
+            int32_t nested = -1, merged = -1;
+            REQUIRE_OK(fc_catalog_nested_root_count(cat, &nested));
+            CHECK(nested == 0);
+            REQUIRE_OK(fc_catalog_merge_nested_roots(cat, &merged));
+            CHECK(merged == 0);
+            int64_t root_id = 0, folder_id = 0;
+            REQUIRE_OK(fc_catalog_folder_for_path(cat, lib, &root_id, &folder_id));
+            CHECK(root_id > 0 && folder_id > 0);
+            CHECK(fc_catalog_folder_for_path(cat, "/nonexistent/elsewhere", NULL, NULL) == FC_ERR_NOT_FOUND);
+            /* 登録済みのルートの中のフォルダを追加しても、新しいルートはできない */
+            int64_t again = 0;
+            REQUIRE_OK(fc_catalog_add_root(cat, sub, &again));
+            CHECK(again == root_id);
+            /* 別のルートと重なる場所へは付け替えられない */
+            CHECK(fc_catalog_relocate_root(cat, root_id, dest) == FC_ERR_INVALID_ARGUMENT);
+        }
         int32_t changed = -1;
         REQUIRE_OK(fc_catalog_refresh_volumes(cat, &changed));
         CHECK(changed == 0);

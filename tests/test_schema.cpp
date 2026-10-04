@@ -120,7 +120,7 @@ TEST_CASE("マイグレーション: v1 のカタログを開くとアルバム�
     CHECK(c->albums().empty());
     c->create_album("A");
     CHECK(c->albums().size() == 1);
-    CHECK(latest_schema_version() == 3);
+    CHECK(latest_schema_version() == 4);
 }
 
 TEST_CASE("マイグレーション: v2 のアルバムは v3 でも写真ごと残り、フォルダ・スマートアルバム・ボリュームの列が使える", "[schema]") {

@@ -1,6 +1,8 @@
 #include "catalog/catalog.h"
 
 #include <algorithm>
+#include <cctype>
+#include <chrono>
 #include <ctime>
 #include <map>
 #include <set>
@@ -424,6 +426,69 @@ TagInfo read_tag(const Statement& st) {
 
 } // namespace
 
+// 新しく行を作った写真のうち、同じ内容のファイル（quick_hash とサイズが同じ）が別の場所に**残っている**ものは、
+// そのコピーとして、元の写真の現像・★・フラグ・タグを引き継ぐ（v3.19）。引き継ぐのは登録のときだけで、
+// 以後はそれぞれ独立。元のファイルがなくなっているときは、コピーではなく移動なので、ここでは何もしない
+// （移動は find_relink_candidate が、同じ行につなぎ直す）。アルバムの所属は引き継がない。引き継いだ写真の数を返す
+struct FreshPhoto {
+    int64_t id;
+    std::string hash;
+    int64_t size;
+};
+
+int inherit_from_copies(db::DbWriter& writer, const std::vector<FreshPhoto>& fresh) {
+    int inherited = 0;
+    for (const auto& f : fresh) {
+        struct Candidate {
+            int64_t id;
+            std::string abs_path;
+        };
+        // 情報の多い写真を先に（現像 > ★・フラグ > タグ）
+        const auto cands = writer.call([&](Database& db) {
+            std::vector<Candidate> out;
+            auto st = db.prepare(
+                "SELECT p.id, r.path, fo.rel_path, p.file_name FROM photos p"
+                " JOIN folders fo ON fo.id = p.folder_id JOIN roots r ON r.id = fo.root_id"
+                " WHERE p.quick_hash = ? AND p.file_size = ? AND p.id <> ?"
+                " ORDER BY (EXISTS (SELECT 1 FROM edits e WHERE e.photo_id = p.id)) DESC,"
+                " (p.rating > 0 OR p.flag <> 0) DESC, (EXISTS (SELECT 1 FROM photo_tags t WHERE t.photo_id = p.id)) DESC, p.id"
+                " LIMIT 8");
+            st.bind(1, f.hash).bind(2, f.size).bind(3, f.id);
+            while (st.step()) out.push_back({st.column_int64(0), join_path(st.column_text(1), st.column_text(2), st.column_text(3))});
+            return out;
+        });
+        std::optional<int64_t> source;
+        for (const auto& c : cands) {
+            const auto disk = resolve_nfc_path(c.abs_path);  // ディスクの確認は書き込みスレッドの外で
+            std::error_code ec;
+            if (disk && fs::exists(*disk, ec)) {
+                source = c.id;
+                break;
+            }
+        }
+        if (!source) continue;
+        const bool did = writer.call([&](Database& db) {
+            auto has = db.prepare(
+                "SELECT (SELECT COUNT(*) FROM edits WHERE photo_id = ?1) + (SELECT COUNT(*) FROM photo_tags WHERE photo_id = ?1)"
+                " + (SELECT rating <> 0 OR flag <> 0 FROM photos WHERE id = ?1)");
+            has.bind(1, *source);
+            has.step();
+            if (has.column_int(0) == 0) return false;  // 引き継ぐ情報がない
+            db.prepare("INSERT OR IGNORE INTO edits (photo_id, process_version, settings, updated_at)"
+                       " SELECT ?1, process_version, settings, updated_at FROM edits WHERE photo_id = ?2")
+                .bind(1, f.id).bind(2, *source).run();
+            db.prepare("UPDATE photos SET rating = (SELECT rating FROM photos WHERE id = ?2),"
+                       " flag = (SELECT flag FROM photos WHERE id = ?2) WHERE id = ?1")
+                .bind(1, f.id).bind(2, *source).run();
+            db.prepare("INSERT OR IGNORE INTO photo_tags (photo_id, tag_id) SELECT ?1, tag_id FROM photo_tags WHERE photo_id = ?2")
+                .bind(1, f.id).bind(2, *source).run();
+            return true;
+        });
+        if (did) ++inherited;
+    }
+    return inherited;
+}
+
 // 新規・変更されたファイルを並列に読み、チャンクごとに書き込む（scan_root と register_files で共通）
 void process_works(db::DbWriter& writer, const std::vector<Work>& work, const ScanOptions& opt, ScanStats& stats) {
     const unsigned threads = opt.threads ? opt.threads : std::max(1u, std::thread::hardware_concurrency() - 1);
@@ -451,12 +516,14 @@ void process_works(db::DbWriter& writer, const std::vector<Work>& work, const Sc
             else
                 ++stats.updated;
         }
+        std::vector<FreshPhoto> fresh;  // このチャンクで新しく行を作った写真（コピーの検出の対象）
         const int relinked = writer.call([&](Database& db) {
             int n = 0;
             for (int i = start; i < end; ++i) {
                 if (work[i].thumb_only) continue;
                 Work w = work[i];
                 const Probe& p = probes[i - start];
+                const bool is_new = !w.photo_id;
                 if (!w.photo_id) {
                     if (const auto id = find_relink_candidate(db, w, p)) {
                         w.photo_id = id;
@@ -464,11 +531,14 @@ void process_works(db::DbWriter& writer, const std::vector<Work>& work, const Sc
                     }
                 }
                 write_probe(db, w, p);
+                if (is_new && !w.photo_id && p.readable && !p.hash.empty())
+                    fresh.push_back({db.last_insert_rowid(), p.hash, w.st.size});
             }
             return n;
         });
         stats.added -= relinked;
         stats.relinked += relinked;
+        stats.inherited += inherit_from_copies(writer, fresh);
         if (opt.progress) opt.progress(end, total);
     }
 }
@@ -513,12 +583,149 @@ VolumeColumns volume_columns(const fs::path& dir) {
 
 } // namespace
 
+namespace {
+
+std::string local_timestamp_for_filename() {
+    const std::time_t t = std::time(nullptr);
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char buf[32];
+    std::strftime(buf, sizeof buf, "%Y%m%d-%H%M%S", &tm);
+    return buf;
+}
+
+// child が parent の中（parent 自身は含まない）にあるか。macOS・Windows は大文字小文字を区別しないので、折りたたんで比べる
+bool path_inside(const std::string& parent, const std::string& child) {
+    std::string a = casefold_key(parent), b = casefold_key(child);
+    while (a.size() > 1 && a.back() == '/') a.pop_back();
+    if (b.size() <= a.size()) return false;
+    return a == "/" ? b.rfind("/", 0) == 0 : (b.compare(0, a.size(), a) == 0 && b[a.size()] == '/');
+}
+
+std::vector<std::pair<int64_t, std::string>> all_root_paths(Database& db) {
+    std::vector<std::pair<int64_t, std::string>> out;
+    auto st = db.prepare("SELECT id, path FROM roots ORDER BY id");
+    while (st.step()) out.emplace_back(st.column_int64(0), st.column_text(1));
+    return out;
+}
+
+// 写真の行に付いている情報の多さ（同じファイルの行が 2 つあるとき、どちらを残すかに使う）
+int photo_richness(Database& db, int64_t id) {
+    auto st = db.prepare(
+        "SELECT (SELECT COUNT(*) FROM edits WHERE photo_id = ?1) * 4 + (rating > 0) * 2 + (flag <> 0) * 2"
+        " + (SELECT COUNT(*) > 0 FROM photo_tags WHERE photo_id = ?1)"
+        " + (SELECT COUNT(*) > 0 FROM album_photos WHERE photo_id = ?1) FROM photos WHERE id = ?1");
+    st.bind(1, id);
+    return st.step() ? st.column_int(0) : 0;
+}
+
+// 同じファイルの行 a・b を 1 つにする。情報の多い方を残し、残る方が持っていないものを、消す方から移す。
+// 残った行の id を返す
+int64_t merge_photo_rows(Database& db, int64_t a, int64_t b) {
+    const int ra = photo_richness(db, a), rb = photo_richness(db, b);
+    const int64_t keep = (rb > ra || (rb == ra && b < a)) ? b : a;
+    const int64_t drop = keep == a ? b : a;
+    // 現像: 残す方になければ移す
+    db.prepare("UPDATE edits SET photo_id = ?1 WHERE photo_id = ?2 AND NOT EXISTS (SELECT 1 FROM edits WHERE photo_id = ?1)")
+        .bind(1, keep).bind(2, drop).run();
+    // ★・フラグ: 残す方が空なら、消す方の値
+    db.prepare("UPDATE photos SET rating = (SELECT rating FROM photos WHERE id = ?2) WHERE id = ?1 AND rating = 0")
+        .bind(1, keep).bind(2, drop).run();
+    db.prepare("UPDATE photos SET flag = (SELECT flag FROM photos WHERE id = ?2) WHERE id = ?1 AND flag = 0")
+        .bind(1, keep).bind(2, drop).run();
+    db.prepare("INSERT OR IGNORE INTO photo_tags (photo_id, tag_id) SELECT ?1, tag_id FROM photo_tags WHERE photo_id = ?2")
+        .bind(1, keep).bind(2, drop).run();
+    db.prepare("INSERT OR IGNORE INTO album_photos (album_id, photo_id, added_at)"
+               " SELECT album_id, ?1, added_at FROM album_photos WHERE photo_id = ?2")
+        .bind(1, keep).bind(2, drop).run();
+    db.prepare("UPDATE albums SET cover_photo_id = ?1 WHERE cover_photo_id = ?2").bind(1, keep).bind(2, drop).run();
+    db.prepare("DELETE FROM photos WHERE id = ?").bind(1, drop).run();
+    return keep;
+}
+
+// child のルートを parent のルートの下へ統合する（child_path は parent_path の中）。写真の行は移すだけで、
+// id・現像・★・タグ・アルバムの所属はそのまま。parent にすでに同じファイルの行があれば merge_photo_rows で合わせる
+void merge_root_into(Database& db, int64_t parent_id, const std::string& parent_path, int64_t child_id,
+                     const std::string& child_path) {
+    const size_t skip = parent_path == "/" ? 1 : parent_path.size() + 1;
+    const std::string prefix = child_path.size() > skip ? child_path.substr(skip) : std::string();
+
+    std::map<std::string, int64_t> parent_folders;
+    {
+        auto st = db.prepare("SELECT id, rel_path FROM folders WHERE root_id = ?");
+        st.bind(1, parent_id);
+        while (st.step()) parent_folders[st.column_text(1)] = st.column_int64(0);
+    }
+    auto ensure = [&](auto&& self, const std::string& rel) -> int64_t {
+        if (auto it = parent_folders.find(rel); it != parent_folders.end()) return it->second;
+        const std::optional<int64_t> up = rel.empty() ? std::nullopt : std::optional<int64_t>(self(self, parent_rel(rel)));
+        db.prepare("INSERT INTO folders (root_id, parent_id, rel_path) VALUES (?, ?, ?)").bind(1, parent_id).bind(2, up).bind(3, rel).run();
+        return parent_folders[rel] = db.last_insert_rowid();
+    };
+
+    std::vector<std::pair<int64_t, std::string>> child_folders;  // 親が先（rel_path の昇順）
+    {
+        auto st = db.prepare("SELECT id, rel_path FROM folders WHERE root_id = ? ORDER BY rel_path");
+        st.bind(1, child_id);
+        while (st.step()) child_folders.emplace_back(st.column_int64(0), st.column_text(1));
+    }
+    for (const auto& [cf, rel] : child_folders) {
+        const std::string target_rel = rel.empty() ? prefix : (prefix.empty() ? rel : prefix + "/" + rel);
+        const int64_t target = ensure(ensure, target_rel);
+        std::vector<std::pair<int64_t, std::string>> photos;
+        {
+            auto st = db.prepare("SELECT id, file_name FROM photos WHERE folder_id = ?");
+            st.bind(1, cf);
+            while (st.step()) photos.emplace_back(st.column_int64(0), st.column_text(1));
+        }
+        for (const auto& [pid, name] : photos) {
+            auto dup = db.prepare("SELECT id FROM photos WHERE folder_id = ? AND file_name = ?");
+            dup.bind(1, target).bind(2, name);
+            if (dup.step()) {
+                const int64_t other = dup.column_int64(0);
+                const int64_t keep = merge_photo_rows(db, other, pid);
+                db.prepare("UPDATE photos SET folder_id = ? WHERE id = ?").bind(1, target).bind(2, keep).run();
+            } else {
+                db.prepare("UPDATE photos SET folder_id = ? WHERE id = ?").bind(1, target).bind(2, pid).run();
+            }
+        }
+    }
+    // 写真が 1 枚も残っていないことを確かめてから、ルート（と空のフォルダ）を消す。残っていれば、何も消さずに止める
+    auto left = db.prepare("SELECT COUNT(*) FROM photos p JOIN folders f ON f.id = p.folder_id WHERE f.root_id = ?");
+    left.bind(1, child_id);
+    left.step();
+    if (left.column_int64(0) != 0) throw Error(Error::Code::Internal, "root merge left photos behind; nothing was removed");
+    db.prepare("DELETE FROM roots WHERE id = ?").bind(1, child_id).run();
+}
+
+} // namespace
+
 int64_t Catalog::add_root(const fs::path& dir, std::string_view label) {
     std::error_code ec;
     if (!fs::is_directory(dir, ec)) throw Error(Error::Code::NotFound, "not a directory: " + path_to_utf8(dir));
     const std::string p = normalized_path_string(dir);
     const std::string l = to_nfc(label);
     const VolumeColumns vol = volume_columns(dir);
+
+    // 登録済みのルートの中のフォルダなら、新しいルートは作らず、そのルートを返す
+    for (const auto& [id, path] : [&] {
+             std::lock_guard lock(reader_mutex_);
+             return all_root_paths(*reader_);
+         }())
+        if (path_inside(path, p)) return id;
+    // 登録済みのルートを含むなら、統合の前にバックアップを作る
+    bool contains_existing = false;
+    {
+        std::lock_guard lock(reader_mutex_);
+        for (const auto& [id, path] : all_root_paths(*reader_))
+            if (path_inside(p, path)) contains_existing = true;
+    }
+    if (contains_existing) backup("merge-roots");
+
     return writer_->call([&](Database& db) -> int64_t {
         auto find = db.prepare("SELECT id, volume_id FROM roots WHERE path = ?");
         find.bind(1, p);
@@ -538,8 +745,123 @@ int64_t Catalog::add_root(const fs::path& dir, std::string_view label) {
         const int64_t id = db.last_insert_rowid();
         auto folder = db.prepare("INSERT INTO folders (root_id, parent_id, rel_path) VALUES (?, NULL, '')");
         folder.bind(1, id).run();
+        // この中にある登録済みのルートを、新しいルートへ統合する
+        for (const auto& [child_id, child_path] : all_root_paths(db))
+            if (child_id != id && path_inside(p, child_path)) merge_root_into(db, id, p, child_id, child_path);
         return id;
     });
+}
+
+std::vector<Catalog::NestedRoot> Catalog::nested_roots() {
+    std::lock_guard lock(reader_mutex_);
+    const auto all = all_root_paths(*reader_);
+    std::vector<NestedRoot> out;
+    for (const auto& [cid, cpath] : all)
+        for (const auto& [pid, ppath] : all)
+            if (pid != cid && path_inside(ppath, cpath)) out.push_back({pid, cid});
+    return out;
+}
+
+int Catalog::merge_nested_roots() {
+    if (nested_roots().empty()) return 0;
+    backup("merge-roots");
+    return writer_->call([&](Database& db) -> int {
+        int merged = 0;
+        for (;;) {
+            const auto all = all_root_paths(db);
+            bool did = false;
+            // いちばん外側のルートへ、内側のものを統合する（入れ子が 3 段でも順に畳む）
+            for (const auto& [cid, cpath] : all) {
+                const std::pair<int64_t, std::string>* best = nullptr;
+                for (const auto& r : all)
+                    if (r.first != cid && path_inside(r.second, cpath) && (!best || r.second.size() < best->second.size()))
+                        best = &r;
+                if (!best) continue;
+                merge_root_into(db, best->first, best->second, cid, cpath);
+                ++merged;
+                did = true;
+                break;
+            }
+            if (!did) break;
+        }
+        return merged;
+    });
+}
+
+std::optional<Catalog::FolderLocation> Catalog::folder_for_path(const fs::path& dir) {
+    const std::string p = normalized_path_string(dir);
+    std::lock_guard lock(reader_mutex_);
+    for (const auto& [id, path] : all_root_paths(*reader_)) {
+        if (casefold_key(path) != casefold_key(p) && !path_inside(path, p)) continue;
+        const size_t skip = path == "/" ? 1 : path.size() + 1;
+        const std::string rel = p.size() > skip ? p.substr(skip) : std::string();
+        auto st = reader_->prepare("SELECT id FROM folders WHERE root_id = ? AND rel_path = ?");
+        st.bind(1, id).bind(2, to_nfc(rel));
+        if (st.step()) return FolderLocation{id, st.column_int64(0)};
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+void Catalog::relocate_root(int64_t root_id, const fs::path& new_dir) {
+    std::error_code ec;
+    if (!fs::is_directory(new_dir, ec)) throw Error(Error::Code::NotFound, "not a directory: " + path_to_utf8(new_dir));
+    const std::string p = normalized_path_string(new_dir);
+    const VolumeColumns vol = volume_columns(new_dir);
+    writer_->call([&](Database& db) {
+        bool known = false;
+        for (const auto& [id, path] : all_root_paths(db)) {
+            if (id == root_id) {
+                known = true;
+                continue;
+            }
+            if (casefold_key(path) == casefold_key(p) || path_inside(path, p) || path_inside(p, path))
+                throw Error(Error::Code::InvalidArgument, "the new location overlaps another folder in the catalog: " + path);
+        }
+        if (!known) throw Error(Error::Code::NotFound, "unknown root id " + std::to_string(root_id));
+        auto up = db.prepare("UPDATE roots SET path = ?, volume_id = ?, volume_name = ?, volume_rel_path = ? WHERE id = ?");
+        up.bind(1, p).bind(2, vol.id).bind(3, vol.name).bind(4, vol.rel).bind(5, root_id).run();
+    });
+}
+
+fs::path Catalog::backup(std::string_view reason) {
+    std::string tag;
+    for (char ch : reason) tag += (std::isalnum(static_cast<unsigned char>(ch)) || ch == '-') ? ch : '-';
+    const fs::path dir = path_.parent_path();
+    const std::string base = path_to_utf8(path_.filename()) + ".before-" + tag + "-";
+    // 日時だけでは同じ秒に 2 回呼ばれたときに重なる。同じ秒のものの連番は、既存の最大値の次にする
+    // （古いものを消したあとに、空いた小さい番号へ戻ると、新しいものが名前の順で最古になって消えてしまう）
+    const std::string stamp = local_timestamp_for_filename();
+    int next = 0;
+    std::error_code ec;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string n = path_to_utf8(it->path().filename());
+        const std::string head = base + stamp + "-";
+        if (n.rfind(head, 0) == 0) next = std::max(next, std::atoi(n.c_str() + head.size()) + 1);
+    }
+    char seq[8];
+    std::snprintf(seq, sizeof seq, "-%02d", next);
+    const fs::path out = dir / utf8_to_path(base + stamp + seq + ".bak");
+    {
+        Database src(path_, Database::Mode::ReadOnly);  // 書き込みの接続とは別に、読み取りで一貫したコピーを作る
+        src.exec("VACUUM INTO '" + [&] {
+            std::string q = path_to_utf8(out), r;
+            for (char ch : q) { if (ch == '\'') r += '\''; r += ch; }
+            return r;
+        }() + "';");
+    }
+    // 同じ理由の古いバックアップを、新しい 5 つだけ残す
+    std::vector<fs::path> mine;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string n = path_to_utf8(it->path().filename());
+        if (n.rfind(base, 0) == 0 && n.size() > 4 && n.compare(n.size() - 4, 4, ".bak") == 0) mine.push_back(it->path());
+    }
+    std::sort(mine.begin(), mine.end());
+    while (mine.size() > 5) {
+        fs::remove(mine.front(), ec);
+        mine.erase(mine.begin());
+    }
+    return out;
 }
 
 std::vector<RootInfo> Catalog::roots() {
@@ -618,6 +940,7 @@ int Catalog::refresh_volumes() {
 }
 
 void Catalog::remove_root(int64_t root_id) {
+    backup("remove-root");  // 外すと、そのルートの写真の現像・★・フラグ・タグが消える。戻せるよう、先にバックアップを作る
     writer_->call([&](Database& db) {
         auto find = db.prepare("SELECT 1 FROM roots WHERE id = ?");
         find.bind(1, root_id);
@@ -633,6 +956,57 @@ void Catalog::remove_photos(std::span<const int64_t> ids) {
         auto st = db.prepare("DELETE FROM photos WHERE id = ?");  // edits・タグ・アルバムの所属は ON DELETE CASCADE
         for (int64_t id : v) st.bind(1, id).run();
     });
+}
+
+RootDetails Catalog::root_details(int64_t root_id) {
+    RootDetails d;
+    bool found = false;
+    for (auto& r : roots())
+        if (r.id == root_id) {
+            d.root = r;
+            found = true;
+        }
+    if (!found) throw Error(Error::Code::NotFound, "unknown root id " + std::to_string(root_id));
+
+    {
+        std::lock_guard lock(reader_mutex_);
+        auto st = reader_->prepare(
+            "SELECT COUNT(*), COALESCE(SUM(p.status = 1), 0), COALESCE(SUM(p.file_size), 0),"
+            " substr(MIN(p.capture_time), 1, 10), substr(MAX(p.capture_time), 1, 10)"
+            " FROM photos p JOIN folders f ON f.id = p.folder_id WHERE f.root_id = ?");
+        st.bind(1, root_id);
+        if (st.step()) {
+            d.photos = st.column_int64(0);
+            d.missing = st.column_int64(1);
+            d.total_file_bytes = st.column_int64(2);
+            d.capture_from = st.column_opt_text(3).value_or("");
+            d.capture_to = st.column_opt_text(4).value_or("");
+        }
+        auto ep = reader_->prepare(
+            "SELECT COUNT(*) FROM photos p JOIN folders f ON f.id = p.folder_id WHERE f.root_id = ? AND ("
+            " p.rating > 0 OR p.flag <> 0 OR EXISTS (SELECT 1 FROM edits e WHERE e.photo_id = p.id)"
+            " OR EXISTS (SELECT 1 FROM photo_tags t WHERE t.photo_id = p.id))");
+        ep.bind(1, root_id);
+        if (ep.step()) d.edited_photos = ep.column_int64(0);
+        auto fc = reader_->prepare("SELECT COUNT(*) FROM folders WHERE root_id = ? AND parent_id IS NOT NULL");
+        fc.bind(1, root_id);
+        if (fc.step()) d.folders = fc.column_int64(0);
+    }
+
+    // ボリュームの情報は、接続しているときだけ（外れた共有に触れて待たされない）
+    if (d.root.online) {
+        const fs::path disk = utf8_to_path(d.root.path);
+        if (const auto v = volume_for_path(disk)) {
+            d.mount_point = path_to_utf8(v->mount_point);
+            d.fs_type = v->fs_type;
+            d.kind = static_cast<int>(volume_kind(*v));
+        }
+        if (const auto s = disk_space(disk, std::chrono::milliseconds(1500))) {
+            d.total_bytes = s->total;
+            d.free_bytes = s->free;
+        }
+    }
+    return d;
 }
 
 void Catalog::set_root_label(int64_t root_id, std::string_view label) {

@@ -20,6 +20,8 @@ void usage() {
                  "catalog commands（--catalog file / --cache dir、または FOCAL_CATALOG / FOCAL_CACHE）:\n"
                  "  import <dir> [--no-thumbs] [--threads N]       フォルダを登録して取り込む（再実行で再スキャン）\n"
                  "  roots                                         登録したフォルダの一覧（ボリューム名・オフライン表示つき）\n"
+                 "  relocate <root id> <dir>                      ルートの場所を付け替える（現像・★・タグはそのまま）\n"
+                 "  merge-roots [--dry-run]                       重なったルートを統合する（先にバックアップを作る）\n"
                  "  unroot <root id>                              ルートをカタログから外す（ファイルは消さない）\n"
                  "  sources [--path dir]                          DCIM があるボリューム（SD カード）を探す。--path ならその中身の概算\n"
                  "  import-card <card|DCIM> --dest dir [--album ID] [--tags a/b,c] [--no-verify] [--dry-run] [--no-thumbs]\n"
@@ -69,6 +71,8 @@ int main(int argc, char** argv) {
         if (!std::strcmp(cmd, "sources")) return focal::cli::cmd_sources(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "import-card")) return focal::cli::cmd_import_card(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "album")) return focal::cli::cmd_album(argc - 2, argv + 2);
+        if (!std::strcmp(cmd, "relocate")) return focal::cli::cmd_relocate(argc - 2, argv + 2);
+        if (!std::strcmp(cmd, "merge-roots")) return focal::cli::cmd_merge_roots(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "unroot")) return focal::cli::cmd_unroot(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "roots")) return focal::cli::cmd_roots(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "ls")) return focal::cli::cmd_ls(argc - 2, argv + 2);

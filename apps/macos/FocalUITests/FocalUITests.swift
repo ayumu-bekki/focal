@@ -537,9 +537,12 @@ final class FocalUITests: XCTestCase {
         let expected = ProcessInfo.processInfo.environment["FOCAL_EXPECTED_COUNT"] ?? "5"
         func any(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
 
-        // ストレージ: ボリューム → ルート（フォルダ名 lib）。ルートを選ぶとそのフォルダの写真を出す
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'volume-'"))
+        // フォルダ: 追加したフォルダ（名前 lib）が直接並ぶ。選ぶとそのフォルダの写真を出す
+        // 見出しは AppKit が ＋ ボタンとまとめるので、識別子は "sidebarFoldersHeader-sidebarAddFolder" のようにつながる
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'sidebarFoldersHeader'"))
             .firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'volume-'"))
+            .firstMatch.exists)  // ボリュームの階層は出さない
         let root = any("folder-lib")
         XCTAssertTrue(root.waitForExistence(timeout: 5))
         root.click()
@@ -683,6 +686,155 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(waitGone(filmstrip))
         drag(-100)
         XCTAssertTrue(filmstrip.waitForExistence(timeout: 3))
+    }
+
+    /// サイドバーのフォルダ: 読み込み先の ★、右クリックの ✓、「情報を見る…」のポップオーバー
+    @MainActor
+    func testRootInfoAndDestination() throws {
+        try requireCatalog()
+        // 実際の設定（読み込み先）を書き換えないよう、環境変数で別の場所を読み込み先にしておく
+        let app = launch(extra: ["FOCAL_IMPORT_DEST": NSTemporaryDirectory() + "focal-ui-dest-\(UUID().uuidString)"])
+        XCTAssertTrue(app.descendants(matching: .any)["photoGrid"].waitForExistence(timeout: 10))
+        func any(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+        let folder = any("folder-lib")
+        XCTAssertTrue(folder.waitForExistence(timeout: 5))
+        func isDestination() -> Bool { (any("folder-lib").value as? String ?? "").contains(where: { _ in true }) && ["読み込み先", "Import destination"].contains(any("folder-lib").value as? String ?? "") }
+        XCTAssertFalse(isDestination())  // 読み込み先は別の場所
+
+        // 右クリックで読み込み先にすると、★ が付く（アクセシビリティの値に「読み込み先」が出る）
+        folder.rightClick()
+        let destination = app.menuItems.matching(NSPredicate(format: "title == '読み込み先にする' OR title == 'Set as Import Destination'")).firstMatch
+        XCTAssertTrue(destination.waitForExistence(timeout: 3))
+        destination.click()
+        XCTAssertTrue(waitUntil { isDestination() })
+        saveScreenshot(app, name: "root-destination-star")
+
+        // 「情報を見る…」: パス・写真の枚数が出る
+        folder.rightClick()
+        let info = app.menuItems.matching(NSPredicate(format: "title == '情報を見る…' OR title == 'Get Info…'")).firstMatch
+        XCTAssertTrue(info.waitForExistence(timeout: 3))
+        info.click()
+        // ポップオーバーの中は別のウィンドウ扱い。場所と写真の枚数の文字が出ている
+        let pop = app.popovers.firstMatch
+        XCTAssertTrue(pop.waitForExistence(timeout: 5))
+        func has(_ part: String) -> Bool {
+            pop.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", part, part)).firstMatch.exists
+        }
+        XCTAssertTrue(waitUntil { has("/lib") }, "場所")
+        XCTAssertTrue(has("5 枚") || has("5 photos"), "写真の枚数")
+        XCTAssertTrue(has("接続中") || has("Connected"), "状態")
+        saveScreenshot(app, name: "root-info")
+        app.typeKey(.escape, modifierFlags: [])
+    }
+
+    /// 読み込み先のフォルダをカタログから外すと、残っているフォルダの先頭が読み込み先になる
+    @MainActor
+    func testRemovingImportDestinationMovesIt() throws {
+        let env = ProcessInfo.processInfo.environment
+        try XCTSkipIf(env["FOCAL_MULTI_CATALOG"] == nil || env["FOCAL_MULTI_DIR"] == nil, "scripts/ui-test.sh から実行する")
+        let app = XCUIApplication()
+        app.launchEnvironment["FOCAL_CATALOG"] = env["FOCAL_MULTI_CATALOG"]
+        app.launchEnvironment["FOCAL_CACHE"] = env["FOCAL_CACHE"]
+        app.launchEnvironment["FOCAL_IMPORT_DEST"] = env["FOCAL_MULTI_DIR"]! + "/c"  // 読み込み先は c（実際の設定は変えない）
+        app.launchEnvironment["FOCAL_WINDOW_SIZE"] = "1440x900"
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        app.launch()
+        XCTAssertTrue(app.windows["library"].waitForExistence(timeout: 10))
+        func any(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+        func isDestination(_ name: String) -> Bool { ["読み込み先", "Import destination"].contains(any("folder-\(name)").value as? String ?? "") }
+        for name in ["a", "b", "c"] { XCTAssertTrue(any("folder-\(name)").waitForExistence(timeout: 5), name) }
+        XCTAssertTrue(waitUntil { isDestination("c") })
+        XCTAssertFalse(isDestination("a") || isDestination("b"))
+
+        func remove(_ name: String) {
+            any("folder-\(name)").rightClick()
+            let item = app.menuItems.matching(NSPredicate(format: "title BEGINSWITH 'カタログから外す' OR title BEGINSWITH 'Remove from Catalog'")).firstMatch
+            XCTAssertTrue(item.waitForExistence(timeout: 3))
+            item.click()
+            let confirm = app.sheets.buttons.element(boundBy: 0)
+            XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+            confirm.click()
+            XCTAssertTrue(waitGone(any("folder-\(name)")))
+        }
+
+        remove("b")  // 読み込み先ではないフォルダを外しても、読み込み先は変わらない
+        XCTAssertTrue(isDestination("c"))
+        remove("c")  // 読み込み先を外すと、残っている先頭（a）に移る
+        XCTAssertTrue(waitUntil { isDestination("a") }, "a に移る")
+        saveScreenshot(app, name: "destination-moved")
+    }
+
+    /// 重なったフォルダ（以前の二重登録の跡）がカタログにあると、起動時に統合するか聞く。統合すると 1 つになり、
+    /// ★などの情報の多い行が残る
+    @MainActor
+    func testMergeNestedRootsPrompt() throws {
+        let env = ProcessInfo.processInfo.environment
+        try XCTSkipIf(env["FOCAL_NESTED_CATALOG"] == nil, "scripts/ui-test.sh から実行する")
+        let app = XCUIApplication()
+        app.launchEnvironment["FOCAL_CATALOG"] = env["FOCAL_NESTED_CATALOG"]
+        app.launchEnvironment["FOCAL_CACHE"] = env["FOCAL_CACHE"]
+        app.launchEnvironment["FOCAL_WINDOW_SIZE"] = "1440x900"
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        app.launch()
+        XCTAssertTrue(app.windows["library"].waitForExistence(timeout: 10))
+        func any(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+        let merge = app.buttons["mergeNestedRoots"]
+        XCTAssertTrue(merge.waitForExistence(timeout: 5))
+        saveScreenshot(app, name: "merge-prompt")
+        merge.click()
+        // 統合したというお知らせ（OK で閉じる）
+        let ok = app.sheets.buttons.element(boundBy: 0)
+        XCTAssertTrue(ok.waitForExistence(timeout: 5))
+        ok.click()
+        // ルートは 1 つになり、写真も 1 枚（二重の跡が消えた）
+        sleep(2)
+        saveScreenshot(app, name: "merge-done")
+        // 写真は 1 枚（統合の前は、二重の跡で 2 枚だった）。sub は nested の中のサブフォルダとして残る
+        XCTAssertTrue(waitValue(app.staticTexts["photoCount"], "1 / 1"), "count = \(app.staticTexts["photoCount"].value ?? "?")")
+        XCTAssertTrue(any("folder-sub").exists)
+    }
+
+    /// サブフォルダを選んでから、その上のフォルダ（ルート）を選んでもサイドバーが崩れない
+    @MainActor
+    func testSidebarSubfolderThenRoot() throws {
+        let env = ProcessInfo.processInfo.environment
+        try XCTSkipIf(env["FOCAL_NESTED_CATALOG"] == nil, "scripts/ui-test.sh から実行する")
+        let app = XCUIApplication()
+        app.launchEnvironment["FOCAL_CATALOG"] = env["FOCAL_NESTED_CATALOG"]
+        app.launchEnvironment["FOCAL_CACHE"] = env["FOCAL_CACHE"]
+        app.launchEnvironment["FOCAL_WINDOW_SIZE"] = "1440x900"
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        app.launch()
+        XCTAssertTrue(app.windows["library"].waitForExistence(timeout: 10))
+        func any(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+        // 同じ fixture を別のテストが統合済みなら、確認は出ない
+        let merge = app.buttons["mergeNestedRoots"]
+        if merge.waitForExistence(timeout: 5) {
+            merge.click()
+            let ok = app.sheets.buttons.element(boundBy: 0)
+            XCTAssertTrue(ok.waitForExistence(timeout: 5))
+            ok.click()
+        }
+        sleep(2)
+        let sub = any("folder-sub")
+        XCTAssertTrue(sub.waitForExistence(timeout: 5))
+        sub.click()
+        sleep(1)
+        saveScreenshot(app, name: "sidebar-sub-selected")
+        // 親フォルダの行（AX には出ないので、sub の 32pt 上の位置を押す）
+        sub.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: -32)).click()
+        sleep(1)
+        saveScreenshot(app, name: "sidebar-root-selected")
+        XCTAssertTrue(any("sidebarAll").exists)
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'sidebarLibraryHeader'")).firstMatch.exists)
+        // 子を選んだまま、親を畳む
+        sub.click()
+        sleep(1)
+        let chevron = sub.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0)).withOffset(CGVector(dx: -26, dy: -32 + 8))
+        chevron.click()
+        sleep(1)
+        saveScreenshot(app, name: "sidebar-collapsed-with-selected-child")
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'sidebarLibraryHeader'")).firstMatch.exists)
     }
 
     /// 一覧の選択: クリックは 1 枚、⌘クリックは 1 枚ずつ追加・解除、⇧クリックは起点からその写真までの範囲

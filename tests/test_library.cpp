@@ -8,6 +8,7 @@
 #include "catalog/catalog.h"
 #include "catalog/smart_query.h"
 #include "catalog/sqlite.h"
+#include "util/unicode.h"
 #include "test_util.h"
 #include "util/error.h"
 #include "util/file.h"
@@ -477,4 +478,319 @@ TEST_CASE("スキャン: ディスクにないフォルダは、写真を持た�
     int n_missing = 0;
     for (const auto& p : c->query(missing)) n_missing += p.status == PhotoStatus::Missing;
     CHECK(n_missing == 2);
+}
+
+TEST_CASE("ルートの詳しい情報: 枚数・サブフォルダ・ファイルなし・サイズ・撮影日の範囲・ボリュームの容量", "[library][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Lib lib;
+    TempDir dir;
+    auto c = Catalog::open(dir / "c.sqlite");
+    const int64_t root = c->add_root(lib.root);
+    c->scan_root(root);
+
+    RootDetails d = c->root_details(root);
+    CHECK(d.root.id == root);
+    CHECK(d.root.online);
+    CHECK(d.photos == 3);
+    CHECK(d.folders == 2);  // 2018 と 2019（ルート自身は数えない）
+    CHECK(d.missing == 0);
+    CHECK(d.total_file_bytes == fs::file_size(lib.root / "2018" / "A.ARW") + 2 * fs::file_size(data_file("canon_eos_m50.CR3")));
+    CHECK(d.capture_from == "2018-03-13");  // Sony が先
+    CHECK(d.capture_to == "2018-07-01");    // Canon
+    CHECK_FALSE(d.mount_point.empty());
+    CHECK(d.total_bytes > 0);
+    CHECK(d.free_bytes >= 0);
+    CHECK(d.free_bytes <= d.total_bytes);
+    CHECK(d.kind != 0);  // 内蔵・外付け・ネットワークのどれか（この環境でボリュームを判別できるとき）
+
+    // ファイルがなくなると、枚数は変わらず「ファイルなし」に数える
+    fs::remove(lib.root / "2019" / "C.CR3");
+    c->scan_root(root);
+    d = c->root_details(root);
+    CHECK(d.photos == 3);
+    CHECK(d.missing == 1);
+
+    // 接続していないルート（保存してあるパスにフォルダがない）は、ボリュームの情報を空にする
+    fs::remove_all(lib.root);
+    d = c->root_details(root);
+    CHECK_FALSE(d.root.online);
+    CHECK(d.mount_point.empty());
+    CHECK(d.total_bytes == -1);
+    CHECK(d.photos == 3);  // カタログの集計は出る
+    CHECK_THROWS_AS(c->root_details(9999), Error);
+
+    // 写真が 1 枚もないルート
+    const fs::path empty = dir / "empty";
+    fs::create_directories(empty);
+    const int64_t e = c->add_root(empty);
+    d = c->root_details(e);
+    CHECK(d.photos == 0);
+    CHECK(d.capture_from.empty());
+    CHECK(d.total_file_bytes == 0);
+}
+
+namespace {
+
+int backups_in(const fs::path& dir, const std::string& reason) {
+    int n = 0;
+    for (const auto& e : fs::directory_iterator(dir)) {
+        const std::string name = path_to_utf8(e.path().filename());
+        if (name.find(".before-" + reason + "-") != std::string::npos) ++n;
+    }
+    return n;
+}
+
+void give_info(Catalog& c, int64_t id, int rating) {  // 現像・★・タグを付ける
+    c.save_edit(id, 1, std::string(R"({"schema":1,"processVersion":1,"exposure":1.5})"));
+    c.flush();
+    c.set_rating(std::vector<int64_t>{id}, rating);
+    c.add_tag(std::vector<int64_t>{id}, c.ensure_tag("keep"));
+}
+
+} // namespace
+
+TEST_CASE("ルートの追加: 登録済みのルートの中のフォルダは、新しいルートを作らず同じ写真のまま", "[library][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Lib lib;
+    TempDir dir;
+    auto c = Catalog::open(dir / "c.sqlite");
+    const int64_t root = c->add_root(lib.root);
+    c->scan_root(root);
+    const int64_t a = id_of(*c, "A.ARW");
+    give_info(*c, a, 4);
+
+    // 中の「2018」を追加しても、同じルートが返る（新しいルートはできない）
+    CHECK(c->add_root(lib.root / "2018") == root);
+    CHECK(c->roots().size() == 1);
+    c->scan_root(root);
+    CHECK(c->count(PhotoFilter{}) == 3);  // 二重に登録されない
+    CHECK(c->photo(a)->rating == 4);
+    CHECK(c->edit_json(a).has_value());
+    // 追加したフォルダの場所（選択に使う）
+    const auto loc = c->folder_for_path(lib.root / "2018");
+    REQUIRE(loc.has_value());
+    CHECK(loc->root_id == root);
+    CHECK(c->folder_id(root, "2018") == loc->folder_id);
+    CHECK_FALSE(c->folder_for_path(dir / "elsewhere").has_value());
+    // 大文字小文字だけ違う書き方でも、中として扱う
+    CHECK(c->add_root(fs::path(path_to_utf8(lib.root / "2018"))) == root);
+}
+
+TEST_CASE("ルートの追加: 登録済みのルートを含むフォルダを追加すると統合し、現像・★・タグは写真の行ごと残る", "[library][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Lib lib;
+    TempDir dir;
+    auto c = Catalog::open(dir / "c.sqlite");
+    const int64_t r18 = c->add_root(lib.root / "2018");
+    const int64_t r19 = c->add_root(lib.root / "2019");
+    c->scan_root(r18);
+    c->scan_root(r19);
+    const int64_t a = id_of(*c, "A.ARW"), cc = id_of(*c, "C.CR3");
+    give_info(*c, a, 5);
+    give_info(*c, cc, 2);
+    const int64_t album = c->create_album("Keep");
+    c->add_to_album(album, std::vector<int64_t>{a});
+    CHECK(c->roots().size() == 2);
+
+    const int64_t parent = c->add_root(lib.root);  // 2 つのルートを含む
+    CHECK(c->roots().size() == 1);
+    CHECK(c->roots()[0].id == parent);
+    CHECK(c->count(PhotoFilter{}) == 3);
+    // 写真の id・現像・★・タグ・アルバムの所属がそのまま
+    for (auto [id, rating] : {std::pair{a, 5}, std::pair{cc, 2}}) {
+        const auto p = c->photo(id);
+        REQUIRE(p.has_value());
+        CHECK(p->rating == rating);
+        CHECK(c->edit_json(id).has_value());
+        CHECK(c->photo_tags(id).size() == 1);
+    }
+    PhotoFilter f;
+    f.album_id = album;
+    CHECK(c->count(f) == 1);
+    // フォルダはルートからの相対パスになり、ファイルは同じ場所
+    CHECK(c->folder_id(parent, "2018").has_value());
+    CHECK(c->folder_id(parent, "2019").has_value());
+    CHECK(c->photo(a)->path == normalized_path_string(lib.root / "2018" / "A.ARW"));
+    // 統合の前にバックアップを作っている
+    CHECK(backups_in(dir.path(), "merge-roots") == 1);
+    // そのあとスキャンしても、二重にならない
+    const ScanStats s = c->scan_root(parent);
+    CHECK(s.added == 0);
+    CHECK(s.unchanged == 3);
+    CHECK(c->count(PhotoFilter{}) == 3);
+}
+
+TEST_CASE("重なったルート（二重登録の跡）を統合する: 同じファイルの行は情報の多い方を残して合わせる", "[library][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Lib lib;
+    TempDir dir;
+    const fs::path db_path = dir / "c.sqlite";
+    int64_t rich = 0;
+    {
+        auto c = Catalog::open(db_path);
+        const int64_t root = c->add_root(lib.root);
+        c->scan_root(root);
+        rich = id_of(*c, "B.CR3");
+        give_info(*c, rich, 3);  // 現像・★3・タグは、親のルートの行にだけある
+        c->flush();
+    }
+    // 子のルートを SQL で作る（今は add_root が作らないので、以前の二重登録を再現する）
+    {
+        db::Database db(db_path, db::Database::Mode::ReadWrite);
+        const std::string child = normalized_path_string(lib.root / "2018");
+        db.exec("INSERT INTO roots (path) VALUES ('" + child + "');"
+                "INSERT INTO folders (root_id, parent_id, rel_path) VALUES (2, NULL, '');"
+                "INSERT INTO photos (folder_id, file_name, file_size, file_mtime, quick_hash, status, capture_time, rating, flag)"
+                " SELECT (SELECT id FROM folders WHERE root_id = 2), file_name, file_size, file_mtime, quick_hash, 0, capture_time,"
+                "        CASE WHEN file_name = 'A.ARW' THEN 5 ELSE 0 END, 1 FROM photos WHERE file_name IN ('A.ARW', 'B.CR3');");
+    }
+    auto c = Catalog::open(db_path);
+    CHECK(c->roots().size() == 2);
+    CHECK(c->count(PhotoFilter{}) == 5);  // 3 + 二重の 2
+    const auto nested = c->nested_roots();
+    REQUIRE(nested.size() == 1);
+    CHECK(nested[0].parent_id == 1);
+    CHECK(nested[0].child_id == 2);
+
+    CHECK(c->merge_nested_roots() == 1);
+    CHECK(c->roots().size() == 1);
+    CHECK(c->count(PhotoFilter{}) == 3);
+    CHECK(c->nested_roots().empty());
+    CHECK(backups_in(dir.path(), "merge-roots") == 1);
+    // 情報の多い行（B.CR3 の親側）が残り、子側にしかなかった情報（フラグ）は合わさる
+    const auto b = c->photo(rich);
+    REQUIRE(b.has_value());
+    CHECK(b->rating == 3);
+    CHECK(b->flag == 1);
+    CHECK(c->edit_json(rich).has_value());
+    CHECK(c->photo_tags(rich).size() == 1);
+    // A.ARW は、★ だけが子側にあった → 残る行に ★5 が入る
+    CHECK(c->photo(id_of(*c, "A.ARW"))->rating == 5);
+    CHECK(c->merge_nested_roots() == 0);
+}
+
+TEST_CASE("ルートの場所の付け替え: 写真の行（現像・★）はそのままで、スキャンで新しい場所に合わせる", "[library][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Lib lib;
+    TempDir dir;
+    auto c = Catalog::open(dir / "c.sqlite");
+    const int64_t root = c->add_root(lib.root);
+    c->scan_root(root);
+    const int64_t a = id_of(*c, "A.ARW");
+    give_info(*c, a, 4);
+
+    const fs::path moved = dir / "moved";
+    fs::rename(lib.root, moved);  // フォルダごと別の場所へ動かした
+    CHECK_FALSE(c->roots()[0].online);
+    c->relocate_root(root, moved);
+    CHECK(c->roots()[0].online);
+    CHECK(c->roots()[0].path == normalized_path_string(moved));
+    const ScanStats s = c->scan_root(root);
+    CHECK(s.added == 0);
+    CHECK(s.missing == 0);
+    CHECK(c->count(PhotoFilter{}) == 3);
+    CHECK(c->photo(a)->rating == 4);
+    CHECK(c->photo(a)->status == PhotoStatus::Ok);
+    CHECK(c->edit_json(a).has_value());
+    CHECK(c->photo(a)->path == normalized_path_string(moved / "2018" / "A.ARW"));
+
+    // 場所が重なる・同じ・存在しない、は Error（付け替えは行われない）
+    fs::create_directories(dir / "other" / "inner");
+    const int64_t other = c->add_root(dir / "other");
+    CHECK_THROWS_AS(c->relocate_root(root, dir / "other"), Error);           // 同じ
+    CHECK_THROWS_AS(c->relocate_root(root, dir / "other" / "inner"), Error);  // 他のルートの中
+    CHECK_THROWS_AS(c->relocate_root(root, dir.path()), Error);                    // 他のルートを含む
+    CHECK_THROWS_AS(c->relocate_root(root, dir / "no-such-dir"), Error);     // 存在しない
+    CHECK_THROWS_AS(c->relocate_root(9999, moved), Error);
+    CHECK(c->roots().size() == 2);
+    CHECK(c->root_for_path(moved).has_value());
+    (void)other;
+}
+
+TEST_CASE("コピーの検出: 元のファイルが残っていれば、現像・★・フラグ・タグを引き継ぐ（アルバムは引き継がない）", "[library][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Lib lib;
+    TempDir dir;
+    auto c = Catalog::open(dir / "c.sqlite");
+    const int64_t root = c->add_root(lib.root);
+    c->scan_root(root);
+    const int64_t a = id_of(*c, "A.ARW");
+    give_info(*c, a, 4);
+    c->set_flag(std::vector<int64_t>{a}, 1);
+    const int64_t album = c->create_album("Keep");
+    c->add_to_album(album, std::vector<int64_t>{a});
+
+    // コピー（元は残っている）
+    fs::create_directories(lib.root / "copies");
+    fs::copy_file(lib.root / "2018" / "A.ARW", lib.root / "copies" / "A_copy.ARW");
+    // 情報のない写真のコピーは、引き継ぐものがない
+    fs::copy_file(lib.root / "2019" / "C.CR3", lib.root / "copies" / "C_copy.CR3");
+    const ScanStats s = c->scan_root(root);
+    CHECK(s.added == 2);
+    CHECK(s.inherited == 1);
+    const int64_t copy = id_of(*c, "A_copy.ARW");
+    CHECK(copy != a);
+    CHECK(c->photo(copy)->rating == 4);
+    CHECK(c->photo(copy)->flag == 1);
+    CHECK(c->edit_json(copy) == c->edit_json(a));
+    CHECK(c->photo_tags(copy).size() == 1);
+    PhotoFilter f;
+    f.album_id = album;
+    CHECK(c->count(f) == 1);  // アルバムの所属は引き継がない（元の 1 枚のまま）
+    CHECK(c->photo(id_of(*c, "C_copy.CR3"))->rating == 0);
+
+    // その後は独立: コピーを変えても、元は変わらない
+    c->set_rating(std::vector<int64_t>{copy}, 1);
+    CHECK(c->photo(a)->rating == 4);
+    c->scan_root(root);  // 2 回目のスキャンでは、引き継ぎ直さない
+    CHECK(c->photo(copy)->rating == 1);
+
+    // 元がなくなっている場合は、コピーではなく移動: 同じ写真につなぎ直す（新しい行は作らず、引き継ぎでもない）
+    const int64_t b = id_of(*c, "B.CR3");
+    give_info(*c, b, 3);
+    fs::create_directories(lib.root / "moved");
+    fs::rename(lib.root / "2018" / "B.CR3", lib.root / "moved" / "B.CR3");
+    const ScanStats s2 = c->scan_root(root);
+    CHECK(s2.relinked == 1);
+    CHECK(s2.added == 0);
+    CHECK(s2.inherited == 0);
+    CHECK(c->photo(b)->rating == 3);
+    CHECK(c->photo(b)->path == normalized_path_string(lib.root / "moved" / "B.CR3"));
+}
+
+TEST_CASE("バックアップ: 同じ理由のものは新しい 5 つだけ残す。ルートを外す前に自動で作る", "[library][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Lib lib;
+    TempDir dir;
+    auto c = Catalog::open(dir / "c.sqlite");
+    const int64_t root = c->add_root(lib.root);
+    c->scan_root(root);
+    const int64_t a = id_of(*c, "A.ARW");
+    give_info(*c, a, 4);
+
+    fs::path last;
+    for (int i = 0; i < 7; ++i) last = c->backup("test run");
+    CHECK(backups_in(dir.path(), "test-run") == 5);
+    // バックアップは、その時点のカタログとして開ける
+    {
+        db::Database b(last, db::Database::Mode::ReadOnly);
+        auto st = b.prepare("SELECT COUNT(*) FROM photos");
+        st.step();
+        CHECK(st.column_int(0) == 3);
+    }
+
+    // 外す前の確認用の件数と、外す前のバックアップ
+    CHECK(c->root_details(root).edited_photos == 1);
+    c->remove_root(root);
+    CHECK(backups_in(dir.path(), "remove-root") == 1);
+    CHECK(c->count(PhotoFilter{}) == 0);
+    // バックアップには、外す前の写真と現像が残っている
+    for (const auto& e : fs::directory_iterator(dir.path())) {
+        if (path_to_utf8(e.path().filename()).find(".before-remove-root-") == std::string::npos) continue;
+        db::Database b(e.path(), db::Database::Mode::ReadOnly);
+        auto st = b.prepare("SELECT (SELECT COUNT(*) FROM photos), (SELECT COUNT(*) FROM edits)");
+        st.step();
+        CHECK(st.column_int(0) == 3);
+        CHECK(st.column_int(1) == 1);
+    }
 }

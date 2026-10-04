@@ -1,6 +1,6 @@
 # focal — 軽量 RAW 現像・管理アプリ
 
-設計書は `design.md`（v3.19）。ADR は `docs/adr/`。利用者向けの使い方は `docs/user-guide.md`（機能や操作を変えたら、ここも直す）。
+設計書は `design.md`（v3.20）。ADR は `docs/adr/`。利用者向けの使い方は `docs/user-guide.md`（機能や操作を変えたら、ここも直す）。
 
 ## 守ること
 
@@ -134,6 +134,8 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 - 画像処理ホットパスは `-O3`。再現性のため `-ffast-math` は使わない。
 - カタログに保存するパス・ファイル名・タグ名はすべて NFC。ファイルを開くときは `Catalog::photo_disk_path()`（`resolve_nfc_path`）を使い、保存した文字列をそのまま開かない。
 - スキャンの照合はフォルダごとに「完全一致 → case folding で一致」の 2 段階。大文字小文字だけのリネームは同じ写真として扱い、★・フラグ・タグを引き継ぐ。別フォルダへの移動は、ファイル名・サイズ・撮影日時が同じ「ファイルなし」の写真がちょうど 1 枚あればその写真につなぎ直す（v3.19。★・フラグ・タグ・アルバム・編集を引き継ぐ。候補が複数なら新規）。
+- ルートは入れ子にしない。`add_root` は既存ルートの中なら既存の id を返し、既存ルートを含むなら `merge_root_into` で統合（`merge_photo_rows` が編集・★・タグ等を保つ）。破壊的な操作（`remove_root`、統合）の前に `Catalog::backup()` が `catalog.sqlite.before-<理由>-<日時>-NN.bak` を作る（理由ごとに 5 つ残す）。`relocate_root`・`nested_roots`・`merge_nested_roots`（CLI は `relocate` / `merge-roots`）。
+- スキャンで新規の写真が既存の写真と quick_hash + サイズ一致なら `inherit_from_copies` が編集・★・フラグ・タグを複製（元ファイルがディスクになければ行をつなぎ直す）。ディスクの存在確認は DB スレッドの外。
 - ルートフォルダにアクセスできない（外付けドライブを外した等）ときは、写真をファイルなしにせず Error を投げる。
 - `DbWriter::call()` はコミット後に戻るので、直後に読み取り接続から結果が見える。
 - 現像のコールバック（セッションのイベント、レンダリング結果）は core のスレッドから来る。Swift 側では `Task { @MainActor … }` で戻す。セッションのコールバックの中で `close` しない（close は実行中のコールバックの終了を待つ）。

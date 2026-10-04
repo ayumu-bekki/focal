@@ -19,6 +19,35 @@ public struct PhotoRoot: Identifiable, Hashable, Sendable {
     }
 }
 
+/// ルートの詳しい情報（サイドバーの「情報を見る」）
+public struct RootDetails: Sendable {
+    public enum Kind: Int32, Sendable { case unknown = 0, `internal` = 1, external = 2, network = 3 }
+
+    public let id: Int64
+    public let path: String
+    public let label: String
+    public let volumeID: String
+    public let volumeName: String
+    /// ボリュームのマウントポイント。オフラインなどでわからなければ空
+    public let mountPoint: String
+    /// ファイルシステム。わからなければ空
+    public let fileSystem: String
+    public let isOnline: Bool
+    public let kind: Kind
+    /// ボリュームの容量。取れなければ nil
+    public let totalBytes: Int64?
+    public let freeBytes: Int64?
+    public let photos: Int64
+    public let folders: Int64
+    public let missing: Int64
+    /// 現像・★・フラグ・タグのいずれかが付いた写真の枚数（カタログから外すと消える情報の目安）
+    public let editedPhotos: Int64
+    public let totalFileBytes: Int64
+    /// 撮影日の範囲（"YYYY-MM-DD"）。なければ nil
+    public let captureFrom: String?
+    public let captureTo: String?
+}
+
 public struct PhotoFolder: Identifiable, Hashable, Sendable {
     public let id: Int64
     public let rootID: Int64
@@ -165,7 +194,7 @@ public struct PhotoFilter: Hashable, Sendable {
 }
 
 public struct ScanStats: Sendable {
-    public var added = 0, updated = 0, unchanged = 0, missing = 0, restored = 0, renamed = 0, relinked = 0
+    public var added = 0, updated = 0, unchanged = 0, missing = 0, restored = 0, renamed = 0, relinked = 0, inherited = 0
     public var unsupported = 0, foldersAdded = 0, thumbnails = 0, thumbnailFailures = 0
 
     init(_ s: fc_scan_stats) {
@@ -176,6 +205,7 @@ public struct ScanStats: Sendable {
         restored = Int(s.restored)
         renamed = Int(s.renamed)
         relinked = Int(s.relinked)
+        inherited = Int(s.inherited)
         unsupported = Int(s.unsupported)
         foldersAdded = Int(s.folders_added)
         thumbnails = Int(s.thumbnails)

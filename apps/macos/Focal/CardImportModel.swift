@@ -138,6 +138,20 @@ final class CardImportModel {
 
     var isRunning: Bool { phase == .running }
 
+    /// 読み込み先のフォルダがカタログから外れたとき。残っているフォルダの先頭へ移す。なければ既定の場所（設定の記録も消す）
+    func moveDestination(toFirstOf roots: [RootEntry]) {
+        if let first = roots.first {
+            setDestination(URL(fileURLWithPath: first.path))
+        } else {
+            destination = AppPaths.fallbackImportDestination
+            if ProcessInfo.processInfo.environment["FOCAL_IMPORT_DEST"] == nil {
+                UserDefaults.standard.removeObject(forKey: AppPaths.importDestinationKey)
+            }
+            refreshFreeSpace()
+            model?.reloadSidebar()
+        }
+    }
+
     func setDestination(_ url: URL) {
         destination = url
         refreshFreeSpace()

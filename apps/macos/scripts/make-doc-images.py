@@ -3,7 +3,7 @@
 使い方:
   1. ui-test.sh の出力フォルダを用意する（例: apps/macos/scripts/ui-test.sh /tmp/shots -only-testing:FocalUITests/FocalUITests/testDocScreenshots ...）
      撮るテスト: testDocScreenshots（現像・切り取り・一覧）、testLibraryOrganization（アルバム・スマートアルバム）、
-     testFilterBar、testExport、testCardImport、testDeleteRequiresChord、testFirstRunCreatesCatalog、testAlbumOrderAndCover
+     testRootInfoAndDestination、testFilterBar、testExport、testCardImport、testDeleteRequiresChord、testFirstRunCreatesCatalog、testAlbumOrderAndCover
   2. apps/macos/scripts/make-doc-images.py /tmp/shots [/tmp/shots2 …]   （後ろのフォルダの画像が優先）
 写真が多い画像は JPEG（容量を抑える）、画面だけの画像は PNG にして、長辺 1500px に縮める。"""
 import json, pathlib, subprocess, sys
@@ -17,6 +17,7 @@ IMAGES = {
     'doc-crop': ('crop.jpg', 'jpeg'),
     'filter-bar': ('filter-bar.png', 'png'),
     'smart-album': ('sidebar-albums.jpg', 'jpeg'),
+    'root-info': ('root-info.png', 'png'),
     'smart-album-sheet': ('smart-album-sheet.png', 'png'),
     'album-cover': ('album-cover.jpg', 'jpeg'),
     'import-sheet': ('import-sheet.png', 'png'),

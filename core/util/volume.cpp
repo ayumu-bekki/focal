@@ -108,6 +108,7 @@ std::vector<VolumeInfo> list_volumes() {
         v.mount_point = is_data ? fs::path("/") : fs::path(mount);
         v.name = is_data && !root_name.empty() ? root_name : (a.name.empty() ? v.mount_point.filename().string() : a.name);
         v.removable = false;
+        v.fs_type = mnts[i].f_fstypename;
         out.push_back(std::move(v));
     }
     return out;
@@ -138,7 +139,9 @@ VolumeInfo make_volume(const std::wstring& root) {
     if (b != std::wstring::npos && e != std::wstring::npos && e > b)
         v.id = path_to_utf8(fs::path(guid.substr(b + 1, e - b - 1)));
     wchar_t label[MAX_PATH + 1] = {};
-    GetVolumeInformationW(root.c_str(), label, MAX_PATH, nullptr, nullptr, nullptr, nullptr, 0);
+    wchar_t fs[MAX_PATH + 1] = {};
+    GetVolumeInformationW(root.c_str(), label, MAX_PATH, nullptr, nullptr, nullptr, fs, MAX_PATH);
+    v.fs_type = path_to_utf8(fs::path(std::wstring(fs)));
     v.name = path_to_utf8(fs::path(std::wstring(label)));
     if (v.name.empty()) v.name = path_to_utf8(fs::path(root));
     v.removable = GetDriveTypeW(root.c_str()) == DRIVE_REMOVABLE;
@@ -220,11 +223,13 @@ std::vector<VolumeInfo> list_volumes() {
         const auto dash = std::find(f.begin(), f.end(), "-");
         if (f.size() < 7 || dash == f.end() || dash + 2 >= f.end()) continue;
         const std::string mount = unescape_mountinfo(f[4]);
+        const std::string fstype = *(dash + 1);
         const std::string source = *(dash + 2);
         const std::string net = network_volume_id(source);
         if (!net.empty()) {  // ネットワークの共有（SMB・NFS）
             VolumeInfo v;
             v.id = net;
+            v.fs_type = fstype;
             v.mount_point = fs::path(mount);
             v.name = mount == "/" ? "/" : v.mount_point.filename().string();
             out.push_back(std::move(v));
@@ -238,6 +243,7 @@ std::vector<VolumeInfo> list_volumes() {
         if (auto u = uuids.find(dev); u != uuids.end()) v.id = u->second;
         if (auto l = labels.find(dev); l != labels.end()) v.name = unescape_label(l->second);
         v.mount_point = fs::path(mount);
+        v.fs_type = fstype;
         if (v.name.empty()) v.name = mount == "/" ? "/" : v.mount_point.filename().string();
         out.push_back(std::move(v));
     }
@@ -266,6 +272,17 @@ std::vector<VolumeInfo> mounted_volumes() {
         return a.mount_point.native() < b.mount_point.native();
     });
     return v;
+}
+
+VolumeKind volume_kind(const VolumeInfo& v) {
+    if (v.id.rfind("net:", 0) == 0) return VolumeKind::Network;
+    if (v.mount_point == fs::path("/")) return VolumeKind::Internal;
+    if (v.removable) return VolumeKind::External;
+#if defined(__APPLE__)
+    return VolumeKind::External;  // macOS の起動ボリューム以外（/Volumes の下）
+#else
+    return VolumeKind::Unknown;
+#endif
 }
 
 std::optional<VolumeInfo> volume_for_path(const fs::path& path) {

@@ -134,6 +134,10 @@ struct TagArray : fc_tag_array {
     std::vector<fc_tag> v;
 };
 
+struct RootDetailsBox : fc_root_details {
+    RootDetails src;
+};
+
 struct StringBox : fc_string {
     std::string text;
 };
@@ -312,6 +316,56 @@ fc_status fc_catalog_roots(fc_catalog* catalog, fc_root_array** out) {
 }
 
 void fc_root_array_free(fc_root_array* array) { delete static_cast<RootArray*>(array); }
+
+fc_status fc_catalog_folder_for_path(fc_catalog* catalog, const char* dir, int64_t* out_root_id, int64_t* out_folder_id) {
+    return guard([&] {
+        require(catalog && dir, "catalog and dir must not be NULL");
+        const auto loc = catalog->catalog->folder_for_path(utf8_to_path(dir));
+        if (!loc) throw Error(Error::Code::NotFound, "not inside a folder of the catalog");
+        if (out_root_id) *out_root_id = loc->root_id;
+        if (out_folder_id) *out_folder_id = loc->folder_id;
+    });
+}
+
+fc_status fc_catalog_relocate_root(fc_catalog* catalog, int64_t root_id, const char* new_dir) {
+    return guard([&] {
+        require(catalog && new_dir, "catalog and new_dir must not be NULL");
+        catalog->catalog->relocate_root(root_id, utf8_to_path(new_dir));
+    });
+}
+
+fc_status fc_catalog_nested_root_count(fc_catalog* catalog, int32_t* out_count) {
+    return guard([&] {
+        require(catalog && out_count, "catalog and out_count must not be NULL");
+        *out_count = static_cast<int32_t>(catalog->catalog->nested_roots().size());
+    });
+}
+
+fc_status fc_catalog_merge_nested_roots(fc_catalog* catalog, int32_t* out_merged) {
+    return guard([&] {
+        require(catalog, "catalog must not be NULL");
+        const int n = catalog->catalog->merge_nested_roots();
+        if (out_merged) *out_merged = n;
+    });
+}
+
+fc_status fc_catalog_root_details(fc_catalog* catalog, int64_t root_id, fc_root_details** out) {
+    return guard([&] {
+        require(catalog && out, "catalog and out must not be NULL");
+        *out = nullptr;
+        auto b = std::make_unique<RootDetailsBox>();
+        b->src = catalog->catalog->root_details(root_id);
+        const RootDetails& d = b->src;
+        static_cast<fc_root_details&>(*b) = {
+            d.root.id, d.root.path.c_str(), d.root.label.c_str(), d.root.volume_id.c_str(),
+            d.root.volume_name.c_str(), d.mount_point.c_str(), d.fs_type.c_str(), d.root.online ? 1 : 0, d.kind,
+            d.total_bytes, d.free_bytes, d.photos, d.folders, d.missing, d.edited_photos, d.total_file_bytes,
+            d.capture_from.c_str(), d.capture_to.c_str()};
+        *out = b.release();
+    });
+}
+
+void fc_root_details_free(fc_root_details* details) { delete static_cast<RootDetailsBox*>(details); }
 
 fc_status fc_catalog_refresh_volumes(fc_catalog* catalog, int32_t* out_changed) {
     return guard([&] {
@@ -587,7 +641,7 @@ fc_status fc_catalog_scan_async(fc_catalog* catalog, int64_t root_id, const char
                 if (progress) opt.progress = [progress, user](int d, int n) { progress(user, d, n); };
                 const ScanStats s = c->scan_root(root_id, opt);
                 stats = {s.added,         s.updated,    s.unchanged,    s.missing,   s.restored,
-                         s.renamed,       s.unsupported, s.relinked,    s.folders_added, s.thumbnails,
+                         s.renamed,       s.unsupported, s.relinked,    s.inherited, s.folders_added, s.thumbnails,
                          s.thumbnail_failures};
             } catch (const Error& e) {
                 status = to_status(e.code());

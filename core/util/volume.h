@@ -14,7 +14,13 @@ struct VolumeInfo {
     std::string name;                    // 表示名
     std::filesystem::path mount_point;   // 利用者から見えるマウントポイント
     bool removable = false;              // OS が取り外し可能と報告した（取れる OS だけ）
+    std::string fs_type;                 // ファイルシステムの名前（apfs、exfat、smbfs、NTFS など）。取れなければ空
 };
+
+// ボリュームの種類（情報の表示用）。ID が "net:" なら共有（ネットワーク）、起動ボリュームの "/" は内蔵、
+// それ以外は外付け（OS が取り外し可能と報告したものも外付け）。判別できない環境では Unknown
+enum class VolumeKind { Unknown, Internal, External, Network };
+VolumeKind volume_kind(const VolumeInfo& volume);
 
 // ネットワークの共有（SMB・NFS など）の「ソース」（macOS の f_mntfromname、Linux の mountinfo の source。
 // 例: "//user@nas.local/Photos"、"nas:/export/photos"）から、ボリューム ID を作る。

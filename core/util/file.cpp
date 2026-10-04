@@ -96,4 +96,17 @@ std::vector<bool> directories_reachable(const std::vector<std::string>& paths, s
     return result;
 }
 
+std::optional<DiskSpace> disk_space(const std::filesystem::path& path, std::chrono::milliseconds timeout) {
+    auto task = std::make_shared<std::promise<std::optional<DiskSpace>>>();
+    auto fut = task->get_future();
+    std::thread([task, path] {
+        std::error_code ec;
+        const auto info = std::filesystem::space(path, ec);
+        if (ec) task->set_value(std::nullopt);
+        else task->set_value(DiskSpace{static_cast<int64_t>(info.capacity), static_cast<int64_t>(info.available)});
+    }).detach();
+    if (fut.wait_for(timeout) != std::future_status::ready) return std::nullopt;
+    return fut.get();
+}
+
 } // namespace focal

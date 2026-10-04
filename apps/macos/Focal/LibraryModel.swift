@@ -19,22 +19,15 @@ struct TagNode: Identifiable, Hashable {
     var children: [TagNode]?
 }
 
-/// ストレージの 1 つのルート（ライブラリのルートフォルダ）とそのフォルダツリー（v3.19）
+/// 追加したフォルダ（ライブラリのルート）とそのフォルダツリー（サイドバーの「フォルダ」）。
+/// 外付けドライブ・NAS が外れていると isOnline = false（グレー表示）
 struct RootEntry: Identifiable, Hashable {
     let id: Int64
     let path: String
     let node: FolderNode
     let isOnline: Bool
-    /// 読み込み先（設定の既定のコピー先）になっている
-    let isImportDestination: Bool
-}
-
-/// ストレージ（ボリューム）の節。外付けドライブが外れていると isOnline = false（グレー表示）
-struct VolumeGroup: Identifiable, Hashable {
-    let id: String
-    let name: String
-    let isOnline: Bool
-    var roots: [RootEntry]
+    /// ボリューム（ディスク）の名前。判別できなければ空。ヘルプ（カーソルを乗せたとき）に出す
+    let volumeName: String
 }
 
 /// アルバムのツリーの節（フォルダなら children を持つ）
@@ -54,8 +47,8 @@ final class LibraryModel {
 
     private(set) var roots: [PhotoRoot] = []
     private(set) var folderTree: [FolderNode] = []
-    /// ストレージ（ボリューム）ごとのルートとフォルダ（v3.19）
-    private(set) var volumes: [VolumeGroup] = []
+    /// 追加したフォルダ（ルート）。サイドバーの「フォルダ」に並べる（v3.19）
+    private(set) var rootEntries: [RootEntry] = []
     private(set) var tagTree: [TagNode] = []
     /// すべてのタグ（"親/子" のパスつき。スマートアルバムの条件の選択肢）
     private(set) var tags: [PhotoTag] = []
@@ -129,6 +122,7 @@ final class LibraryModel {
         observeVolumes()
         observeMenuTracking()
         refreshImportSources()
+        checkNestedRoots()
         if !AppPaths.isolatedFromDefaults && UserDefaults.standard.bool(forKey: AppPaths.rescanOnLaunchKey, default: true) {
             rescanAll()  // 起動時の再スキャン（外でフォルダやファイルが変わっていた場合に追従する）
         }
@@ -147,7 +141,7 @@ final class LibraryModel {
             tagTree = Self.buildTagTree(tags)
             albums = try catalog.albums()
             albumTree = Self.buildAlbumTree(albums)
-            volumes = Self.buildVolumes(roots: roots, trees: folderTree, importDestination: cardImport.destination)
+            rootEntries = Self.buildRootEntries(roots: roots, trees: folderTree)
         } catch {
             report(error)
         }
@@ -342,15 +336,57 @@ final class LibraryModel {
         }
     }
 
-    /// 外す確認を出すルート（SidebarView の確認ダイアログ）
+    /// 外す確認を出すルート（ContentView の確認ダイアログ）
     var rootToRemove: RootEntry?
+    /// 外すと消える情報（現像・★・フラグ・タグが付いた写真の枚数）。確認に出す
+    private(set) var rootToRemoveEdited: Int64 = 0
+
+    /// 外す前の確認。消える情報の枚数を数えてから出す
+    func requestRemoveRoot(_ root: RootEntry) {
+        let catalog = catalog
+        Task {
+            let d = await Task.detached { try? catalog.rootDetails(rootID: root.id) }.value
+            rootToRemoveEdited = d?.editedPhotos ?? 0
+            rootToRemove = root
+        }
+    }
+
+    // MARK: ルートの場所の付け替え（v3.19）
+
+    /// 付け替えの確認を出す（ルートと新しい場所）
+    var relocateRequest: (root: RootEntry, newLocation: URL)?
+
+    func chooseNewLocation(for root: RootEntry) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = String(localized: "Choose")
+        panel.message = String(localized: "Choose the new location of this folder.")
+        panel.directoryURL = URL(fileURLWithPath: root.path).deletingLastPathComponent()
+        if panel.runModal() == .OK, let url = panel.url { relocateRequest = (root, url) }
+    }
+
+    /// 場所を付け替えて、新しい場所に合わせるためにスキャンする
+    func relocate(_ root: RootEntry, to url: URL) {
+        relocateRequest = nil
+        do {
+            try catalog.relocateRoot(root.id, to: url)
+            reloadSidebar()
+            rescan(rootID: root.id)
+        } catch { report(error) }
+    }
 
     /// ルートをカタログから外す（ファイルは消えない）。見ていたフォルダなら「すべての写真」に戻す
     func removeRoot(_ root: RootEntry) {
         do {
             if case .folder(let id) = source, Self.find(id, in: [root.node]) != nil { source = .all }
+            let wasDestination = isImportDestination(root)
             try catalog.removeRoot(root.id)
             reloadSidebar()
+            // 読み込み先のフォルダを外したら、残っているフォルダの先頭（サイドバーの並びの先頭）を読み込み先にする。
+            // 残りがなければ、既定の場所に戻す
+            if wasDestination { cardImport.moveDestination(toFirstOf: rootEntries) }
             reloadPhotos()
             updateWatcher()
         } catch { report(error) }
@@ -362,10 +398,70 @@ final class LibraryModel {
 
     private func scan(addingRoot url: URL) async {
         do {
-            let id = try catalog.addRoot(url)
+            let catalog = catalog
+            let before = Set(((try? catalog.roots()) ?? []).map(\.id))
+            // 統合の前のバックアップなどで時間がかかることがあるので、メインスレッドの外で
+            let id = try await Task.detached { try catalog.addRoot(url) }.value
+            let after = Set(((try? catalog.roots()) ?? []).map(\.id))
             reloadSidebar()
             await scan(rootID: id)
+            if !before.isSubset(of: after) {
+                // 追加したフォルダが、登録済みのルートを含んでいた: 含まれるルートを統合した
+                notice = String(localized: "Folders merged (edits, ratings, flags and tags kept; backup made)")
+            } else if before.contains(id) {
+                // すでに登録したルートそのもの・その中だった: 新しいルートは作らず、そのフォルダを表示する
+                if let loc = catalog.folderLocation(forPath: url) {
+                    source = .folder(loc.folderID)
+                    showToast(String(localized: "Already in the catalog"))
+                }
+            }
         } catch { report(error) }
+    }
+
+    /// 追加・統合のあとに出すお知らせ
+    var notice: String?
+
+    /// 画面の上に数秒だけ出す短い知らせ（操作を止めない）
+    private(set) var toast: String?
+    private var toastTask: Task<Void, Never>?
+
+    func showToast(_ text: String) {
+        toast = text
+        toastTask?.cancel()
+        toastTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2.5))
+            if !Task.isCancelled { self?.toast = nil }
+        }
+    }
+
+    // MARK: 重なったフォルダの統合（v3.19）
+
+    /// 重なっているフォルダ（二重登録の跡）の数。0 でなければ、統合するか聞く
+    var nestedRootsToMerge = 0
+
+    func checkNestedRoots() {
+        let catalog = catalog
+        Task {
+            let n = await Task.detached { (try? catalog.nestedRootCount()) ?? 0 }.value
+            if n > 0 { nestedRootsToMerge = n }
+        }
+    }
+
+    func mergeNestedRoots() {
+        nestedRootsToMerge = 0
+        let catalog = catalog
+        Task {
+            let outcome = await Task.detached { Result { try catalog.mergeNestedRoots() } }.value
+            switch outcome {
+            case .success(let n):
+                if n > 0 {
+                    notice = String(localized: "Merged \(n) overlapping folders. Edits, ratings, flags and tags were kept. A backup of the catalog was made next to it.")
+                }
+            case .failure(let error): report(error)
+            }
+            reloadSidebar()
+            reloadPhotos()
+        }
     }
 
     /// 同時に走らせるのは 1 つだけ（同じルートを 2 つのスキャンが同時に書くと重複するため）
@@ -470,10 +566,7 @@ final class LibraryModel {
     }
 
     private func rootEntry(containingFolder id: Int64) -> RootEntry? {
-        for v in volumes {
-            for r in v.roots where Self.find(id, in: [r.node]) != nil { return r }
-        }
-        return nil
+        rootEntries.first { Self.find(id, in: [$0.node]) != nil }
     }
 
     // MARK: 写真の削除（v3.19、design.md 5.11 章）
@@ -605,37 +698,24 @@ final class LibraryModel {
             out.append(FolderChoice(id: n.id, title: title))
             for c in n.children ?? [] { walk(c, prefix: title) }
         }
-        for v in volumes { for r in v.roots { walk(r.node, prefix: "") } }
+        for r in rootEntries { walk(r.node, prefix: "") }
         return out
     }
 
-    /// ルートをボリュームごとにまとめる。ボリュームを判別できないルートは「その他」に入れる
-    private static func buildVolumes(roots: [PhotoRoot], trees: [FolderNode], importDestination: URL) -> [VolumeGroup] {
-        let destination = importDestination.standardizedFileURL.path
-        var groups: [String: VolumeGroup] = [:]
-        var order: [String] = []
-        for (root, tree) in zip(roots, trees) {
-            let key = root.volumeID.isEmpty ? "" : root.volumeID
-            let entry = RootEntry(id: root.id, path: root.path, node: tree, isOnline: root.isOnline,
-                                  isImportDestination: URL(fileURLWithPath: root.path).standardizedFileURL.path == destination)
-            if groups[key] == nil {
-                let name = root.volumeID.isEmpty ? String(localized: "Other Locations") : root.volumeName
-                groups[key] = VolumeGroup(id: key, name: name, isOnline: false, roots: [])
-                order.append(key)
-            }
-            groups[key]!.roots.append(entry)
+    /// このルートが、カード取り込みの読み込み先か（サイドバーの ★）
+    func isImportDestination(_ root: RootEntry) -> Bool {
+        URL(fileURLWithPath: root.path).standardizedFileURL.path == cardImport.destination.standardizedFileURL.path
+    }
+
+    /// 追加したフォルダを並べる。つながっているものが先、外れているもの（グレー）は後ろ。それぞれ名前の順
+    private static func buildRootEntries(roots: [PhotoRoot], trees: [FolderNode]) -> [RootEntry] {
+        zip(roots, trees).map { root, tree in
+            RootEntry(id: root.id, path: root.path, node: tree, isOnline: root.isOnline, volumeName: root.volumeName)
         }
-        var result = order.map { key -> VolumeGroup in
-            let g = groups[key]!
-            return VolumeGroup(id: g.id, name: g.name, isOnline: g.roots.contains { $0.isOnline }, roots: g.roots)
-        }
-        // つながっているボリュームが先、外れているものは後ろ。「その他」は最後
-        result.sort { a, b in
-            if a.id.isEmpty != b.id.isEmpty { return !a.id.isEmpty }
+        .sorted { a, b in
             if a.isOnline != b.isOnline { return a.isOnline }
-            return a.name.localizedStandardCompare(b.name) == .orderedAscending
+            return a.node.name.localizedStandardCompare(b.node.name) == .orderedAscending
         }
-        return result
     }
 
     private static func buildAlbumTree(_ albums: [Album]) -> [AlbumNode] {

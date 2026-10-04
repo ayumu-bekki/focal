@@ -80,6 +80,19 @@ struct ContentView: View {
                 .padding(.top, 8)
             }
         }
+        .overlay(alignment: .top) {
+            if let text = model.toast {
+                Text(text)
+                    .font(.callout)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.top, 8)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("toast")
+            }
+        }
+        .animation(.default, value: model.toast)
         .sheet(item: $model.albumPrompt) { prompt in
             if case .smart(let editing, let parent) = prompt {
                 SmartAlbumSheet(model: model, editing: editing, parent: parent)
@@ -115,7 +128,35 @@ struct ContentView: View {
                 model.rootToRemove = nil
             }
         } message: {
-            Text("The photos’ ratings, flags, tags, album memberships and edits in this catalog are deleted. The files on disk are not deleted.")
+            if model.rootToRemoveEdited > 0 {
+                Text("\(model.rootToRemoveEdited) photos have edits, ratings, flags or tags. They are deleted from this catalog, along with the album memberships. The files on disk are not deleted. A backup of the catalog is made first, so you can restore it.")
+            } else {
+                Text("The photos’ ratings, flags, tags, album memberships and edits in this catalog are deleted. The files on disk are not deleted. A backup of the catalog is made first.")
+            }
+        }
+        .confirmationDialog(
+            Text("Change the location of “\(model.relocateRequest?.root.node.name ?? "")”?"),
+            isPresented: Binding(get: { model.relocateRequest != nil }, set: { if !$0 { model.relocateRequest = nil } })) {
+            Button("Change Location") {
+                if let r = model.relocateRequest { model.relocate(r.root, to: r.newLocation) }
+            }
+            .accessibilityIdentifier("relocateConfirm")
+        } message: {
+            Text("New location: \(model.relocateRequest?.newLocation.path ?? "")\nEdits, ratings, flags and tags stay with the photos. Photos whose file is not at the same path inside the new location are shown as missing.")
+        }
+        .confirmationDialog(
+            Text("Merge overlapping folders?"),
+            isPresented: Binding(get: { model.nestedRootsToMerge > 0 }, set: { if !$0 { model.nestedRootsToMerge = 0 } })) {
+            Button("Merge") { model.mergeNestedRoots() }
+                .accessibilityIdentifier("mergeNestedRoots")
+            Button("Later", role: .cancel) { model.nestedRootsToMerge = 0 }
+        } message: {
+            Text("\(model.nestedRootsToMerge) folders in the catalog are inside another folder of the catalog, so the same photos may be registered twice. Merging combines them into one, keeping edits, ratings, flags and tags. A backup of the catalog is made first.")
+        }
+        .alert("Folders", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
+            Button("OK") { model.notice = nil }
+        } message: {
+            Text(model.notice ?? "")
         }
         .confirmationDialog(
             deleteTitle,

@@ -15,11 +15,22 @@
       }
     },
     "“%@” is not connected." : {
+      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "“%@” は接続されていません。"
+          }
+        }
+      }
+    },
+    "%@ free of %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%2$@ 中 %1$@ 空き"
           }
         }
       }
@@ -33,6 +44,26 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "%lld folders in the catalog are inside another folder of the catalog, so the same photos may be registered twice. Merging combines them into one, keeping edits, ratings, flags and tags. A backup of the catalog is made first." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カタログの中に、別のフォルダの中にあるフォルダが %lld 個あり、同じ写真が二重に登録されているかもしれません。統合すると、現像・★・フラグ・タグを残したまま 1 つにまとめます。先にカタログのバックアップを作ります。"
+          }
+        }
+      }
+    },
+    "%lld photos" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚"
           }
         }
       }
@@ -67,6 +98,16 @@
         }
       }
     },
+    "%lld photos have edits, ratings, flags or tags. They are deleted from this catalog, along with the album memberships. The files on disk are not deleted. A backup of the catalog is made first, so you can restore it." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現像・★・フラグ・タグが付いた写真が %lld 枚あります。これらは、アルバムへの所属とともに、このカタログから消えます。ディスク上のファイルは消えません。先にカタログのバックアップを作るので、戻せます。"
+          }
+        }
+      }
+    },
     "%lld photos have no capture time, so the file’s modified date was used (estimated)." : {
       "localizations" : {
         "ja" : {
@@ -93,6 +134,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld 枚、%@"
+          }
+        }
+      }
+    },
+    "%lld photos, %lld subfolders" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld 枚、サブフォルダ %2$lld 個"
           }
         }
       }
@@ -305,6 +356,16 @@
         }
       }
     },
+    "Already in the catalog" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登録済みのフォルダです"
+          }
+        }
+      }
+    },
     "and" : {
       "localizations" : {
         "ja" : {
@@ -446,6 +507,16 @@
         }
       }
     },
+    "Capacity" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "容量"
+          }
+        }
+      }
+    },
     "Capture date" : {
       "localizations" : {
         "ja" : {
@@ -457,6 +528,16 @@
       }
     },
     "Capture Date" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "撮影日"
+          }
+        }
+      }
+    },
+    "Capture Dates" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -482,6 +563,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "カタログ"
+          }
+        }
+      }
+    },
+    "Change Location" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "場所を変更"
+          }
+        }
+      }
+    },
+    "Change Location…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "場所を変更…"
+          }
+        }
+      }
+    },
+    "Change the location of “%@”?" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” の場所を変更しますか？"
           }
         }
       }
@@ -522,6 +633,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "カード、または DCIM フォルダを選んでください。"
+          }
+        }
+      }
+    },
+    "Choose the new location of this folder." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このフォルダの新しい場所を選んでください。"
           }
         }
       }
@@ -609,6 +730,16 @@
         }
       }
     },
+    "Connected" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続中"
+          }
+        }
+      }
+    },
     "contains" : {
       "localizations" : {
         "ja" : {
@@ -635,6 +766,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "コピー中 %1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "Could not read the information." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "情報を読み取れませんでした。"
           }
         }
       }
@@ -829,6 +970,26 @@
         }
       }
     },
+    "Disk" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ディスク"
+          }
+        }
+      }
+    },
+    "Display Name" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示名"
+          }
+        }
+      }
+    },
     "Display Rendering" : {
       "localizations" : {
         "ja" : {
@@ -1003,6 +1164,16 @@
         }
       }
     },
+    "External" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "外付け"
+          }
+        }
+      }
+    },
     "File" : {
       "localizations" : {
         "ja" : {
@@ -1108,12 +1279,21 @@
       }
     },
     "Folders" : {
-      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "フォルダ"
+          }
+        }
+      }
+    },
+    "Folders merged (edits, ratings, flags and tags kept; backup made)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを統合しました（現像・★・フラグ・タグは保持、バックアップ済み）"
           }
         }
       }
@@ -1154,6 +1334,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "一般"
+          }
+        }
+      }
+    },
+    "Get Info…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "情報を見る…"
           }
         }
       }
@@ -1220,7 +1410,7 @@
         }
       }
     },
-    "Import destination" : {
+    "Import Destination" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -1230,7 +1420,7 @@
         }
       }
     },
-    "Import Destination" : {
+    "Import destination" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -1296,6 +1486,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "インスペクタ"
+          }
+        }
+      }
+    },
+    "Internal" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内蔵"
           }
         }
       }
@@ -1410,6 +1610,16 @@
         }
       }
     },
+    "Later" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "あとで"
+          }
+        }
+      }
+    },
     "Lens" : {
       "localizations" : {
         "ja" : {
@@ -1520,12 +1730,52 @@
         }
       }
     },
+    "Merge" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "統合"
+          }
+        }
+      }
+    },
+    "Merge overlapping folders?" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重なっているフォルダを統合しますか？"
+          }
+        }
+      }
+    },
+    "Merged %lld overlapping folders. Edits, ratings, flags and tags were kept. A backup of the catalog was made next to it." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重なっていたフォルダ %lld 個を統合しました。現像・★・フラグ・タグはそのまま残っています。カタログの隣に、バックアップを作りました。"
+          }
+        }
+      }
+    },
     "Metadata" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "メタデータ"
+          }
+        }
+      }
+    },
+    "Missing" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルなし"
           }
         }
       }
@@ -1644,6 +1894,16 @@
         }
       }
     },
+    "Network" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ネットワーク"
+          }
+        }
+      }
+    },
     "New Album" : {
       "localizations" : {
         "ja" : {
@@ -1740,6 +2000,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "新規フォルダ…"
+          }
+        }
+      }
+    },
+    "New location: %@\nEdits, ratings, flags and tags stay with the photos. Photos whose file is not at the same path inside the new location are shown as missing." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい場所: %@\n現像・★・フラグ・タグは、写真に付いたまま残ります。新しい場所の中に同じ相対パスのファイルがない写真は、「ファイルなし」と表示されます。"
           }
         }
       }
@@ -1955,17 +2225,17 @@
         }
       }
     },
-    "Other Locations" : {
+    "Photo" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "その他の場所"
+            "value" : "写真"
           }
         }
       }
     },
-    "Photo" : {
+    "Photos" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -2131,6 +2401,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "カードを読み込み中… %1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "Reading…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込み中…"
           }
         }
       }
@@ -2545,16 +2825,6 @@
         }
       }
     },
-    "Storage" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ストレージ"
-          }
-        }
-      }
-    },
     "Straighten" : {
       "localizations" : {
         "ja" : {
@@ -2655,12 +2925,12 @@
         }
       }
     },
-    "The photos’ ratings, flags, tags, album memberships and edits in this catalog are deleted. The files on disk are not deleted." : {
+    "The photos’ ratings, flags, tags, album memberships and edits in this catalog are deleted. The files on disk are not deleted. A backup of the catalog is made first." : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "このカタログにある、これらの写真の評価・フラグ・タグ・アルバムへの所属・編集が削除されます。ディスク上のファイルは削除されません。"
+            "value" : "このカタログにある、これらの写真の評価・フラグ・タグ・アルバムへの所属・編集が削除されます。ディスク上のファイルは削除されません。先にカタログのバックアップを作ります。"
           }
         }
       }
@@ -2751,6 +3021,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最上位"
+          }
+        }
+      }
+    },
+    "Total Size" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合計サイズ"
           }
         }
       }

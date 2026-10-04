@@ -3,13 +3,13 @@ import FocalCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 左ペイン（9.5 章）: どの写真の集まりを見るか。上から ストレージ・ライブラリ・アルバム・取り込み（カードがつながっているときだけ）。
-/// ストレージはボリュームごとにルートとフォルダを出し、外れているドライブはグレーにする（v3.19）。
+/// 左ペイン（9.5 章）: どの写真の集まりを見るか。上から フォルダ・ライブラリ・アルバム・取り込み（カードがつながっているときだけ）。
+/// フォルダは追加したフォルダを直接並べ、外れているドライブ・NAS のものはグレーにする（v3.19）。
 /// 絞り込みは絞り込みバー（FilterBar）で行う
 struct SidebarView: View {
     @Bindable var model: LibraryModel
     // 見出しの開閉（次回の起動でも保つ）
-    @AppStorage("sidebar.storage.expanded") private var storageExpanded = true
+    @AppStorage("sidebar.folders.expanded") private var foldersExpanded = true
     @AppStorage("sidebar.library.expanded") private var libraryExpanded = true
     @AppStorage("sidebar.albums.expanded") private var albumsExpanded = true
 
@@ -20,13 +20,13 @@ struct SidebarView: View {
     var body: some View {
         List(selection: selection) {
             Section {
-                if storageExpanded {
-                ForEach(model.volumes) { volume in
-                    VolumeRows(model: model, volume: volume)
+                if foldersExpanded {
+                    ForEach(model.rootEntries) { root in
+                        FolderRows(model: model, node: root.node, root: root, online: root.isOnline)
+                    }
                 }
-            }
             } header: {
-                InspectorSectionHeader(title: "Storage", expanded: $storageExpanded, identifier: "sidebarStorageHeader")
+                InspectorSectionHeader(title: "Folders", expanded: $foldersExpanded, identifier: "sidebarFoldersHeader")
                     .overlay(alignment: .trailing) {
                         Button {
                             chooseFolderToAdd(model: model)
@@ -103,32 +103,9 @@ struct SidebarView: View {
     }
 }
 
-// MARK: ストレージ（v3.19）
+// MARK: フォルダ（追加したフォルダ。v3.19）
 
-/// ボリューム → ルート → フォルダの順に入れ子で出す
-private struct VolumeRows: View {
-    let model: LibraryModel
-    let volume: VolumeGroup
-    @State private var expanded = true
-
-    var body: some View {
-        DisclosureGroup(isExpanded: $expanded) {
-            ForEach(volume.roots) { root in
-                FolderRows(model: model, node: root.node, root: root, online: root.isOnline)
-            }
-        } label: {
-            Label {
-                Text(volume.name).lineLimit(1).truncationMode(.middle)
-            } icon: {
-                Image(systemName: volume.isOnline ? "internaldrive" : "externaldrive.badge.xmark")
-            }
-            .foregroundStyle(volume.isOnline ? .primary : .secondary)
-            .help(volume.isOnline ? volume.name : String(localized: "“\(volume.name)” is not connected."))
-            .accessibilityIdentifier("volume-\(volume.name)")
-        }
-    }
-}
-
+/// 追加したフォルダとそのサブフォルダを入れ子で出す。外れているドライブ・NAS のフォルダはグレー
 private struct FolderRows: View {
     let model: LibraryModel
     let node: FolderNode
@@ -136,6 +113,7 @@ private struct FolderRows: View {
     let root: RootEntry?
     let online: Bool
     @State private var expanded: Bool
+    @State private var showInfo = false
 
     init(model: LibraryModel, node: FolderNode, root: RootEntry? = nil, online: Bool) {
         self.model = model
@@ -155,37 +133,58 @@ private struct FolderRows: View {
         }
     }
 
+    /// ルートは、場所（パス）とボリューム名。外れているときは、その旨も
+    private var helpText: String {
+        guard let root else { return node.name }
+        var text = root.path
+        if !root.volumeName.isEmpty { text += "\n" + root.volumeName }
+        if !root.isOnline { text += "\n" + String(localized: "Offline") }
+        return text
+    }
+
     private var label: some View {
         HStack {
             Label {
                 Text(node.name).lineLimit(1).truncationMode(.middle)
             } icon: {
-                Image(systemName: root == nil ? "folder" : "externaldrive")
+                Image(systemName: root.map { $0.isOnline ? "folder" : "externaldrive.badge.xmark" } ?? "folder")
             }
-            if root?.isImportDestination == true {
+            // 読み込み先（カード取り込みのコピー先）の印。設定と取り込みシートでも変えられる
+            if let root, model.isImportDestination(root) {
                 Image(systemName: "star.fill").font(.caption2).foregroundStyle(.secondary)
                     .help("Import destination")
+                    .accessibilityLabel("Import destination")
+                    .accessibilityIdentifier("importDestinationStar")
             }
             Spacer(minLength: 4)
             Text("\(node.photoCount)").foregroundStyle(.secondary).monospacedDigit()
         }
         .foregroundStyle(online ? .primary : .secondary)
         .tag(LibraryModel.Source.folder(node.id))
-        .help(online ? node.name : String(localized: "Offline"))
+        .help(helpText)
         .accessibilityIdentifier("folder-\(node.name)")
+        .accessibilityValue(root.map { model.isImportDestination($0) ? String(localized: "Import destination") : "" } ?? "")
+        .popover(isPresented: $showInfo, arrowEdge: .trailing) {
+            if let root { RootInfoView(model: model, root: root) { showInfo = false } }
+        }
         .contextMenu {
             if let root {
+                Button("Get Info…") { showInfo = true }
+                    .accessibilityIdentifier("rootInfo")
+                Divider()
                 Button("Rescan") { model.rescan(rootID: root.id) }
                     .disabled(!root.isOnline)
-                Button("Set as Import Destination") {
-                    model.cardImport.setDestination(URL(fileURLWithPath: root.path))
-                }
+                // いまの読み込み先には ✓ が付く（押しても外れない。別のフォルダを読み込み先にすると移る）
+                Toggle("Set as Import Destination", isOn: Binding(
+                    get: { model.isImportDestination(root) },
+                    set: { if $0 { model.cardImport.setDestination(URL(fileURLWithPath: root.path)) } }))
+                    .accessibilityIdentifier("setImportDestination")
                 Button("Show in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: root.path)])
                 }
                 .disabled(!root.isOnline)
                 Divider()
-                Button("Remove from Catalog…") { model.rootToRemove = root }
+                Button("Remove from Catalog…") { model.requestRemoveRoot(root) }
                     .accessibilityIdentifier("removeRoot")
             }
         }

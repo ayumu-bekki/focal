@@ -38,6 +38,13 @@ std::optional<std::filesystem::path> resolve_nfc_path(std::string_view abs_nfc);
 // 全体で timeout まで待ち、間に合わなかったものは false（到達できない）にする。確認は別スレッドで行う（v3.19）
 std::vector<bool> directories_reachable(const std::vector<std::string>& abs_nfc_paths, std::chrono::milliseconds timeout);
 
+// path があるボリュームの全体・空きの容量（バイト）。応答しない共有で待ち続けないよう、timeout を過ぎたら nullopt
+struct DiskSpace {
+    int64_t total = 0;
+    int64_t free = 0;
+};
+std::optional<DiskSpace> disk_space(const std::filesystem::path& path, std::chrono::milliseconds timeout);
+
 // 絶対パスにして正規化し、区切りを '/' にした NFC の文字列（カタログに保存する形）
 std::string normalized_path_string(const std::filesystem::path& p);
 

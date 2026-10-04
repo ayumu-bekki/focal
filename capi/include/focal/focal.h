@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 12
+#define FC_API_VERSION 14
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -74,6 +74,53 @@ typedef struct fc_root_array {
 fc_status fc_catalog_add_root(fc_catalog* catalog, const char* dir, int64_t* out_root_id);
 fc_status fc_catalog_roots(fc_catalog* catalog, fc_root_array** out);
 void fc_root_array_free(fc_root_array* array);
+/* ルートの詳しい情報（サイドバーの「情報を見る」、v3.19）。ボリュームの容量は、応答しない共有で待ち続けないよう
+   1.5 秒で諦める（-1）。時間がかかることがあるので、メインスレッドで呼ばないこと */
+typedef enum fc_volume_kind {
+    FC_VOLUME_UNKNOWN = 0,
+    FC_VOLUME_INTERNAL = 1,
+    FC_VOLUME_EXTERNAL = 2,
+    FC_VOLUME_NETWORK = 3,
+} fc_volume_kind;
+
+typedef struct fc_root_details {
+    int64_t id;
+    const char* path;
+    const char* label;
+    const char* volume_id;
+    const char* volume_name;
+    const char* mount_point; /* ボリュームのマウントポイント。オフラインなどでわからなければ "" */
+    const char* fs_type;     /* ファイルシステム。わからなければ "" */
+    int32_t online;
+    int32_t kind;            /* fc_volume_kind */
+    int64_t total_bytes;     /* ボリュームの全体の容量。取れなければ -1 */
+    int64_t free_bytes;      /* ボリュームの空き容量。取れなければ -1 */
+    int64_t photos;          /* 写真の枚数（ファイルなしを含む） */
+    int64_t folders;         /* サブフォルダの数（ルート自身は数えない） */
+    int64_t missing;         /* ファイルなしの枚数 */
+    int64_t edited_photos;   /* 現像・★・フラグ・タグのいずれかが付いた写真の枚数（外すと消える情報の目安） */
+    int64_t total_file_bytes;
+    const char* capture_from; /* 撮影日の範囲（"YYYY-MM-DD"）。なければ "" */
+    const char* capture_to;
+} fc_root_details;
+
+/* v3.19: すでに登録したルートの中のフォルダを fc_catalog_add_root で追加しても、新しいルートは作らず、そのルートの id を返す。
+   登録済みのルートを含むフォルダを追加したときは、含まれるルートを統合する（現像・★・タグは写真ごと残る。統合の前に、
+   カタログの隣へ自動でバックアップを作る）。fc_catalog_remove_root も、外す前に自動でバックアップを作る。 */
+
+/* dir を含む登録済みのルートと、その中のフォルダの id。見つからなければ FC_ERR_NOT_FOUND */
+fc_status fc_catalog_folder_for_path(fc_catalog* catalog, const char* dir, int64_t* out_root_id, int64_t* out_folder_id);
+/* ルートの場所を付け替える。写真の行（現像・★・タグ）はそのまま。新しい場所が別のルートと重なるときは
+   FC_ERR_INVALID_ARGUMENT。付け替えたあと、そのルートをスキャンして新しい場所に合わせる */
+fc_status fc_catalog_relocate_root(fc_catalog* catalog, int64_t root_id, const char* new_dir);
+/* 重なっているルート（別のルートの中にあるルート）の数。以前の二重登録の跡 */
+fc_status fc_catalog_nested_root_count(fc_catalog* catalog, int32_t* out_count);
+/* 重なっているルートをすべて統合する（変更の前にバックアップを作る）。統合した数を返す */
+fc_status fc_catalog_merge_nested_roots(fc_catalog* catalog, int32_t* out_merged);
+
+fc_status fc_catalog_root_details(fc_catalog* catalog, int64_t root_id, fc_root_details** out);
+void fc_root_details_free(fc_root_details* details);
+
 /* マウントされているボリュームを見て、ルートの場所をいまのマウントポイントに合わせる（v3.19）。
    外付けドライブをつなぎ直したとき・アプリの起動時に呼ぶ。変えたルートの数を out_changed に返す（NULL 可） */
 fc_status fc_catalog_refresh_volumes(fc_catalog* catalog, int32_t* out_changed);
@@ -267,6 +314,7 @@ typedef struct fc_scan_stats {
     int32_t renamed;
     int32_t unsupported;
     int32_t relinked; /* 別のフォルダから移動してきた写真をつなぎ直した（v3.19） */
+    int32_t inherited; /* コピーとして、元の現像・★・フラグ・タグを引き継いだ写真の数（v3.19） */
     int32_t folders_added;
     int32_t thumbnails;
     int32_t thumbnail_failures;

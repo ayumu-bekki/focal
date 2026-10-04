@@ -27,6 +27,23 @@ COLOR_ASPECT=$(sips -g pixelWidth -g pixelHeight "$WORK/ref/nikon_z7.jpg" | awk 
 mkdir -p "$WORK/card/DCIM/100TEST" "$WORK/import-dest" "$WORK/delete-dest" "$WORK/trash"
 cp -c "$ROOT/tests/data/canon_eos_m50.CR3" "$WORK/card/DCIM/100TEST/IMG_9001.CR3"
 
+# 読み込み先を外したときの移行のテスト用: 3 つのルート（a・b・c）を持つカタログ
+for r in a b c; do
+  mkdir -p "$WORK/multi/$r"
+  cp -c "$ROOT/tests/data/canon_eos_m50.CR3" "$WORK/multi/$r/IMG_$r.CR3"
+  "$ROOT/build/release/cli/focal" import "$WORK/multi/$r" --catalog "$WORK/multi-catalog.sqlite" --cache "$WORK/thumbs" >/dev/null
+done
+
+# 重なったルート（以前の二重登録の跡）のテスト用: nested の中の sub を、別のルートとしても持つカタログ
+mkdir -p "$WORK/nested/sub"
+cp -c "$ROOT/tests/data/canon_eos_m50.CR3" "$WORK/nested/sub/IMG_nested.CR3"
+"$ROOT/build/release/cli/focal" import "$WORK/nested" --catalog "$WORK/nested-catalog.sqlite" --cache "$WORK/thumbs" >/dev/null
+sqlite3 "$WORK/nested-catalog.sqlite" "
+  INSERT INTO roots (path) VALUES ('$WORK/nested/sub');
+  INSERT INTO folders (root_id, parent_id, rel_path) VALUES (2, NULL, '');
+  INSERT INTO photos (folder_id, file_name, file_size, file_mtime, quick_hash, status, capture_time, rating, flag)
+    SELECT (SELECT id FROM folders WHERE root_id = 2), file_name, file_size, file_mtime, quick_hash, 0, capture_time, 3, 0 FROM photos;"
+
 cd "$ROOT/apps/macos"
 xcodegen -q
 TEST_RUNNER_FOCAL_CATALOG="$WORK/catalog.sqlite" \
@@ -36,6 +53,9 @@ TEST_RUNNER_FOCAL_IMPORT_SOURCE="$WORK/card" \
 TEST_RUNNER_FOCAL_IMPORT_DEST="$WORK/import-dest" \
 TEST_RUNNER_FOCAL_IMPORT_CATALOG="$WORK/import-catalog.sqlite" \
 TEST_RUNNER_FOCAL_DELETE_CATALOG="$WORK/delete-catalog.sqlite" \
+TEST_RUNNER_FOCAL_MULTI_CATALOG="$WORK/multi-catalog.sqlite" \
+TEST_RUNNER_FOCAL_NESTED_CATALOG="$WORK/nested-catalog.sqlite" \
+TEST_RUNNER_FOCAL_MULTI_DIR="$WORK/multi" \
 TEST_RUNNER_FOCAL_DELETE_DEST="$WORK/delete-dest" \
 TEST_RUNNER_FOCAL_DELETE_TRASH="$WORK/trash" \
 TEST_RUNNER_FOCAL_COLOR_INDEX="$COLOR_INDEX" \

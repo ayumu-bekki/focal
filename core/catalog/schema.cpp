@@ -158,8 +158,13 @@ ALTER TABLE roots ADD COLUMN volume_rel_path TEXT;
 
 } // namespace
 
+// v3.19: コピーの検出（同じ内容のファイルを探す）を速くする
+constexpr const char* kSchemaV4 = R"SQL(
+CREATE INDEX IF NOT EXISTS idx_photos_hash ON photos(quick_hash, file_size);
+)SQL";
+
 const std::vector<Migration>& catalog_migrations() {
-    static const std::vector<Migration> m = {{1, kSchemaV1}, {2, kSchemaV2}, {3, kSchemaV3}};
+    static const std::vector<Migration> m = {{1, kSchemaV1}, {2, kSchemaV2}, {3, kSchemaV3}, {4, kSchemaV4}};
     return m;
 }
 

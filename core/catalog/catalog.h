@@ -36,6 +36,23 @@ struct RootInfo {
     bool online = true;  // ルートのフォルダにいまアクセスできる（外付けドライブが外れていると false）
 };
 
+// ルートの詳しい情報（サイドバーの「情報を見る」、v3.19）
+struct RootDetails {
+    RootInfo root;
+    std::string mount_point;       // ボリュームのマウントポイント。オフラインなど、わからなければ空
+    std::string fs_type;           // ファイルシステム。わからなければ空
+    int kind = 0;                  // 0 不明、1 内蔵、2 外付け、3 ネットワーク（util/volume.h の VolumeKind と同じ並び）
+    int64_t total_bytes = -1;      // ボリュームの全体の容量。取れなければ -1
+    int64_t free_bytes = -1;       // ボリュームの空き容量。取れなければ -1
+    int64_t photos = 0;            // 写真の枚数（ファイルなしを含む）
+    int64_t folders = 0;           // サブフォルダの数（ルート自身は数えない）
+    int64_t missing = 0;           // ファイルなしの枚数
+    int64_t edited_photos = 0;     // 現像・★・フラグ・タグのいずれかが付いた写真の枚数（外すと消える情報の目安）
+    int64_t total_file_bytes = 0;  // 写真のファイルの合計サイズ
+    std::string capture_from;      // 撮影日の範囲（'YYYY-MM-DD'）。撮影日のある写真がなければ空
+    std::string capture_to;
+};
+
 struct FolderInfo {
     int64_t id = 0;
     int64_t root_id = 0;
@@ -113,6 +130,7 @@ struct ScanStats {
     int missing = 0;    // 今回のスキャンでファイルなしになった
     int restored = 0;   // ファイルなしから戻った
     int renamed = 0;    // 大文字小文字だけが違う名前に変わった（同じ写真として扱う）
+    int inherited = 0;  // コピー（同じ内容のファイルが別の場所に残っている）として、元の現像・★・フラグ・タグを引き継いだ写真の数（v3.19）
     int relinked = 0;   // ほかのフォルダから移動してきた（ファイル名・サイズ・撮影日時が同じ）写真をつなぎ直した（v3.19）
     int unsupported = 0;
     int folders_added = 0;
@@ -136,8 +154,37 @@ public:
     // 開いたときにマイグレーションのためのバックアップを作った場合、そのパス
     std::filesystem::path migration_backup() const;
 
-    // ルートフォルダを登録する。登録済みならその id を返す
+    // ルートフォルダを登録する。登録済みならその id を返す。
+    // v3.19: すでに登録したルートの**中**のフォルダなら、新しいルートは作らず、そのルートの id を返す（同じ写真を二重に登録しない）。
+    // 登録済みのルートを**含む**フォルダなら、含まれるルートの写真・フォルダを新しいルートへ移して統合する
+    // （現像・★・フラグ・タグ・アルバムの所属は、写真の行ごと引き継ぐ。同じファイルの行が両方にあれば、情報の多い方を残して合わせる）。
+    // 登録済みのルートを含むときは、変更の前にカタログのバックアップを作る
     int64_t add_root(const std::filesystem::path& dir, std::string_view label = {});
+
+    // 重なっているルート（別のルートの中にあるルート）。v3.19 より前のカタログに、二重登録の跡として残りうる
+    struct NestedRoot {
+        int64_t parent_id = 0;
+        int64_t child_id = 0;
+    };
+    std::vector<NestedRoot> nested_roots();
+    // 重なっているルートをすべて統合する（add_root の統合と同じ）。統合したルートの数を返す。変更の前にバックアップを作る
+    int merge_nested_roots();
+
+    // dir を含む登録済みのルートと、その中のフォルダ。ルートの外ならなし（スキャン前はフォルダの行がなく、なしになることがある）
+    struct FolderLocation {
+        int64_t root_id = 0;
+        int64_t folder_id = 0;
+    };
+    std::optional<FolderLocation> folder_for_path(const std::filesystem::path& dir);
+
+    // ルートの場所を付け替える（移動した・ドライブが変わったなど）。写真の行（現像・★・タグ）とルートの相対パスはそのまま。
+    // 付け替えたあとにスキャンすると、新しい場所にあるものは正常に、ないものは「ファイルなし」になる。
+    // 新しい場所が別のルートと重なる・同じなら Error
+    void relocate_root(int64_t root_id, const std::filesystem::path& new_dir);
+
+    // カタログのバックアップ（VACUUM INTO）。カタログのファイルの隣に "<名前>.before-<reason>-<日時>.bak" を作り、
+    // 同じ reason の古いものは新しい 5 つだけ残す。作ったファイルを返す
+    std::filesystem::path backup(std::string_view reason);
     std::vector<RootInfo> roots();
     std::optional<RootInfo> root_for_path(const std::filesystem::path& dir);
     // dir を含む（dir 自身も含む）登録済みのルート。いちばん深いもの
@@ -147,7 +194,10 @@ public:
     int refresh_volumes();
     // ルートをカタログから外す（v3.19）。そのルートの写真・フォルダの情報と、★・フラグ・タグ・アルバムへの所属・編集も消える。
     // ディスク上のファイルには触れない。サムネイルのキャッシュは残る
+    // v3.19: 外す前に、自動でバックアップを作る（backup("remove-root")）
     void remove_root(int64_t root_id);
+    // ルートの詳しい情報。ボリュームの容量は、応答しない共有で待ち続けないよう時間切れ（1.5 秒）で諦める（-1）
+    RootDetails root_details(int64_t root_id);
     // ルートの表示名を変える（空なら消す）
     void set_root_label(int64_t root_id, std::string_view label);
 

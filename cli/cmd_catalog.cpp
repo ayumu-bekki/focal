@@ -133,6 +133,28 @@ int cmd_unroot(int argc, char** argv) {
     return 0;
 }
 
+int cmd_relocate(int argc, char** argv) {
+    Args args(argc, argv);
+    if (args.positional().size() != 2) {
+        std::fprintf(stderr, "usage: focal relocate <root id> <new dir>   ルートの場所を付け替える（現像・★・タグはそのまま。そのあと import で新しい場所に合わせる）\n");
+        return 2;
+    }
+    auto catalog = Catalog::open(catalog_path(args));
+    catalog->relocate_root(std::stoll(args.positional()[0]), utf8_to_path(args.positional()[1]));
+    return 0;
+}
+
+int cmd_merge_roots(int argc, char** argv) {
+    Args args(argc, argv, {"dry-run"});
+    auto catalog = Catalog::open(catalog_path(args));
+    const auto nested = catalog->nested_roots();
+    for (const auto& n : nested)
+        std::printf("root %lld is inside root %lld\n", static_cast<long long>(n.child_id), static_cast<long long>(n.parent_id));
+    if (args.has("dry-run") || nested.empty()) return 0;
+    std::printf("merged %d (backup made next to the catalog)\n", catalog->merge_nested_roots());
+    return 0;
+}
+
 int cmd_ls(int argc, char** argv) {
     Args args(argc, argv, {"available", "flat"});
     auto catalog = Catalog::open(catalog_path(args));

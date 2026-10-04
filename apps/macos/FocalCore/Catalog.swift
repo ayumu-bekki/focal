@@ -56,6 +56,51 @@ public final class Catalog: @unchecked Sendable {
         try check(fc_catalog_remove_root(handle, rootID))
     }
 
+    /// ルートの詳しい情報。ボリュームの容量を取るので、メインスレッド以外で呼ぶこと（応答しない共有は 1.5 秒で諦める）
+    public func rootDetails(rootID: Int64) throws -> RootDetails {
+        var p: UnsafeMutablePointer<fc_root_details>?
+        try check(fc_catalog_root_details(handle, rootID, &p))
+        defer { fc_root_details_free(p) }
+        let d = p!.pointee
+        func s(_ c: UnsafePointer<CChar>?) -> String { c.map { String(cString: $0) } ?? "" }
+        return RootDetails(
+            id: d.id, path: s(d.path), label: s(d.label), volumeID: s(d.volume_id), volumeName: s(d.volume_name),
+            mountPoint: s(d.mount_point), fileSystem: s(d.fs_type), isOnline: d.online != 0,
+            kind: RootDetails.Kind(rawValue: d.kind) ?? .unknown,
+            totalBytes: d.total_bytes >= 0 ? d.total_bytes : nil, freeBytes: d.free_bytes >= 0 ? d.free_bytes : nil,
+            photos: d.photos, folders: d.folders, missing: d.missing, editedPhotos: d.edited_photos,
+            totalFileBytes: d.total_file_bytes,
+            captureFrom: s(d.capture_from).isEmpty ? nil : s(d.capture_from),
+            captureTo: s(d.capture_to).isEmpty ? nil : s(d.capture_to))
+    }
+
+    /// dir を含む登録済みのルートと、その中のフォルダの id。なければ nil（スキャン前は、フォルダの行がなくて nil のことがある）
+    public func folderLocation(forPath dir: URL) -> (rootID: Int64, folderID: Int64)? {
+        var r: Int64 = 0, f: Int64 = 0
+        let status = dir.path.withCString { fc_catalog_folder_for_path(handle, $0, &r, &f) }
+        return status == FC_OK ? (r, f) : nil
+    }
+
+    /// ルートの場所を付け替える。写真の行（現像・★・タグ）はそのまま。付け替えたあと、そのルートをスキャンする
+    public func relocateRoot(_ rootID: Int64, to dir: URL) throws {
+        try dir.path.withCString { try check(fc_catalog_relocate_root(handle, rootID, $0)) }
+    }
+
+    /// 重なっているルート（別のルートの中にあるルート）の数。以前の二重登録の跡
+    public func nestedRootCount() throws -> Int {
+        var n: Int32 = 0
+        try check(fc_catalog_nested_root_count(handle, &n))
+        return Int(n)
+    }
+
+    /// 重なっているルートをすべて統合する（現像・★・タグは写真ごと残る。変更の前に、バックアップを作る）。統合した数
+    @discardableResult
+    public func mergeNestedRoots() throws -> Int {
+        var n: Int32 = 0
+        try check(fc_catalog_merge_nested_roots(handle, &n))
+        return Int(n)
+    }
+
     public func setRootLabel(_ label: String, rootID: Int64) throws {
         try label.withCString { try check(fc_catalog_set_root_label(handle, rootID, $0)) }
     }
