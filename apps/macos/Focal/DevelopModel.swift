@@ -203,12 +203,28 @@ final class DevelopModel {
         cropMode = true
         zoom = .fit
         region = nil
+        // まだ切り取っていない写真は、縦横比の既定を「元の比率」にする（自由のままの切り取りを保つため、
+        // すでに枠や傾き補正がある写真は変えない）
+        if settings.aspect == Self.aspectFree && Self.isUncropped(settings) { setAspect(Self.aspectOriginal) }
         requestRender()
     }
+
+    private static func isUncropped(_ s: DevelopSettings) -> Bool {
+        s.cropX <= 0.0001 && s.cropY <= 0.0001 && s.cropW >= 0.9999 && s.cropH >= 0.9999 && s.straighten == 0
+    }
+
+    /// core の AspectMode と同じ値（CropToolbar の縦横比の一覧と同じ）
+    private static let aspectFree: Int32 = 0
+    private static let aspectOriginal: Int32 = 1
 
     /// 確定（1 回の Undo になる）
     func commitCrop() {
         guard let session, cropMode else { return }
+        // 切り取らずに確定したときは、入るときに自動で選んだ「元の比率」を戻す（編集のない写真に編集を作らない）
+        if let start = cropStart, start.aspect == Self.aspectFree, settings.aspect == Self.aspectOriginal,
+           Self.isUncropped(settings) {
+            update(render: false) { $0.aspect = Self.aspectFree }
+        }
         cropMode = false
         levelTool = false
         cropStart = nil

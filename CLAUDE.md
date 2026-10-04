@@ -107,7 +107,7 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 - `core/util/volume` — ボリュームの ID・名前・マウントポイント（macOS は `getattrlist` の UUID、Windows はボリューム GUID、Linux は `/dev/disk/by-uuid`）。macOS は Data ボリュームを "/" として扱う。Linux / Windows の実装は未確認（macOS 以外ではビルドしていない）
 - `Localizable.xcstrings` に文言を足したら `apps/macos/scripts/sort-strings.py` を実行する（Xcode と同じ並びにそろえ、Xcode で開いたときの差分を減らす）。
 - ルートの接続確認は `directories_reachable`（別スレッド + 時間切れ。応答しない NAS で止まらない）。SMB・NFS のボリューム ID は共有の場所から作る（`network_volume_id`）。実際の NAS では未確認（ユニットテストと macOS のローカルボリュームのみ）。
-- `core/import/card_import` — SD カードなどの取り込み（v3.19、design.md 5.10 章）。1 枚の単位（RAW + JPEG + サイドカー）、日付フォルダ、重複判定、一時ファイル + BLAKE3 検証のコピー、登録、アルバム・タグ付け
+- `core/import/card_import` — SD カードなどの取り込み（v3.19、design.md 5.10 章）。1 枚の単位（RAW + JPEG + サイドカー）、日付フォルダ、重複判定、一時ファイル + BLAKE3 検証のコピー、コピーしたファイルだけの登録（`Catalog::register_files`。ルートは走査しない）と登録の確認、アルバム・タグ付け
 - `core/catalog/photo_delete` — 写真の削除（v3.19、5.11 章）。RAW + 同じ名前の幹の JPEG・サイドカー、ネットワークボリュームは完全削除、ローカルはゴミ箱（呼び出し側の `TrashFn`）。RAW を消せなければファイルもカタログも残す
 - `core/catalog/smart_query` — スマートアルバムの条件（JSON → SQL の断片。検証も）
 - `core/util/` — スレッドプール（latest-wins 用の `CancelToken`）、行列、画像バッファ、例外、`unicode`（utf8proc で NFC と case folding）、`hash`（BLAKE3、quick_hash）、`file`（UTF-8 ⇔ path、NFC のパスから実ファイルを解決）、`omp_threads`

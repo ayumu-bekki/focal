@@ -424,6 +424,55 @@ TagInfo read_tag(const Statement& st) {
 
 } // namespace
 
+// 新規・変更されたファイルを並列に読み、チャンクごとに書き込む（scan_root と register_files で共通）
+void process_works(db::DbWriter& writer, const std::vector<Work>& work, const ScanOptions& opt, ScanStats& stats) {
+    const unsigned threads = opt.threads ? opt.threads : std::max(1u, std::thread::hardware_concurrency() - 1);
+    ThreadPool pool(threads);
+    const int total = static_cast<int>(work.size());
+    for (int start = 0; start < total; start += kScanChunk) {
+        if (opt.cancel && opt.cancel->load()) throw Error(Error::Code::Cancelled, "scan cancelled");
+        const int end = std::min(total, start + kScanChunk);
+        std::vector<Probe> probes(end - start);
+        pool.parallel_for(end - start, 1, [&](int b, int e) {
+            for (int i = b; i < e; ++i) probes[i] = probe(work[start + i], opt.thumbnails);
+        });
+
+        for (int i = start; i < end; ++i) {
+            const Work& w = work[i];
+            const Probe& p = probes[i - start];
+            stats.thumbnails += p.thumb_made;
+            stats.thumbnail_failures += p.thumb_failed;
+            if (w.thumb_only) continue;
+            if (!p.readable) ++stats.unsupported;
+            if (!w.photo_id)
+                ++stats.added;
+            else if (w.was_missing)
+                ++stats.restored;
+            else
+                ++stats.updated;
+        }
+        const int relinked = writer.call([&](Database& db) {
+            int n = 0;
+            for (int i = start; i < end; ++i) {
+                if (work[i].thumb_only) continue;
+                Work w = work[i];
+                const Probe& p = probes[i - start];
+                if (!w.photo_id) {
+                    if (const auto id = find_relink_candidate(db, w, p)) {
+                        w.photo_id = id;
+                        ++n;
+                    }
+                }
+                write_probe(db, w, p);
+            }
+            return n;
+        });
+        stats.added -= relinked;
+        stats.relinked += relinked;
+        if (opt.progress) opt.progress(end, total);
+    }
+}
+
 // ---- Catalog -----------------------------------------------------------
 
 std::unique_ptr<Catalog> Catalog::open(const fs::path& path) { return std::unique_ptr<Catalog>(new Catalog(path)); }
@@ -760,52 +809,7 @@ ScanStats Catalog::scan_root(int64_t root_id, const ScanOptions& opt) {
         });
     }
 
-    // ---- 新規・変更されたファイルを並列に読み、チャンクごとに書き込む
-    const unsigned threads = opt.threads ? opt.threads : std::max(1u, std::thread::hardware_concurrency() - 1);
-    ThreadPool pool(threads);
-    const int total = static_cast<int>(work.size());
-    for (int start = 0; start < total; start += kScanChunk) {
-        if (opt.cancel && opt.cancel->load()) throw Error(Error::Code::Cancelled, "scan cancelled");
-        const int end = std::min(total, start + kScanChunk);
-        std::vector<Probe> probes(end - start);
-        pool.parallel_for(end - start, 1, [&](int b, int e) {
-            for (int i = b; i < e; ++i) probes[i] = probe(work[start + i], opt.thumbnails);
-        });
-
-        for (int i = start; i < end; ++i) {
-            const Work& w = work[i];
-            const Probe& p = probes[i - start];
-            stats.thumbnails += p.thumb_made;
-            stats.thumbnail_failures += p.thumb_failed;
-            if (w.thumb_only) continue;
-            if (!p.readable) ++stats.unsupported;
-            if (!w.photo_id)
-                ++stats.added;
-            else if (w.was_missing)
-                ++stats.restored;
-            else
-                ++stats.updated;
-        }
-        const int relinked = writer_->call([&](Database& db) {
-            int n = 0;
-            for (int i = start; i < end; ++i) {
-                if (work[i].thumb_only) continue;
-                Work w = work[i];
-                const Probe& p = probes[i - start];
-                if (!w.photo_id) {
-                    if (const auto id = find_relink_candidate(db, w, p)) {
-                        w.photo_id = id;
-                        ++n;
-                    }
-                }
-                write_probe(db, w, p);
-            }
-            return n;
-        });
-        stats.added -= relinked;
-        stats.relinked += relinked;
-        if (opt.progress) opt.progress(end, total);
-    }
+    process_works(*writer_, work, opt, stats);
     // ディスクにもうないフォルダのうち、写真（ファイルなしを含む）を 1 枚も持たないものはカタログから消す。
     // 消えたフォルダ・登録しなくなったライブラリ（.photoslibrary など）の跡がサイドバーに残らないようにする（v3.19）。
     // 写真を持つフォルダと、その親は残す（★・タグ・編集を持つ写真を巻き込まない）
@@ -1069,6 +1073,90 @@ std::optional<int64_t> Catalog::find_photo(int64_t root_id, std::string_view fol
     st.bind(1, root_id).bind(2, to_nfc(folder_rel_path)).bind(3, to_nfc(file_name));
     if (st.step()) return st.column_int64(0);
     return std::nullopt;
+}
+
+ScanStats Catalog::register_files(int64_t root_id, std::span<const fs::path> files, const ScanOptions& opt) {
+    std::optional<RootInfo> root;
+    for (auto& r : roots())
+        if (r.id == root_id) root = r;
+    if (!root) throw Error(Error::Code::NotFound, "unknown root id " + std::to_string(root_id));
+    const auto disk_root = resolve_nfc_path(root->path);
+    std::error_code ec;
+    if (!disk_root || !fs::is_directory(*disk_root, ec))
+        throw Error(Error::Code::NotFound, "root folder is not available: " + root->path);
+    const std::string started_at = utc_now_iso();
+
+    // 渡されたファイルを、ルートからの相対のフォルダ・名前（NFC）にする
+    std::vector<FoundFile> found;
+    for (const auto& f : files) {
+        const auto rel_u8 = f.lexically_relative(*disk_root).generic_u8string();
+        const std::string rel = to_nfc(std::string(reinterpret_cast<const char*>(rel_u8.data()), rel_u8.size()));
+        const std::string name = to_nfc(path_to_utf8(f.filename()));
+        if (rel.empty() || rel.rfind("..", 0) == 0)
+            throw Error(Error::Code::InvalidArgument, "file is outside the root: " + path_to_utf8(f));
+        if (!is_raw_file(name)) throw Error(Error::Code::InvalidArgument, "not a RAW file: " + path_to_utf8(f));
+        const auto st = stat_file(f);
+        if (!st) throw Error(Error::Code::NotFound, "no such file: " + path_to_utf8(f));
+        found.push_back({parent_rel(rel), name, f, *st});
+    }
+
+    ScanStats stats;
+    std::vector<Work> work;
+    const auto folder_ids = writer_->call([&](Database& db) {
+        std::map<std::string, int64_t> ids;  // 相対パス → フォルダ id（親が先）
+        {
+            auto st = db.prepare("SELECT id, rel_path FROM folders WHERE root_id = ?");
+            st.bind(1, root_id);
+            while (st.step()) ids[st.column_text(1)] = st.column_int64(0);
+        }
+        auto ensure = [&](auto&& self, const std::string& rel) -> int64_t {
+            if (auto it = ids.find(rel); it != ids.end()) return it->second;
+            const std::optional<int64_t> parent =
+                rel.empty() ? std::nullopt : std::optional<int64_t>(self(self, parent_rel(rel)));
+            auto ins = db.prepare("INSERT INTO folders (root_id, parent_id, rel_path) VALUES (?, ?, ?)");
+            ins.bind(1, root_id).bind(2, parent).bind(3, rel).run();
+            ++stats.folders_added;
+            return ids[rel] = db.last_insert_rowid();
+        };
+        for (const auto& f : found) ensure(ensure, f.folder_rel);
+        return ids;
+    });
+
+    // 既存の行（同じフォルダ・同じ名前）があれば、変わっていなければ飛ばし、変わっていれば読み直す
+    writer_->call([&](Database& db) {
+        auto q = db.prepare("SELECT id, file_size, file_mtime, status FROM photos WHERE folder_id = ? AND file_name = ?");
+        for (const auto& f : found) {
+            Work w;
+            w.folder_id = folder_ids.at(f.folder_rel);
+            w.name = f.name;
+            w.nfc_path = join_path(root->path, f.folder_rel, f.name);
+            w.disk = f.disk;
+            w.st = f.st;
+            q.reset();
+            q.bind(1, w.folder_id).bind(2, w.name);
+            if (q.step()) {
+                const bool same = q.column_int64(1) == f.st.size && q.column_int64(2) == f.st.mtime &&
+                                  q.column_int(3) == static_cast<int>(PhotoStatus::Ok);
+                if (same) {
+                    ++stats.unchanged;
+                    continue;
+                }
+                w.photo_id = q.column_int64(0);
+                w.was_missing = q.column_int(3) == static_cast<int>(PhotoStatus::Missing);
+            }
+            work.push_back(std::move(w));
+        }
+    });
+
+    process_works(*writer_, work, opt, stats);
+    if (stats.added > 0) {
+        writer_->call([&](Database& db) {
+            auto st = db.prepare("INSERT INTO meta (key, value) VALUES ('last_import_at', ?)"
+                                 " ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+            st.bind(1, started_at).run();
+        });
+    }
+    return stats;
 }
 
 std::vector<FolderInfo> Catalog::folders(int64_t root_id) {

@@ -434,10 +434,13 @@ CardImportResult import_from_card(Catalog& catalog, const CardImportOptions& opt
     ScanOptions so;
     so.thumbnails = opt.thumbnails;
     so.progress = [&](int d, int t) { report(CardImportProgress::Phase::Cataloging, d, t, 0, 0, {}); };
+    // コピーした RAW だけを登録する（ルートは走査しない。ほかの写真には触れず、ルートが大きくても遅くならない）
+    std::vector<fs::path> raw_paths;
+    for (const auto& r : raws) raw_paths.push_back(r.dir / utf8_to_path(r.name));
     try {
-        result.scan = catalog.scan_root(root->id, so);
+        result.scan = catalog.register_files(root->id, raw_paths, so);
     } catch (const Error& e) {
-        // コピーは済んでいる。登録できなかったことを結果に残す（再スキャンで取り込める）
+        // コピーは済んでいる。登録できなかったことを結果に残す（読み込み先を再スキャンすれば登録できる）
         result.errors.push_back(std::string("catalog: ") + e.what());
         return result;
     }
@@ -446,7 +449,14 @@ CardImportResult import_from_card(Catalog& catalog, const CardImportOptions& opt
     for (const auto& r : raws) {
         const std::string dir = normalized_path_string(r.dir);
         const std::string rel = relative_under(root_path, dir);
-        if (const auto id = catalog.find_photo(root->id, rel, r.name)) result.photo_ids.push_back(*id);
+        const auto id = catalog.find_photo(root->id, rel, r.name);
+        if (!id) {  // 登録したはずなのに、カタログにない（コピーは済んでいる）
+            result.errors.push_back("catalog: not registered: " + r.name);
+            continue;
+        }
+        result.photo_ids.push_back(*id);
+        if (const auto p = catalog.photo(*id); p && p->status != PhotoStatus::Ok)
+            result.errors.push_back("catalog: could not read it as a RAW (shown as unsupported): " + r.name);
     }
     if (!result.photo_ids.empty()) {
         if (opt.album_id) catalog.add_to_album(*opt.album_id, result.photo_ids);

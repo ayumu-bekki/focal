@@ -206,6 +206,8 @@ final class FocalUITests: XCTestCase {
 
         // 縦横比 1:1
         let aspect = app.popUpButtons["aspectPicker"]
+        // 切り取っていない写真は、縦横比の既定が「元の比率」
+        XCTAssertTrue(["元の比率", "Original"].contains(aspect.value as? String ?? ""), "aspect = \(String(describing: aspect.value))")
         aspect.click()
         app.menuItems["1:1"].click()
         sleep(1)

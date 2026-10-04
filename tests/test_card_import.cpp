@@ -279,3 +279,60 @@ TEST_CASE("カード取り込み: 空き容量が足りなければ、コピー�
     CHECK(dry.bytes_needed == 10);
     CHECK(dry.space_available > 10);
 }
+
+TEST_CASE("カード取り込み: 登録はコピーしたファイルだけ。ルートの中のほかの写真には触れない", "[import][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Card card;
+    TempDir lib, db;
+    const fs::path root = lib / "Photos";
+    fs::create_directories(root / "old");
+    fs::copy_file(data_file("canon_eos_m50.CR3"), root / "old" / "OLD.CR3");
+    fs::create_directories(root / "empty" / "deep");  // 写真のないフォルダ（整理の対象だが、取り込みでは触れない）
+    auto c = Catalog::open(db / "c.sqlite");
+    const int64_t root_id = c->add_root(root);
+    c->scan_root(root_id);
+    PhotoFilter all;
+    const int64_t old_id = c->query(all)[0].id;
+    c->set_rating(std::vector<int64_t>{old_id}, 4);
+
+    // ルートの中で、OLD.CR3 を消し、別の RAW を足しておく（ルートを走査すれば、前者は「ファイルなし」、後者は新規になる）
+    fs::remove(root / "old" / "OLD.CR3");
+    fs::copy_file(data_file("canon_eos_m50.CR3"), root / "stray.CR3");
+
+    CardImportOptions opt;
+    opt.source = card.dir.path();
+    opt.dest_root = root;
+    const CardImportResult r = import_from_card(*c, opt);
+    CHECK(r.imported == 2);
+    CHECK(r.errors.empty());
+    CHECK(r.scan.added == 2);
+    CHECK(r.photo_ids.size() == 2);
+    CHECK(r.scan.missing == 0);
+    // 走査していないので、OLD は「ファイルなし」にならず、stray は登録されない
+    CHECK(c->photo(old_id)->status == PhotoStatus::Ok);
+    CHECK(c->photo(old_id)->rating == 4);
+    CHECK(c->count(all) == 3);  // OLD + 取り込んだ 2 枚
+    bool stray = false;
+    for (const auto& p : c->query(all)) stray |= p.file_name == "stray.CR3";
+    CHECK_FALSE(stray);
+    CHECK(c->folder_id(root_id, "empty/deep").has_value());  // 空のフォルダの整理もしない
+
+    // 取り込んだ日付フォルダは、親（年）とともに作られ、「最近の取り込み」は取り込んだ分だけになる
+    const std::string day = day_of(data_file("sony_ilce7m3.ARW"));
+    CHECK(c->folder_id(root_id, day.substr(0, 4)).has_value());
+    CHECK(c->folder_id(root_id, day.substr(0, 4) + "/" + day).has_value());
+    PhotoFilter recent;
+    recent.recent_import = true;
+    CHECK(c->count(recent) >= 2);
+
+    // 登録のやり直し（同じファイルをもう一度）は unchanged
+    std::vector<fs::path> again;
+    for (const auto& p : c->query(all))
+        if (p.file_name != "OLD.CR3") again.push_back(utf8_to_path(p.path));
+    const ScanStats s2 = c->register_files(root_id, again);
+    CHECK(s2.added == 0);
+    CHECK(s2.unchanged == 2);
+    // ルートの外・RAW でないものは Error
+    CHECK_THROWS_AS(c->register_files(root_id, std::vector<fs::path>{card.dcim / "DSC00001.ARW"}), Error);
+    CHECK_THROWS_AS(c->register_files(root_id, std::vector<fs::path>{card.dcim / "DSC00001.JPG"}), Error);
+}

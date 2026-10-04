@@ -155,6 +155,14 @@ public:
     // ルートのフォルダにアクセスできない場合（外付けドライブを外した等）は何も変えずに Error を投げる。
     ScanStats scan_root(int64_t root_id, const ScanOptions& options = {});
 
+    // 指定したファイルだけを登録する（v3.19。カードの取り込みで、コピーしたファイルを登録するのに使う）。
+    // ルートを走査しない: ほかのファイルの追加・削除・サムネイルには触れず、時間は渡したファイルの数だけで決まる。
+    // files はルートの下の RAW の絶対パス。ルートの外・RAW でないものは Error(InvalidArgument)。
+    // 登録済みで変わっていないものは unchanged、サイズか更新日時が変わっていれば updated として読み直す。
+    // 足りないフォルダの行（親も）は作る。写真を足したら「最近の取り込み」の時刻を記録する
+    ScanStats register_files(int64_t root_id, std::span<const std::filesystem::path> files,
+                             const ScanOptions& options = {});
+
     std::vector<FolderInfo> folders(int64_t root_id);
     std::optional<int64_t> folder_id(int64_t root_id, std::string_view rel_path);
 
