@@ -2595,6 +2595,16 @@
         }
       }
     },
+    "The files were copied, but could not be added to the catalog. Rescan the destination folder to add them." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルはコピーしましたが、カタログに登録できませんでした。読み込み先のフォルダを再スキャンして登録してください。"
+          }
+        }
+      }
+    },
     "The photos and their JPEG, video and sidecar files with the same name (%lld files) will be deleted from the disk." : {
       "localizations" : {
         "ja" : {

@@ -434,7 +434,13 @@ CardImportResult import_from_card(Catalog& catalog, const CardImportOptions& opt
     ScanOptions so;
     so.thumbnails = opt.thumbnails;
     so.progress = [&](int d, int t) { report(CardImportProgress::Phase::Cataloging, d, t, 0, 0, {}); };
-    result.scan = catalog.scan_root(root->id, so);
+    try {
+        result.scan = catalog.scan_root(root->id, so);
+    } catch (const Error& e) {
+        // コピーは済んでいる。登録できなかったことを結果に残す（再スキャンで取り込める）
+        result.errors.push_back(std::string("catalog: ") + e.what());
+        return result;
+    }
 
     const std::string root_path = root->path;
     for (const auto& r : raws) {

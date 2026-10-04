@@ -440,3 +440,41 @@ TEST_CASE("スキャン: 「写真」などのライブラリ（.photoslibrary �
     CHECK(names == std::vector<std::string>{"A.ARW", "B.CR3", "C.CR3", "D.CR3"});  // X.CR3 は入らない
     for (const auto& f : c->folders(root)) CHECK(f.rel_path.find("library") == std::string::npos);
 }
+
+TEST_CASE("スキャン: ディスクにないフォルダは、写真を持たなければカタログから消し、写真を持つものは残す", "[library][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Lib lib;
+    fs::create_directories(lib.root / "gone" / "empty" / "deep");
+    fs::create_directories(lib.root / "keepme" / "sub");
+    fs::copy_file(data_file("canon_eos_m50.CR3"), lib.root / "keepme" / "sub" / "K.CR3");
+    TempDir dir;
+    auto c = Catalog::open(dir / "c.sqlite");
+    const int64_t root = c->add_root(lib.root);
+    c->scan_root(root);
+    auto rels = [&] {
+        std::vector<std::string> v;
+        for (const auto& f : c->folders(root)) v.push_back(f.rel_path);
+        return v;
+    };
+    auto has = [&](const std::string& rel) {
+        const auto v = rels();
+        return std::find(v.begin(), v.end(), rel) != v.end();
+    };
+    CHECK(has("gone/empty/deep"));  // 空でも、ディスクにあるうちはフォルダとして出る
+
+    fs::remove_all(lib.root / "gone");                       // 写真のないフォルダが消えた
+    fs::remove(lib.root / "keepme" / "sub" / "K.CR3");        // 写真のファイルだけ消えた（フォルダは残る）
+    fs::remove_all(lib.root / "2019");                        // C.CR3 のあったフォルダごと消えた
+    c->scan_root(root);
+    CHECK_FALSE(has("gone"));
+    CHECK_FALSE(has("gone/empty/deep"));
+    CHECK(has("keepme/sub"));  // ファイルなしの写真を持つ
+    CHECK(has("keepme"));      // その親も残る
+    CHECK(has("2019"));        // ファイルなしの写真（★・タグを持ちうる）を持つ
+    CHECK(c->count(PhotoFilter{}) == 4);  // 写真は 1 枚も消えない
+    PhotoFilter missing;
+    missing.include_unavailable = true;
+    int n_missing = 0;
+    for (const auto& p : c->query(missing)) n_missing += p.status == PhotoStatus::Missing;
+    CHECK(n_missing == 2);
+}

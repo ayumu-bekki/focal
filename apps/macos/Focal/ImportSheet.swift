@@ -175,8 +175,12 @@ struct ImportSheet: View {
                     Text("\(r.estimatedDates) photos have no capture time, so the file’s modified date was used (estimated).")
                         .foregroundStyle(.secondary)
                 }
-                if r.failed > 0 {
-                    Text("\(r.failed) photos could not be imported.").foregroundStyle(.red)
+                if r.failed > 0 || !r.errors.isEmpty {
+                    if r.failed > 0 { Text("\(r.failed) photos could not be imported.").foregroundStyle(.red) }
+                    if r.filesCopied > 0 && r.added == 0 && r.imported > 0 {
+                        Text("The files were copied, but could not be added to the catalog. Rescan the destination folder to add them.")
+                            .foregroundStyle(.red)
+                    }
                     ScrollView {
                         Text(r.errors).font(.caption).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading)
                     }

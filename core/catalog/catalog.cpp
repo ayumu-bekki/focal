@@ -806,6 +806,30 @@ ScanStats Catalog::scan_root(int64_t root_id, const ScanOptions& opt) {
         stats.relinked += relinked;
         if (opt.progress) opt.progress(end, total);
     }
+    // ディスクにもうないフォルダのうち、写真（ファイルなしを含む）を 1 枚も持たないものはカタログから消す。
+    // 消えたフォルダ・登録しなくなったライブラリ（.photoslibrary など）の跡がサイドバーに残らないようにする（v3.19）。
+    // 写真を持つフォルダと、その親は残す（★・タグ・編集を持つ写真を巻き込まない）
+    writer_->call([&](Database& db) {
+        std::map<int64_t, std::optional<int64_t>> parent_of;
+        std::set<int64_t> keep;
+        auto fs_ = db.prepare("SELECT id, parent_id FROM folders WHERE root_id = ?");
+        fs_.bind(1, root_id);
+        while (fs_.step()) parent_of[fs_.column_int64(0)] = fs_.column_opt_int64(1);
+        auto with_photos = db.prepare(
+            "SELECT DISTINCT p.folder_id FROM photos p JOIN folders f ON f.id = p.folder_id WHERE f.root_id = ?");
+        with_photos.bind(1, root_id);
+        auto keep_with_ancestors = [&](int64_t id) {
+            for (std::optional<int64_t> cur = id; cur && keep.insert(*cur).second;) {
+                auto it = parent_of.find(*cur);
+                cur = it == parent_of.end() ? std::nullopt : it->second;
+            }
+        };
+        for (const auto& [d, id] : folder_ids) keep_with_ancestors(id);
+        while (with_photos.step()) keep_with_ancestors(with_photos.column_int64(0));
+        auto del = db.prepare("DELETE FROM folders WHERE id = ?");
+        for (const auto& [id, parent] : parent_of)
+            if (!keep.count(id)) del.bind(1, id).run();
+    });
     if (stats.added > 0) {
         writer_->call([&](Database& db) {
             auto st = db.prepare("INSERT INTO meta (key, value) VALUES ('last_import_at', ?)"
