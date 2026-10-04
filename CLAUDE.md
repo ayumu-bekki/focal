@@ -103,6 +103,7 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 - `core/imaging/` — `raw_decoder`（LibRaw）、`resample`（プロキシ・Lanczos3）、`white_balance`（Robertson 法の K/tint ⇔ 係数）、`tone_curve`（5.5 章 + ベースカーブ + 白・黒・明るさ、4096 要素 LUT）、`color_pipeline`（5.4 章 (2)〜(5b)。(5b) は彩度・自然な彩度。`process_tone` と `process_color` に分けられる）、`local_contrast`（(5a) 明瞭度。ガイデッドフィルタ、縮小して計算）、`detail`（(5a) ノイズ低減・シャープネス。半径はフル解像度の画素）、`geometry`（5.6 章の逆写像・自動クロップ）、`output_transform`（lcms2、(6)(7)）、`renderer`（(1)〜(7) の組み立て）、`image_io`（TIFF / JPEG）
 - `core/edit/settings` — 6.1 章の JSON（未知キー保持）
 - `core/catalog/` — `sqlite`（RAII ラッパー）、`schema`（7.2 章とマイグレーション。移行前に `VACUUM INTO` でバックアップ）、`db_writer`（書き込み専用スレッド。最大 500 件を 1 トランザクションにまとめ、ジョブごとに SAVEPOINT）、`catalog`（ルート登録・スキャン・照合・絞り込み・★/フラグ/タグ・アルバム・最近の取り込み）
+- `core/imaging/image_io` — 書き出しの JPEG・TIFF。`ExifInfo` でカタログの撮影情報を書く（JPEG は APP1 に最小限の EXIF、TIFF は標準タグ。design.md 5.8 章）。EXIF の読み戻しはテスト用（自分が書く項目だけ）
 - `core/thumbs/thumbnail` — 埋め込みプレビューの選択と抽出、向き補正、フォールバック（half_size + 既定パイプライン、同時実行はコア数の半分、OpenMP 1 スレッド）、ディスクキャッシュ、`rendered_key`（現像結果のキー）、`PreviewCache`（大きいプレビュー、上限付き LRU）
 - `core/util/volume` — ボリュームの ID・名前・マウントポイント（macOS は `getattrlist` の UUID、Windows はボリューム GUID、Linux は `/dev/disk/by-uuid`）。macOS は Data ボリュームを "/" として扱う。Linux / Windows の実装は未確認（macOS 以外ではビルドしていない）
 - `Localizable.xcstrings` に文言を足したら `apps/macos/scripts/sort-strings.py` を実行する（Xcode と同じ並びにそろえ、Xcode で開いたときの差分を減らす）。

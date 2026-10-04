@@ -81,10 +81,44 @@ TEST_CASE("書き出し: JPEG を読み戻して ICC・ビット深度・サイ�
     CHECK(img.bits == 8);
     CHECK(same_profile(img.icc, OutputTransform(OutputSpace::Srgb, OutputDepth::U8).icc_profile()));
 
+    // EXIF: 撮影日時・カメラ・露出がカタログの値と同じ（外部のソフトが日時で並べられる）
+    const auto photo = f.catalog->photo(f.sony);
+    REQUIRE(photo.has_value());
+    const auto exif = read_jpeg_exif(r.output);
+    REQUIRE(exif.has_value());
+    CHECK(exif->capture_time == *photo->capture_time);
+    CHECK(exif->capture_time == "2018-03-13T16:38:13");
+    CHECK(exif->make == photo->camera_make);
+    CHECK(exif->model == photo->camera_model);
+    CHECK(exif->lens == photo->lens_model);
+    CHECK(exif->iso == photo->iso);
+    REQUIRE(exif->exposure_time.has_value());
+    CHECK(std::abs(*exif->exposure_time - *photo->exposure_time) < 0.0005);  // 1/50
+    REQUIRE(exif->f_number.has_value());
+    CHECK(std::abs(*exif->f_number - *photo->f_number) < 0.05);
+    REQUIRE(exif->focal_length.has_value());
+    CHECK(std::abs(*exif->focal_length - *photo->focal_length) < 0.05);
+
     // もう一度書き出すと上書きせず _1 が付く
     const ExportItemResult r2 = export_photo(*f.catalog, f.sony, opt);
     REQUIRE(r2.ok);
     CHECK(path_to_utf8(r2.output.filename()) == kNfc + "_1.jpg");
+}
+
+TEST_CASE("書き出し: TIFF にも撮影日時・メーカー・機種を書く", "[export][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Fixture f;
+    ExportOptions opt;
+    opt.dest_dir = f.out;
+    opt.format = ExportOptions::Format::Tiff16;
+    opt.long_edge = 512;
+    const ExportItemResult r = export_photo(*f.catalog, f.sony, opt);
+    REQUIRE(r.ok);
+    const auto exif = read_tiff_exif(r.output);
+    REQUIRE(exif.has_value());
+    CHECK(exif->capture_time == "2018-03-13T16:38:13");
+    CHECK(exif->make == f.catalog->photo(f.sony)->camera_make);
+    CHECK(exif->model == f.catalog->photo(f.sony)->camera_model);
 }
 
 TEST_CASE("書き出し: 16-bit TIFF（原寸）と編集の反映", "[export][data]") {

@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
+#include <string>
 #include <vector>
 
 #include "util/image.h"
@@ -10,15 +12,40 @@ namespace focal {
 
 enum class TiffCompression { None, Deflate };
 
-// 16-bit / 8-bit RGB の TIFF を書く。icc が空でなければ埋め込む。
-void write_tiff(const std::filesystem::path& path, const ImageU16& image, const std::vector<uint8_t>& icc,
-                TiffCompression compression = TiffCompression::None);
-void write_tiff(const std::filesystem::path& path, const ImageU8& image, const std::vector<uint8_t>& icc,
-                TiffCompression compression = TiffCompression::None);
+// 書き出しファイルに入れる撮影情報（v3.19）。カタログが持っている値（LibRaw で読んだもの）をそのまま書く。
+// 撮影日時は EXIF にタイムゾーンがないので、カタログと同じローカル時刻。位置情報・シリアル番号は持たない
+struct ExifInfo {
+    std::string capture_time;  // "YYYY-MM-DDTHH:MM:SS"。不明なら空
+    std::string make, model, lens;
+    std::optional<int> iso;
+    std::optional<double> exposure_time;  // 秒
+    std::optional<double> f_number;
+    std::optional<double> focal_length;  // mm
 
-// 8-bit RGB の JPEG を書く。icc が空でなければ埋め込む。
+    bool empty() const {
+        return capture_time.empty() && make.empty() && model.empty() && lens.empty() && !iso && !exposure_time &&
+               !f_number && !focal_length;
+    }
+};
+
+// JPEG の APP1（"Exif\0\0" から）の中身を作る。width / height は書き出す画像の大きさ（向きは補正済みなので Orientation = 1）
+std::vector<uint8_t> build_exif_app1(const ExifInfo& info, int width, int height);
+
+// JPEG の EXIF を読む（テスト・確認用。自分が書く範囲の項目だけ）。EXIF がなければ nullopt
+std::optional<ExifInfo> read_jpeg_exif(const std::filesystem::path& path);
+// TIFF の撮影情報（撮影日時・メーカー・機種）を読む。なければ nullopt
+std::optional<ExifInfo> read_tiff_exif(const std::filesystem::path& path);
+
+// 16-bit / 8-bit RGB の TIFF を書く。icc が空でなければ埋め込む。
+// exif があれば、撮影日時・メーカー・機種・ソフト名の標準タグを書く（EXIF の IFD までは書かない）。
+void write_tiff(const std::filesystem::path& path, const ImageU16& image, const std::vector<uint8_t>& icc,
+                TiffCompression compression = TiffCompression::None, const ExifInfo* exif = nullptr);
+void write_tiff(const std::filesystem::path& path, const ImageU8& image, const std::vector<uint8_t>& icc,
+                TiffCompression compression = TiffCompression::None, const ExifInfo* exif = nullptr);
+
+// 8-bit RGB の JPEG を書く。icc が空でなければ埋め込む。exif が空でなければ EXIF（APP1）を書く。
 void write_jpeg(const std::filesystem::path& path, const ImageU8& image, int quality,
-                const std::vector<uint8_t>& icc);
+                const std::vector<uint8_t>& icc, const ExifInfo* exif = nullptr);
 
 // 読み戻し（テスト・比較用）。8-bit は 16-bit に拡張せず、bits で区別する。
 struct LoadedImage {

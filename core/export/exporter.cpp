@@ -72,14 +72,25 @@ ExportItemResult export_photo(Catalog& catalog, int64_t photo_id, const ExportOp
         if (cancel && cancel->load()) throw Error(Error::Code::Cancelled, "export cancelled");
         const ImageF linear = render_for_export(raw, settings, opt.long_edge);
 
+        // 撮影情報（カタログにある値）を書き出しファイルに入れる。撮影日時などで並べられるように（v3.19）
+        ExifInfo exif;
+        exif.capture_time = photo->capture_time.value_or("");
+        exif.make = photo->camera_make;
+        exif.model = photo->camera_model;
+        exif.lens = photo->lens_model;
+        if (photo->iso) exif.iso = static_cast<int>(*photo->iso);
+        exif.exposure_time = photo->exposure_time;
+        exif.f_number = photo->f_number;
+        exif.focal_length = photo->focal_length;
+
         const bool jpeg = opt.format == ExportOptions::Format::Jpeg;
         reserved = reserve_output_path(opt.dest_dir, stem_of(photo->file_name), jpeg ? "jpg" : "tif");
         if (jpeg) {
             const OutputTransform xf(OutputSpace::Srgb, OutputDepth::U8);
-            write_jpeg(reserved, encode_u8(linear, xf), std::clamp(opt.quality, 1, 100), xf.icc_profile());
+            write_jpeg(reserved, encode_u8(linear, xf), std::clamp(opt.quality, 1, 100), xf.icc_profile(), &exif);
         } else {
             const OutputTransform xf(OutputSpace::Srgb, OutputDepth::U16);
-            write_tiff(reserved, encode_u16(linear, xf), xf.icc_profile(), TiffCompression::Deflate);
+            write_tiff(reserved, encode_u16(linear, xf), xf.icc_profile(), TiffCompression::Deflate, &exif);
         }
         r.ok = true;
         r.output = reserved;

@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <filesystem>
 
 #include "imaging/image_io.h"
@@ -75,4 +76,61 @@ TEST_CASE("日本語・NFD のファイル名で書ける", "[io]") {
     const fs::path path = temp_path("\xe3\x81\x8b\xe3\x82\x99\xe5\x86\x99\xe7\x9c\x9f.tif");
     write_tiff(path, gradient<uint8_t>(8, 8, 255), {});
     CHECK(read_tiff(path).width == 8);
+}
+
+TEST_CASE("EXIF: JPEG に書いて読み戻す（足りない項目は書かない・長い文字列・小数・露出時間）", "[io][exif]") {
+    ExifInfo e;
+    e.capture_time = "2026-10-04T11:11:57";
+    e.make = "Canon";
+    e.model = "Canon EOS 6D Mark II";
+    e.lens = "EF24-105mm f/4L IS USM";
+    e.iso = 800;
+    e.exposure_time = 1.0 / 50;
+    e.f_number = 4.5;
+    e.focal_length = 35.0;
+    const auto path = temp_path("exif.jpg");
+    write_jpeg(path, gradient<uint8_t>(16, 12, 255), 90, OutputTransform(OutputSpace::Srgb, OutputDepth::U8).icc_profile(), &e);
+    // 画像と ICC は壊れない
+    const LoadedImage img = read_jpeg(path);
+    CHECK(img.width == 16);
+    CHECK_FALSE(img.icc.empty());
+    const auto back = read_jpeg_exif(path);
+    REQUIRE(back.has_value());
+    CHECK(back->capture_time == e.capture_time);
+    CHECK(back->make == e.make);
+    CHECK(back->model == e.model);
+    CHECK(back->lens == e.lens);
+    CHECK(back->iso == 800);
+    CHECK(std::abs(*back->exposure_time - 0.02) < 1e-6);
+    CHECK(std::abs(*back->f_number - 4.5) < 1e-6);
+    CHECK(std::abs(*back->focal_length - 35.0) < 1e-6);
+
+    // 撮影日時だけ（ほかは不明）でも書ける。EXIF なしで書けば EXIF はない
+    ExifInfo only;
+    only.capture_time = "2000-01-02T03:04:05";
+    write_jpeg(path, gradient<uint8_t>(8, 8, 255), 90, {}, &only);
+    const auto b2 = read_jpeg_exif(path);
+    REQUIRE(b2.has_value());
+    CHECK(b2->capture_time == only.capture_time);
+    CHECK(b2->make.empty());
+    CHECK_FALSE(b2->iso.has_value());
+    write_jpeg(path, gradient<uint8_t>(8, 8, 255), 90, {});
+    CHECK_FALSE(read_jpeg_exif(path).has_value());
+
+    // 形が違う日時は書かない（壊れた EXIF にしない）
+    ExifInfo bad;
+    bad.capture_time = "not a date";
+    bad.make = "X";
+    write_jpeg(path, gradient<uint8_t>(8, 8, 255), 90, {}, &bad);
+    const auto b3 = read_jpeg_exif(path);
+    REQUIRE(b3.has_value());
+    CHECK(b3->capture_time.empty());
+    CHECK(b3->make == "X");
+
+    // APP1 の中身: "Exif\0\0" + リトルエンディアンの TIFF、サイズは 64KB 未満
+    const auto app1 = build_exif_app1(e, 16, 12);
+    CHECK(app1.size() < 65000);
+    CHECK(std::string(app1.begin(), app1.begin() + 4) == "Exif");
+    CHECK(app1[6] == 'I');
+    CHECK(app1[7] == 'I');
 }
