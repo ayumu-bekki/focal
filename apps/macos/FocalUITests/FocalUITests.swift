@@ -550,9 +550,9 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(nameField.waitForExistence(timeout: 3))
         nameField.doubleClick()
         nameField.typeKey("a", modifierFlags: .command)
-        nameField.typeText("UIFolder")
+        nameField.typeText("Trips")
         app.buttons["albumNameOK"].click()
-        let folder = any("album-UIFolder")
+        let folder = any("album-Trips")
         XCTAssertTrue(folder.waitForExistence(timeout: 3))
 
         // アルバムを作って、フォルダへドラッグして入れる（あとでフォルダを消すと一緒に消えることで確かめる）
@@ -561,9 +561,9 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(albumField.waitForExistence(timeout: 3))
         albumField.doubleClick()
         albumField.typeKey("a", modifierFlags: .command)
-        albumField.typeText("UIDragged")
+        albumField.typeText("Hokkaido")
         app.buttons["albumNameOK"].click()
-        let dragged = any("album-UIDragged")
+        let dragged = any("album-Hokkaido")
         XCTAssertTrue(dragged.waitForExistence(timeout: 3))
         dragged.press(forDuration: 0.6, thenDragTo: folder)
         sleep(1)
@@ -576,12 +576,12 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(smartName.waitForExistence(timeout: 3))
         smartName.doubleClick()
         smartName.typeKey("a", modifierFlags: .command)
-        smartName.typeText("UISmart")
+        smartName.typeText("Favorites")
         XCTAssertTrue(app.buttons["smartRemoveRule"].waitForExistence(timeout: 3))
         saveScreenshot(app, name: "smart-album-sheet")
         app.buttons["smartRemoveRule"].click()
         app.buttons["smartAlbumOK"].click()
-        let smart = any("album-UISmart")
+        let smart = any("album-Favorites")
         XCTAssertTrue(smart.waitForExistence(timeout: 3))
         XCTAssertTrue(waitValue(count, "1 / \(expected)"))  // 作ると、そのスマートアルバムを表示する
         saveScreenshot(app, name: "smart-album")
@@ -600,6 +600,48 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(any("sidebarAll").isSelected || any("sidebarAll").exists)
     }
 
+    /// 利用者向けガイド（docs/user-guide.md）用のスクリーンショット。計測値の表示（FOCAL_FRAME_STATS）を出さずに撮る。
+    /// 撮った画像は ui-test.sh の出力フォルダから docs/images/ へ手で選んで入れる（scripts/make-doc-images.sh）
+    @MainActor
+    func testDocScreenshots() throws {
+        try requireCatalog()
+        let app = launch()
+        let grid = app.descendants(matching: .any)["photoGrid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 10))
+        sleep(3)
+        saveScreenshot(app, name: "doc-grid")
+
+        // 現像（フィット）。4 枚目 = ニコンのカラーチェッカーの写真は避け、1 枚目の風景で撮る
+        grid.click()
+        app.typeText("v")
+        XCTAssertTrue(app.descendants(matching: .any)["developView"].waitForExistence(timeout: 5))
+        sleep(4)
+        saveScreenshot(app, name: "doc-develop")
+
+        // 露出・ハイライトを少し動かした状態
+        let slider = app.sliders["exposureSlider"]
+        XCTAssertTrue(slider.waitForExistence(timeout: 5))
+        slider.adjust(toNormalizedSliderPosition: 0.58)
+        let shadows = app.sliders["shadowsSlider"]
+        if shadows.exists { shadows.adjust(toNormalizedSliderPosition: 0.65) }
+        sleep(3)
+        saveScreenshot(app, name: "doc-develop-edited")
+
+        // 切り取りモード + 水平線ツール
+        app.typeText("c")
+        XCTAssertTrue(app.buttons["cropDone"].waitForExistence(timeout: 3))
+        let view = app.descendants(matching: .any)["developView"]
+        app.descendants(matching: .any)["levelTool"].firstMatch.click()
+        view.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.45))
+            .press(forDuration: 0.1, thenDragTo: view.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.52)))
+        sleep(2)
+        saveScreenshot(app, name: "doc-crop")
+        app.typeKey(.escape, modifierFlags: [])  // 取り消して、編集はカタログに残さない
+        sleep(1)
+        app.typeKey(.escape, modifierFlags: [])
+        sleep(1)
+    }
+
     /// v3.19: アルバムの上へ／下へ移動と、カバー写真のサムネイル（先頭の写真）
     @MainActor
     func testAlbumOrderAndCover() throws {
@@ -608,7 +650,7 @@ final class FocalUITests: XCTestCase {
         let grid = app.descendants(matching: .any)["photoGrid"]
         XCTAssertTrue(grid.waitForExistence(timeout: 10))
         func any(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
-        for name in ["UIOrderA", "UIOrderB"] {
+        for name in ["Family", "Travel"] {
             chooseNewAlbumItem(app, 0)
             let field = app.textFields["albumName"]
             XCTAssertTrue(field.waitForExistence(timeout: 3))
@@ -618,15 +660,15 @@ final class FocalUITests: XCTestCase {
             app.buttons["albumNameOK"].click()
             XCTAssertTrue(any("album-\(name)").waitForExistence(timeout: 3))
         }
-        let a = any("album-UIOrderA"), b = any("album-UIOrderB")
+        let a = any("album-Family"), b = any("album-Travel")
         XCTAssertLessThan(a.frame.minY, b.frame.minY)  // 作った順
 
         // B を上へ
         b.rightClick()
         app.menuItems["moveAlbumUp"].click()
-        XCTAssertTrue(waitUntil { any("album-UIOrderB").frame.minY < any("album-UIOrderA").frame.minY })
+        XCTAssertTrue(waitUntil { any("album-Travel").frame.minY < any("album-Family").frame.minY })
         // いちばん上の B は「上へ」が選べない
-        any("album-UIOrderB").rightClick()
+        any("album-Travel").rightClick()
         XCTAssertFalse(app.menuItems["moveAlbumUp"].isEnabled)
         app.typeKey(.escape, modifierFlags: [])
 
@@ -635,12 +677,12 @@ final class FocalUITests: XCTestCase {
         let cell = grid.descendants(matching: .any).matching(identifier: "photoCell").element(boundBy: 1)
         XCTAssertTrue(cell.waitForExistence(timeout: 3))
         cell.click()
-        cell.press(forDuration: 0.6, thenDragTo: any("album-UIOrderA"))
+        cell.press(forDuration: 0.6, thenDragTo: any("album-Family"))
         sleep(2)
         saveScreenshot(app, name: "album-cover")
 
         // あと片づけ（ほかのテストの枚数に影響しないよう、アルバムを消す）
-        for name in ["UIOrderA", "UIOrderB"] {
+        for name in ["Family", "Travel"] {
             any("album-\(name)").rightClick()
             app.menuItems["deleteAlbum"].click()
             let confirm = app.sheets.buttons.element(boundBy: 0)
