@@ -1,6 +1,6 @@
 # focal — 軽量 RAW 現像・管理アプリ
 
-設計書は `design.md`（v3.19）。ADR は `docs/adr/`。
+設計書は `design.md`（v3.19）。ADR は `docs/adr/`。利用者向けの使い方は `docs/user-guide.md`（機能や操作を変えたら、ここも直す）。
 
 ## 守ること
 
