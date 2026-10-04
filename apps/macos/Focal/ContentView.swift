@@ -188,6 +188,12 @@ struct BottomBar: View {
                     .frame(minWidth: 60, maxWidth: 160)
             }
             Spacer(minLength: 8)
+            if model.selection.count > 1 {
+                Text("\(model.selection.count) selected")
+                    .foregroundStyle(.secondary)
+                    .accessibilityValue(model.selectedPositions.map(String.init).joined(separator: ","))
+                    .accessibilityIdentifier("selectionCount")
+            }
             Text(model.currentIndex.map { "\($0 + 1) / \(model.photoIDs.count)" } ?? "0 / \(model.photoIDs.count)")
                 .monospacedDigit()
                 .foregroundStyle(.secondary)

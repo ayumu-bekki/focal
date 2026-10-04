@@ -644,6 +644,57 @@ final class FocalUITests: XCTestCase {
         sleep(1)
     }
 
+    /// 一覧の選択: クリックは 1 枚、⌘クリックは 1 枚ずつ追加・解除、⇧クリックは起点からその写真までの範囲
+    @MainActor
+    func testGridSelection() throws {
+        try requireCatalog()
+        let app = launch()
+        let grid = app.descendants(matching: .any)["photoGrid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 10))
+        let cells = grid.descendants(matching: .any).matching(identifier: "photoCell")
+        XCTAssertTrue(cells.element(boundBy: 4).waitForExistence(timeout: 5))
+        // 選んでいる写真の位置（1 始まり）。1 枚のときは selectionCount が出ないので、現在の位置（photoCount）を見る
+        func selected() -> [Int] {
+            let multi = app.staticTexts["selectionCount"]
+            if multi.exists, let v = multi.value as? String {
+                return v.split(separator: ",").compactMap { Int($0) }.map { $0 - 1 }
+            }
+            let c = app.staticTexts["photoCount"]
+            let label = c.value as? String ?? c.label
+            return [(Int(label.split(separator: " ").first ?? "") ?? 0) - 1]
+        }
+        func click(_ i: Int, _ mods: XCUIElement.KeyModifierFlags = []) {
+            if mods.isEmpty { cells.element(boundBy: i).click() } else {
+                XCUIElement.perform(withKeyModifiers: mods) { cells.element(boundBy: i).click() }
+            }
+            usleep(300_000)
+        }
+
+        sleep(2)  // 起動直後のレイアウトとサムネイルの読み込みを待つ
+        click(1)
+        XCTAssertEqual(selected(), [1])
+        click(3, .shift)  // 1 → 3 の範囲
+        XCTAssertEqual(selected(), [1, 2, 3])
+        click(4, .shift)  // 起点は 1 のまま、1 → 4
+        XCTAssertEqual(selected(), [1, 2, 3, 4])
+        click(2, .shift)  // 起点は 1 のまま、1 → 2 に縮む
+        XCTAssertEqual(selected(), [1, 2])
+        click(0, .shift)  // 起点より前: 0 → 1
+        XCTAssertEqual(selected(), [0, 1])
+
+        click(3)  // ふつうのクリックは 1 枚にして、起点にする
+        XCTAssertEqual(selected(), [3])
+        click(1, .command)  // ⌘ は 1 枚ずつ追加（範囲にしない）
+        XCTAssertEqual(selected(), [1, 3])
+        click(4, .command)
+        XCTAssertEqual(selected(), [1, 3, 4])
+        click(3, .command)  // もう一度で解除
+        XCTAssertEqual(selected(), [1, 4])
+        click(2, .shift)  // ⌘ で最後に触れた 4 を起点に、4 → 2
+        XCTAssertEqual(selected(), [2, 3, 4])
+        saveScreenshot(app, name: "selection-range")
+    }
+
     /// v3.19: アルバムの上へ／下へ移動と、カバー写真のサムネイル（先頭の写真）
     @MainActor
     func testAlbumOrderAndCover() throws {

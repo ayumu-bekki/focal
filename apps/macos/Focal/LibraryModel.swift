@@ -154,6 +154,7 @@ final class LibraryModel {
                 currentIndex = photoIDs.isEmpty ? nil : 0
             }
             selection = currentIndex.map { [photoIDs[$0]] } ?? []
+            selectionAnchor = currentIndex
         } catch {
             report(error)
         }
@@ -180,7 +181,26 @@ final class LibraryModel {
     func select(index: Int, extend: Bool = false) {
         guard photoIDs.indices.contains(index) else { return }
         currentIndex = index
-        if extend { selection.insert(photoIDs[index]) } else { selection = [photoIDs[index]] }
+        if extend { selection.insert(photoIDs[index]) } else { selection = [photoIDs[index]]; selectionAnchor = index }
+    }
+
+    /// ⇧クリックの起点（グリッドの何枚目か）。ふつうのクリック・⌘クリック・キーで 1 枚だけになったときに、その写真にする
+    var selectionAnchor: Int?
+
+    /// ⇧クリック: 起点からクリックした写真までの範囲を選ぶ。additive（⇧⌘）なら、いまの選択に範囲を足す。
+    /// 起点は動かさない（続けて ⇧クリックすると、範囲が伸びたり縮んだりする）
+    func selectRange(to index: Int, additive: Bool = false) {
+        guard photoIDs.indices.contains(index) else { return }
+        let anchor = selectionAnchor.flatMap { photoIDs.indices.contains($0) ? $0 : nil } ?? currentIndex ?? index
+        selectionAnchor = anchor
+        let ids = (min(anchor, index)...max(anchor, index)).map { photoIDs[$0] }
+        selection = additive ? selection.union(ids) : Set(ids)
+        currentIndex = index
+    }
+
+    /// 選んでいる写真が何枚目か（1 始まり、昇順）。テストとアクセシビリティ用
+    var selectedPositions: [Int] {
+        photoIDs.enumerated().filter { selection.contains($0.element) }.map { $0.offset + 1 }
     }
 
     func move(by delta: Int) {

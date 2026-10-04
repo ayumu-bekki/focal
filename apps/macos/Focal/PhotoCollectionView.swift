@@ -156,6 +156,7 @@ struct PhotoCollectionView: NSViewRepresentable {
             if let last = indexes.last, model.currentIndex.map({ !indexes.contains($0) }) ?? true {
                 model.currentIndex = last
             }
+            if indexes.count == 1 { model.selectionAnchor = indexes[0] }  // キー操作などで 1 枚になったとき
         }
     }
 }
@@ -178,8 +179,24 @@ final class KeyCollectionView: NSCollectionView {
         }
     }
 
+    /// 一覧の選択（Photomator・「写真」と同じ）: ふつうのクリックは 1 枚、⌘クリックは 1 枚ずつ追加・解除、
+    /// ⇧クリックは起点からその写真までの範囲（⇧⌘ならいまの選択に範囲を足す）。フィルムストリップは 1 枚だけ
     override func mouseDown(with event: NSEvent) {
+        let mods = event.modifierFlags.intersection([.shift, .command, .option, .control])
+        if takesFocus, let model, mods.contains(.shift), !mods.contains(.option), !mods.contains(.control),
+           let ip = indexPathForItem(at: convert(event.locationInWindow, from: nil)) {
+            model.selectRange(to: ip.item, additive: mods.contains(.command))
+            window?.makeFirstResponder(self)
+            return  // 標準の動作（1 枚ずつ追加）には渡さない
+        }
         super.mouseDown(with: event)
+        if takesFocus, let model, let ip = indexPathForItem(at: convert(event.locationInWindow, from: nil)) {
+            // ⌘クリックで選んだ写真も、次の ⇧クリックの起点にする。選びを外したときは、起点を変えない
+            // （⌘クリックの解除は、mouseDown が戻ったあとに反映されるので、次の周回で確かめる）
+            DispatchQueue.main.async { [weak self, weak model] in
+                if self?.selectionIndexPaths.contains(ip) == true { model?.selectionAnchor = ip.item }
+            }
+        }
         if event.clickCount == 2, takesFocus { model?.mode = .viewer }
     }
 }

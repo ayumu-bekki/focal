@@ -97,6 +97,16 @@
         }
       }
     },
+    "%lld selected" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚選択中"
+          }
+        }
+      }
+    },
     "≥ %@" : {
       "localizations" : {
         "ja" : {
