@@ -600,6 +600,56 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(any("sidebarAll").isSelected || any("sidebarAll").exists)
     }
 
+    /// v3.19: アルバムの上へ／下へ移動と、カバー写真のサムネイル（先頭の写真）
+    @MainActor
+    func testAlbumOrderAndCover() throws {
+        try requireCatalog()
+        let app = launch()
+        let grid = app.descendants(matching: .any)["photoGrid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 10))
+        func any(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+        for name in ["UIOrderA", "UIOrderB"] {
+            chooseNewAlbumItem(app, 0)
+            let field = app.textFields["albumName"]
+            XCTAssertTrue(field.waitForExistence(timeout: 3))
+            field.doubleClick()
+            field.typeKey("a", modifierFlags: .command)
+            field.typeText(name)
+            app.buttons["albumNameOK"].click()
+            XCTAssertTrue(any("album-\(name)").waitForExistence(timeout: 3))
+        }
+        let a = any("album-UIOrderA"), b = any("album-UIOrderB")
+        XCTAssertLessThan(a.frame.minY, b.frame.minY)  // 作った順
+
+        // B を上へ
+        b.rightClick()
+        app.menuItems["moveAlbumUp"].click()
+        XCTAssertTrue(waitUntil { any("album-UIOrderB").frame.minY < any("album-UIOrderA").frame.minY })
+        // いちばん上の B は「上へ」が選べない
+        any("album-UIOrderB").rightClick()
+        XCTAssertFalse(app.menuItems["moveAlbumUp"].isEnabled)
+        app.typeKey(.escape, modifierFlags: [])
+
+        // 写真を足すと、カバー（先頭の写真）のサムネイルが行に出る
+        any("sidebarAll").click()
+        let cell = grid.descendants(matching: .any).matching(identifier: "photoCell").element(boundBy: 1)
+        XCTAssertTrue(cell.waitForExistence(timeout: 3))
+        cell.click()
+        cell.press(forDuration: 0.6, thenDragTo: any("album-UIOrderA"))
+        sleep(2)
+        saveScreenshot(app, name: "album-cover")
+
+        // あと片づけ（ほかのテストの枚数に影響しないよう、アルバムを消す）
+        for name in ["UIOrderA", "UIOrderB"] {
+            any("album-\(name)").rightClick()
+            app.menuItems["deleteAlbum"].click()
+            let confirm = app.sheets.buttons.element(boundBy: 0)
+            XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+            confirm.click()
+            XCTAssertTrue(waitGone(any("album-\(name)")))
+        }
+    }
+
     /// v3.19: カードの取り込み。取り込み元と読み込み先は ui-test.sh が用意する
     @MainActor
     func testCardImport() throws {
@@ -647,11 +697,14 @@ final class FocalUITests: XCTestCase {
         item.click()
     }
 
-    /// 「アルバム」見出しの ＋ メニューを開く
+    /// 「アルバム」見出しの ＋ メニューを開く。サイドバーの見出しは AppKit が 1 つのアクセシビリティ要素にまとめる
+    /// （識別子が "sidebarAlbumsHeader-newAlbum" のようにつながる）ので、＋ だけは取れない。右端から一定の距離を押す
     private func openNewAlbumMenu(_ app: XCUIApplication) {
-        let plus = app.descendants(matching: .any).matching(identifier: "newAlbum").firstMatch
-        XCTAssertTrue(plus.waitForExistence(timeout: 5))
-        plus.click()
+        let header = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier ENDSWITH 'newAlbum'")).firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 5))
+        let width = max(header.frame.width, 1)
+        header.coordinate(withNormalizedOffset: CGVector(dx: 1 - 12 / width, dy: 0.5)).click()
     }
 
     private func waitUntil(timeout: TimeInterval = 5, _ cond: () -> Bool) -> Bool {
