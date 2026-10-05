@@ -9,6 +9,10 @@ Photomator の代わりとして使えるものを目指しています。
 - 使い方は [使い方ガイド](https://ayumu-bekki.github.io/focal/manual/)（[Markdown 版](docs/user-guide.md)）を見てください。紹介ページ: <https://ayumu-bekki.github.io/focal/>
 - 画像処理とカタログは C++ の core にまとめ、macOS の画面（SwiftUI）とは C API でつないでいます。
 
+## ご利用にあたって
+
+Focal は開発中のソフトウェア（ベータ版）です。現像やカタログの内容が失われたり、写真のファイルが変更・削除されたりする不具合が含まれている可能性があります。**大切な写真は、必ずバックアップを取ったうえでお使いください。** 本ソフトウェアの使用によって生じたいかなる損害についても、開発者は責任を負いません（Apache License 2.0 のとおり、現状のまま提供し、いかなる保証もしません）。不具合は [GitHub の Issue](https://github.com/ayumu-bekki/focal/issues) で教えてください。
+
 ## できること
 
 | 分類 | 機能 |

@@ -170,6 +170,8 @@ jobs:
           name: Focal ${{ steps.tag.outputs.number }}${{ steps.tag.outputs.channel && format(' {0}', steps.tag.outputs.channel) || '' }}
           prerelease: ${{ steps.tag.outputs.prerelease == 'true' }}
           generate_release_notes: true
+          body: |
+            > **ご利用にあたって**: Focal は開発中のソフトウェア（ベータ版）です。写真のファイルやカタログの内容が失われる不具合が含まれている可能性があります。**大切な写真は、必ずバックアップを取ったうえでお使いください。** 本ソフトウェアの使用によって生じたいかなる損害についても、開発者は責任を負いません（Apache License 2.0）。使い方は [使い方ガイド](https://ayumu-bekki.github.io/focal/manual/) を見てください。
           files: |
             apps/macos/build/dist/${{ steps.tag.outputs.asset }}
             apps/macos/build/dist/${{ steps.tag.outputs.asset }}.sha256

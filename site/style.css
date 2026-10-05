@@ -77,6 +77,12 @@ table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 15px;
 th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
 th { background: var(--bg-soft); white-space: nowrap; }
 
+p.beta { margin: 16px auto 0; max-width: 560px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-soft); color: var(--fg-soft); font-size: 14px; }
+p.beta a { margin-left: 6px; }
+.disclaimer { text-align: left; max-width: 760px; margin: 0 auto 28px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft); color: var(--fg); font-size: 14px; line-height: 1.75; scroll-margin-top: 72px; }
+.disclaimer h2 { font-size: 16px; margin: 0 0 6px; }
+.disclaimer p { margin: 0; text-align: left; }
+.disclaimer a { color: var(--accent); }
 footer { margin-top: 64px; padding: 28px 0 40px; border-top: 1px solid var(--line); color: var(--fg-soft); font-size: 14px; text-align: center; }
 footer a { color: var(--fg-soft); text-decoration: underline; }
 
