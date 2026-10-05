@@ -96,6 +96,10 @@ final class LibraryModel {
     let cardImport = CardImportModel()
     /// 現像のプリセット（v3.20）
     let presets = PresetModel()
+    /// カタログのバックアップ（v3.24）
+    let backup = BackupModel()
+    /// カタログごとの設定（起動時の再スキャン・読み込み先。v3.25）
+    let prefs: CatalogPrefs
 
     private(set) var importProgress: (done: Int, total: Int)? = nil
     private(set) var lastError: String? = nil
@@ -114,6 +118,7 @@ final class LibraryModel {
         try FileManager.default.createDirectory(at: catalogURL.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
         catalog = try Catalog(url: catalogURL)
+        prefs = CatalogPrefs(catalog: catalog)
         thumbnails = ThumbnailLoader(thumbnailer: try Thumbnailer(catalog: catalog, cacheDirectory: cacheURL))
         develop = try DevelopModel(catalog: catalog)
         reloadSidebar()
@@ -121,12 +126,13 @@ final class LibraryModel {
         try develop.editor.setPreviewCache(previewCacheURL, limitBytes: previewCacheLimit)
         cardImport.configure(model: self)
         presets.configure(model: self)
+        backup.configure(model: self)
         reloadPhotos()
         observeVolumes()
         observeMenuTracking()
         refreshImportSources()
         checkNestedRoots()
-        if !AppPaths.isolatedFromDefaults && UserDefaults.standard.bool(forKey: AppPaths.rescanOnLaunchKey, default: true) {
+        if !AppPaths.isolatedFromDefaults && prefs.rescanOnLaunch {
             rescanAll()  // 起動時の再スキャン（外でフォルダやファイルが変わっていた場合に追従する）
         }
     }
@@ -355,23 +361,12 @@ final class LibraryModel {
         }
     }
 
-    // MARK: カタログ情報と最適化（v3.23）
+    // MARK: カタログの最適化（v3.23。設定画面の「カタログ」から）
 
-    /// 「カタログ情報」のシートを出すか
-    var showCatalogInfo = false
     private(set) var catalogInfo: CatalogInfo?
     private(set) var isOptimizing = false
-    /// 最適化の結果（シートに出す）
+    /// 最適化の結果（設定画面に出す）
     private(set) var optimizeMessage: String?
-
-    /// 情報を読んでから、シートを出す
-    func openCatalogInfo() {
-        optimizeMessage = nil
-        Task {
-            await refreshCatalogInfo()
-            showCatalogInfo = true
-        }
-    }
 
     func refreshCatalogInfo() async {
         let catalog = catalog

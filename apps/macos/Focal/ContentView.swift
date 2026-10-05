@@ -156,9 +156,6 @@ struct ContentView: View {
         } message: {
             Text("\(model.nestedRootsToMerge) folders in the catalog are inside another folder of the catalog, so the same photos may be registered twice. Merging combines them into one, keeping edits, ratings, flags and tags. A backup of the catalog is made first.")
         }
-        .sheet(isPresented: $model.showCatalogInfo) {
-            CatalogInfoView(model: model)
-        }
         .alert("Folders", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
             Button("OK") { model.notice = nil }
         } message: {

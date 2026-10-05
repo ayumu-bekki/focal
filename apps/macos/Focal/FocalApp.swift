@@ -88,14 +88,31 @@ private func applyTestWindowSize() {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor weak var state: AppState?
 
-    /// カードの取り込み中に終了するときは、取り込みを止めて（コピー済みの分は登録され、書きかけのファイルは消える）、
-    /// 終わるのを待ってから終了する。10 秒待っても終わらなければ終了する
+    private let quitPanel = BackupQuitController()
+
+    /// 終了の流れ: (1) カードの取り込み中なら、取り込みを止めて（コピー済みの分は登録され、書きかけのファイルは消える）終わるのを待つ。
+    /// 10 秒待っても終わらなければ次へ。(2) カタログのバックアップが必要な時期なら、聞いて（設定で聞かないこともできる）取ってから終了する。
+    /// バックアップ中は進捗のパネルを出し、終わったら終了する（v3.24）
     @MainActor
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let importer = state?.model?.cardImport, importer.isRunning else { return .terminateNow }
-        importer.afterFinish = { NSApp.reply(toApplicationShouldTerminate: true) }
+        guard let importer = state?.model?.cardImport, importer.isRunning else { return continueQuit() }
+        importer.afterFinish = { [weak self] in
+            guard let self else { return }
+            if self.continueQuit() == .terminateNow { NSApp.reply(toApplicationShouldTerminate: true) }
+        }
         importer.cancel()
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { NSApp.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
+    }
+
+    @MainActor
+    private func continueQuit() -> NSApplication.TerminateReply {
+        guard BackupSettings.autoOnQuitEnabled, let backup = state?.model?.backup, backup.isDue else { return .terminateNow }
+        backup.beginQuitFlow { [weak self] quit in
+            self?.quitPanel.dismiss()
+            NSApp.reply(toApplicationShouldTerminate: quit)
+        }
+        quitPanel.present(backup)
         return .terminateLater
     }
 
@@ -134,7 +151,7 @@ final class AppState {
     /// 初回起動の画面に出すエラー
     var error: String?
 
-    static let defaultPreviewCacheLimit: UInt64 = 2 << 30
+    static let defaultPreviewCacheLimit: UInt64 = 2_000_000_000
     private static let lastCatalogKey = "LastCatalogPath"
     private static let previewCacheLimitKey = "PreviewCacheLimit"
 
@@ -146,11 +163,16 @@ final class AppState {
         }
     }
 
+    static func nearestLimit(_ value: UInt64) -> UInt64 {
+        SettingsView.limits.min { abs(Int64($0) - Int64(value)) < abs(Int64($1) - Int64(value)) } ?? defaultPreviewCacheLimit
+    }
+
     var catalogName: String { catalogURL?.deletingPathExtension().lastPathComponent ?? "" }
 
     init() {
         let stored = UserDefaults.standard.object(forKey: Self.previewCacheLimitKey) as? Int64
-        previewCacheLimit = stored.map { UInt64(max($0, 0)) } ?? Self.defaultPreviewCacheLimit
+        // 前の版で保存した中途半端な値（512 MiB・2 GiB など）は、いちばん近い選択肢に寄せる
+        previewCacheLimit = stored.map { Self.nearestLimit(UInt64(max($0, 0))) } ?? Self.defaultPreviewCacheLimit
         if let url = Self.initialCatalog() { open(url) }
     }
 
@@ -266,8 +288,6 @@ struct LibraryCommands: Commands {
             Button("New Catalog…") { state.chooseNewCatalog() }
             Button("Open Catalog…") { state.chooseExistingCatalog() }
                 .keyboardShortcut("o", modifiers: [.command, .option])
-            Button("Catalog Information…") { model?.openCatalogInfo() }
-                .disabled(model == nil)
             Divider()
             Button("Add Folder…") { if let model { chooseFolderToAdd(model: model) } }
                 .keyboardShortcut("o")

@@ -5,6 +5,7 @@ add_executable(focal_tests
     test_settings.cpp
     test_preset.cpp
     test_photo_files.cpp
+    test_backup.cpp
     test_white_balance.cpp
     test_pipeline.cpp
     test_local_contrast.cpp

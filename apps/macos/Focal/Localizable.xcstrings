@@ -236,6 +236,16 @@
         }
       }
     },
+    "A backup is a copy of the catalog that you can open as it is (File ▸ Open Catalog…). Photos and caches are not included. Backups are made when Focal quits." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バックアップは、そのまま開けるカタログのコピーです（ファイル ▸ カタログを開く…）。写真とキャッシュは含みません。バックアップは、Focal の終了時に取ります。"
+          }
+        }
+      }
+    },
     "A catalog records your folders, ratings, tags and edits. Original files are never modified." : {
       "localizations" : {
         "ja" : {
@@ -406,6 +416,16 @@
         }
       }
     },
+    "All backups" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべて残す"
+          }
+        }
+      }
+    },
     "All Folders" : {
       "localizations" : {
         "ja" : {
@@ -516,6 +536,16 @@
         }
       }
     },
+    "Ask before backing up when Focal quits" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "終了時に、バックアップするか確認する"
+          }
+        }
+      }
+    },
     "Aspect" : {
       "localizations" : {
         "ja" : {
@@ -526,12 +556,113 @@
         }
       }
     },
-    "Backups" : {
+    "Back Up and Quit" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バックアップして終了"
+          }
+        }
+      }
+    },
+    "Back Up Anyway" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "それでもバックアップする"
+          }
+        }
+      }
+    },
+    "Back up automatically next time, without asking" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次回から、確認せずに自動でバックアップする"
+          }
+        }
+      }
+    },
+    "Back Up Catalog" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カタログのバックアップ"
+          }
+        }
+      }
+    },
+    "Back Up Now" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今すぐバックアップ"
+          }
+        }
+      }
+    },
+    "Back up the catalog before quitting?" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "終了する前に、カタログをバックアップしますか？"
+          }
+        }
+      }
+    },
+    "Backed up: %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バックアップしました: %@"
+          }
+        }
+      }
+    },
+    "Backing up the catalog…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カタログをバックアップしています…"
+          }
+        }
+      }
+    },
+    "Backup" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "バックアップ"
+          }
+        }
+      }
+    },
+    "Backups" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バックアップ"
+          }
+        }
+      }
+    },
+    "Backups are saved in %@." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バックアップの保存先: %@"
           }
         }
       }
@@ -552,6 +683,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "明るさ"
+          }
+        }
+      }
+    },
+    "Cache" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キャッシュ"
           }
         }
       }
@@ -678,6 +819,7 @@
       }
     },
     "Catalog Information…" : {
+      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -713,6 +855,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "“%@” の場所を変更しますか？"
+          }
+        }
+      }
+    },
+    "Check the catalog before backing up" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バックアップの前に、カタログを確認する"
           }
         }
       }
@@ -753,6 +905,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "カード、または DCIM フォルダを選んでください。"
+          }
+        }
+      }
+    },
+    "Choose the folder for catalog backups. A different disk is safer." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カタログのバックアップを保存するフォルダを選んでください。別のディスクの方が安全です。"
           }
         }
       }
@@ -1270,6 +1432,36 @@
         }
       }
     },
+    "Every 2 weeks" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2 週間ごと"
+          }
+        }
+      }
+    },
+    "Every 3 days" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3 日ごと"
+          }
+        }
+      }
+    },
+    "Every time Focal quits" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "終了時に毎回"
+          }
+        }
+      }
+    },
     "EXIF" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1444,6 +1636,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "焦点距離"
+          }
+        }
+      }
+    },
+    "Focal quits when the backup is finished." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バックアップが終わると、Focal は終了します。"
           }
         }
       }
@@ -1790,6 +1992,26 @@
         }
       }
     },
+    "Keep" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "残す世代"
+          }
+        }
+      }
+    },
+    "Last Backup" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最後のバックアップ"
+          }
+        }
+      }
+    },
     "Later" : {
       "localizations" : {
         "ja" : {
@@ -2104,6 +2326,26 @@
         }
       }
     },
+    "Never" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "なし"
+          }
+        }
+      }
+    },
+    "Never (manual only)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動ではしない（手動のみ）"
+          }
+        }
+      }
+    },
     "New Album" : {
       "localizations" : {
         "ja" : {
@@ -2286,6 +2528,16 @@
         }
       }
     },
+    "No catalog is open." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カタログが開かれていません。"
+          }
+        }
+      }
+    },
     "No Folders" : {
       "localizations" : {
         "ja" : {
@@ -2392,6 +2644,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "OK"
+          }
+        }
+      }
+    },
+    "Once a day" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 日ごと"
+          }
+        }
+      }
+    },
+    "Once a month" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 か月ごと"
+          }
+        }
+      }
+    },
+    "Once a week" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 週間ごと"
           }
         }
       }
@@ -2536,16 +2818,6 @@
         }
       }
     },
-    "Photos imported from a card are copied to Year / Date folders (for example 2026/2026-10-02) inside this folder." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "カードから取り込んだ写真は、このフォルダの中の 年 / 日付 のフォルダ（例: 2026/2026-10-02）にコピーされます。"
-          }
-        }
-      }
-    },
     "Photos on the card are never moved or deleted." : {
       "localizations" : {
         "ja" : {
@@ -2656,6 +2928,16 @@
         }
       }
     },
+    "Quit Anyway" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このまま終了"
+          }
+        }
+      }
+    },
     "Rating" : {
       "localizations" : {
         "ja" : {
@@ -2702,6 +2984,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "読み込み中…"
+          }
+        }
+      }
+    },
+    "Recent Backups" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近のバックアップ"
           }
         }
       }
@@ -2956,6 +3248,16 @@
         }
       }
     },
+    "Safety Backups" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "操作前の安全バックアップ"
+          }
+        }
+      }
+    },
     "Saturation" : {
       "localizations" : {
         "ja" : {
@@ -3129,6 +3431,16 @@
         }
       }
     },
+    "Skip and Quit" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バックアップせずに終了"
+          }
+        }
+      }
+    },
     "Source" : {
       "localizations" : {
         "ja" : {
@@ -3239,6 +3551,26 @@
         }
       }
     },
+    "The backup failed" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バックアップに失敗しました"
+          }
+        }
+      }
+    },
+    "The catalog may be damaged" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カタログに問題がある可能性があります"
+          }
+        }
+      }
+    },
     "The destination has %@ free; the card holds %@. Photos already imported are skipped, but there may not be enough space." : {
       "localizations" : {
         "ja" : {
@@ -3255,6 +3587,56 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ファイルはコピーしましたが、カタログに登録できませんでした。読み込み先のフォルダを再スキャンして登録してください。"
+          }
+        }
+      }
+    },
+    "The integrity check found a problem with the catalog. A backup of a damaged catalog counts toward the number of backups kept, so older, good backups may be deleted." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カタログの整合性の確認で問題が見つかりました。損傷したカタログのバックアップも残す世代の数に数えられるため、古い正常なバックアップが消えることがあります。"
+          }
+        }
+      }
+    },
+    "The integrity check found a problem with the catalog. A backup of a damaged catalog counts toward the number of backups kept, so older, good backups may be deleted.\n%@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カタログの整合性の確認で問題が見つかりました。損傷したカタログのバックアップも残す世代の数に数えられるため、古い正常なバックアップが消えることがあります。\n%@"
+          }
+        }
+      }
+    },
+    "The last backup was %lld days ago." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最後のバックアップは %lld 日前です。"
+          }
+        }
+      }
+    },
+    "The last backup was made today." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最後のバックアップは今日です。"
+          }
+        }
+      }
+    },
+    "The latest %lld backups" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい %lld 個"
           }
         }
       }
@@ -3299,12 +3681,32 @@
         }
       }
     },
+    "These settings are saved in this catalog. Photos imported from a card are copied to Year / Date folders (for example 2026/2026-10-02) inside the import destination." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この設定は、このカタログに保存されます。カードから取り込んだ写真は、読み込み先の中の「年 / 日付」のフォルダ（例: 2026/2026-10-02）にコピーされます。"
+          }
+        }
+      }
+    },
     "Third-Party Licenses" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "サードパーティのライセンス"
+          }
+        }
+      }
+    },
+    "This catalog has not been backed up yet." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このカタログは、まだバックアップしていません。"
           }
         }
       }

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "edit/settings.h"
+#include "catalog/backup.h"
 #include "imaging/photo_kind.h"
 
 namespace focal {
@@ -211,6 +212,22 @@ public:
         int64_t edits = 0;  // うち、現像の設定がある数
     };
     DetachedSummary detached_summary();
+    // カタログごとの設定（v3.25）。`meta` に `pref.<名前>` で保存し、カタログと一緒に持ち運べる。
+    // 名前は小文字・数字・'_' だけ（それ以外は Error(InvalidArgument)）。設定がなければ nullopt
+    std::optional<std::string> preference(std::string_view name);
+    // value が nullopt なら、その設定を消す（既定に戻る）。書き込みスレッドで実行し、完了を待つ
+    void set_preference(std::string_view name, std::optional<std::string> value);
+
+    // カタログの名前（パッケージ〜.focalcatalog ならその名前、〜.sqlite ならファイル名の幹）。バックアップの名前に使う
+    std::string name() const;
+    // 定期バックアップ（v3.24）: dest_dir に、開けるカタログのパッケージとして保存し、成功したら最後のバックアップの日時を
+    // カタログに記録する（meta.last_backup_at）。時間がかかることがあるので、メインスレッド以外で呼ぶこと
+    BackupResult backup_to(const std::filesystem::path& dest_dir, const BackupOptions& options = {});
+    // 最後に定期バックアップを取った日時（UTC、"YYYY-MM-DDTHH:MM:SSZ"）。取ったことがなければ nullopt
+    std::optional<std::string> last_backup_at();
+    // 前回から interval_days 日以上たっている（または一度も取っていない）か。0 なら常に true、負なら常に false
+    bool backup_due(int interval_days);
+
     // カタログの情報（v3.23。「カタログ情報」の画面用）
     struct CatalogInfo {
         int64_t file_bytes = 0;  // カタログのファイルの大きさ（WAL を含む）

@@ -268,4 +268,55 @@ final class FocalCoreTests: XCTestCase {
         try store.delete(id: id)
         XCTAssertTrue(try store.list().isEmpty)
     }
+
+    func testBackup() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("focal-backup-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let package = tmp.appendingPathComponent("My Catalog.focalcatalog")
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        let catalog = try Catalog(url: package.appendingPathComponent("catalog.sqlite"))
+        XCTAssertEqual(try catalog.name(), "My Catalog")
+        XCTAssertNil(try catalog.lastBackupDate())
+        XCTAssertTrue(try catalog.isBackupDue(intervalDays: 7))
+        XCTAssertFalse(try catalog.isBackupDue(intervalDays: -1))
+
+        let dest = tmp.appendingPathComponent("backups")
+        var outcome: BackupOutcome?
+        var lastProgress = 0.0
+        for try await ev in catalog.backup(to: dest) {
+            switch ev {
+            case .progress(let f): lastProgress = f
+            case .finished(let r): outcome = r
+            }
+        }
+        let r = try XCTUnwrap(outcome)
+        XCTAssertFalse(r.skippedDamaged)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(r.url).appendingPathComponent("catalog.sqlite").path))
+        XCTAssertEqual(lastProgress, 1.0)
+        XCTAssertNotNil(try catalog.lastBackupDate())
+        XCTAssertFalse(try catalog.isBackupDue(intervalDays: 7))
+        XCTAssertTrue(try catalog.isBackupDue(intervalDays: 0))
+
+        XCTAssertEqual(try catalog.backups(in: dest).count, 1)
+        XCTAssertEqual(try catalog.pruneBackups(in: dest, keep: 5), 0)
+    }
+
+    func testPreferences() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("focal-prefs-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let url = tmp.appendingPathComponent("c.sqlite")
+        do {
+            let catalog = try Catalog(url: url)
+            XCTAssertNil(try catalog.preference("import_destination"))
+            try catalog.setPreference("import_destination", "/Volumes/Photos")
+            try catalog.setPreference("rescan_on_launch", "0")
+            XCTAssertThrowsError(try catalog.preference("Bad Name"))
+        }
+        let again = try Catalog(url: url)
+        XCTAssertEqual(try again.preference("import_destination"), "/Volumes/Photos")
+        XCTAssertEqual(try again.preference("rescan_on_launch"), "0")
+        try again.setPreference("import_destination", nil)
+        XCTAssertNil(try again.preference("import_destination"))
+    }
 }

@@ -96,8 +96,8 @@ enum AppPaths {
     /// 読み込み先（ライブラリのルート）の設定
     static let importDestinationKey = "importDestination"
 
-    /// カードの読み込み先の既定: 設定 → なければ ~/Pictures/Photos
-    static var savedImportDestination: URL? {
+    /// 前の版のアプリ全体の読み込み先の設定（v3.25 からはカタログごと。カタログに設定がないときの初期値としてだけ読む）
+    static var legacyImportDestination: URL? {
         UserDefaults.standard.string(forKey: importDestinationKey).map { URL(fileURLWithPath: $0) }
     }
 

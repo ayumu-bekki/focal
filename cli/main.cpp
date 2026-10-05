@@ -27,6 +27,8 @@ void usage() {
                  "  merge-roots [--dry-run]                       重なったルートを統合する（先にバックアップを作る）\n"
                  "  unroot <root id>                              ルートをカタログから外す（ファイルは消さない。現像・★・タグは保管される）\n"
                  "  catalog-info                                  カタログの情報（大きさ・写真の数・保管した情報・バックアップ）\n"
+                 "  backup <dest dir> [--no-check] [--allow-damaged] [--keep N]  カタログのバックアップ（開けるパッケージ）を取る\n"
+                 "  backups <dest dir>                            バックアップの一覧と、最後のバックアップの日時\n"
                  "  optimize [--dry-run]                          カタログの最適化: 保管した情報（外したルートの現像・★・タグ）を消してファイルを詰める\n"
                  "  sources [--path dir]                          DCIM があるボリューム（SD カード）を探す。--path ならその中身の概算\n"
                  "  import-card <card|DCIM> --dest dir [--album ID] [--tags a/b,c] [--no-verify] [--dry-run] [--no-thumbs]\n"
@@ -86,6 +88,8 @@ int main(int argc, char** argv) {
         if (!std::strcmp(cmd, "relocate")) return focal::cli::cmd_relocate(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "merge-roots")) return focal::cli::cmd_merge_roots(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "catalog-info")) return focal::cli::cmd_catalog_info(argc - 2, argv + 2);
+        if (!std::strcmp(cmd, "backup")) return focal::cli::cmd_backup(argc - 2, argv + 2);
+        if (!std::strcmp(cmd, "backups")) return focal::cli::cmd_backups(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "optimize")) return focal::cli::cmd_optimize(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "unroot")) return focal::cli::cmd_unroot(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "roots")) return focal::cli::cmd_roots(argc - 2, argv + 2);

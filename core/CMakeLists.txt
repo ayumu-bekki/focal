@@ -28,6 +28,7 @@ add_library(focal_core STATIC
     catalog/catalog.cpp
     catalog/smart_query.cpp
     catalog/photo_delete.cpp
+    catalog/backup.cpp
     thumbs/thumbnail.cpp
     thumbs/thumbnail_service.cpp
     export/exporter.cpp

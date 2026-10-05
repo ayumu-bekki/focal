@@ -6,13 +6,35 @@ import SwiftUI
 struct SettingsView: View {
     let state: AppState
     @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system
-    @AppStorage(AppPaths.rescanOnLaunchKey) private var rescanOnLaunch = true
     @State private var usage: UInt64?
     @State private var clearing = false
 
-    private static let limits: [UInt64] = [512 << 20, 1 << 30, 2 << 30, 5 << 30, 10 << 30, 20 << 30]
+    /// 大きいプレビューのキャッシュの上限の選択肢（Finder と同じ 10 進の 500 MB・1 GB・2 GB・5 GB・10 GB・20 GB）
+    static let limits: [UInt64] = [500_000_000, 1_000_000_000, 2_000_000_000, 5_000_000_000, 10_000_000_000, 20_000_000_000]
+
+    @AppStorage("settings.tab") private var tab = "general"
 
     var body: some View {
+        TabView(selection: $tab) {
+            generalTab
+                .tabItem { Label("General", systemImage: "gearshape") }
+                .tag("general")
+            CatalogSettingsView(state: state)
+                .tabItem { Label("Catalog", systemImage: "books.vertical") }
+                .tag("catalog")
+            cacheTab
+                .tabItem { Label("Cache", systemImage: "internaldrive") }
+                .tag("cache")
+        }
+        .frame(width: 600, height: 560)
+        .onAppear {
+            // 前の版で選んでいた「取り込み」のタブはない（カタログのタブに移した）
+            if !(["general", "catalog", "cache"].contains(tab)) { tab = "general" }
+            refreshUsage()
+        }
+    }
+
+    private var generalTab: some View {
         Form {
             Section("General") {
                 Picker("Appearance", selection: $appearance) {
@@ -28,28 +50,12 @@ struct SettingsView: View {
                     .accessibilityIdentifier("renderingBackend")
                 }
             }
-            Section {
-                Toggle("Rescan folders when Focal opens", isOn: $rescanOnLaunch)
-                    .accessibilityIdentifier("rescanOnLaunch")
-                LabeledContent("Import Destination") {
-                    HStack {
-                        pathRow(state.model?.cardImport.destination ?? AppPaths.savedImportDestination)
-                        Button("Choose…") { state.model?.cardImport.chooseDestination() }
-                            .disabled(state.model == nil)
-                    }
-                }
-            } header: {
-                Text("Import")
-            } footer: {
-                Text("Photos imported from a card are copied to Year / Date folders (for example 2026/2026-10-02) inside this folder.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Section("Catalog") {
-                LabeledContent("Location") {
-                    pathRow(state.catalogURL)
-                }
-            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var cacheTab: some View {
+        Form {
             Section {
                 Picker("Maximum Size", selection: Binding(get: { state.previewCacheLimit },
                                                           set: { state.previewCacheLimit = $0; refreshUsage() })) {
@@ -82,9 +88,6 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 560)
-        .fixedSize(horizontal: false, vertical: true)
-        .onAppear { refreshUsage() }
     }
 
     private func pathRow(_ url: URL?) -> some View {

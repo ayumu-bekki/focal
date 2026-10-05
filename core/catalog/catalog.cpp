@@ -1133,6 +1133,75 @@ Catalog::DetachedSummary Catalog::detached_summary() {
     return d;
 }
 
+namespace {
+
+std::string pref_key(std::string_view name) {
+    if (name.empty() || name.size() > 64) throw Error(Error::Code::InvalidArgument, "invalid preference name");
+    for (char c : name)
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'))
+            throw Error(Error::Code::InvalidArgument, "invalid preference name: " + std::string(name));
+    return "pref." + std::string(name);
+}
+
+} // namespace
+
+std::optional<std::string> Catalog::preference(std::string_view name) {
+    const std::string key = pref_key(name);
+    std::lock_guard lock(reader_mutex_);
+    auto st = reader_->prepare("SELECT value FROM meta WHERE key = ?");
+    st.bind(1, key);
+    if (st.step()) return st.column_text(0);
+    return std::nullopt;
+}
+
+void Catalog::set_preference(std::string_view name, std::optional<std::string> value) {
+    const std::string key = pref_key(name);
+    writer_->call([&](Database& db) {
+        if (!value) {
+            db.prepare("DELETE FROM meta WHERE key = ?").bind(1, key).run();
+            return;
+        }
+        db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+            .bind(1, key)
+            .bind(2, *value)
+            .run();
+    });
+}
+
+std::string Catalog::name() const {
+    // 〜.focalcatalog/catalog.sqlite（パッケージ）なら、パッケージの名前。〜.sqlite なら、ファイル名の幹
+    const fs::path parent = path_.parent_path();
+    std::string ext = path_to_utf8(parent.extension());
+    for (auto& ch : ext) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    return path_to_utf8(ext == ".focalcatalog" ? parent.stem() : path_.stem());
+}
+
+std::optional<std::string> Catalog::last_backup_at() {
+    std::lock_guard lock(reader_mutex_);
+    auto st = reader_->prepare("SELECT value FROM meta WHERE key = 'last_backup_at'");
+    if (st.step()) return st.column_text(0);
+    return std::nullopt;
+}
+
+bool Catalog::backup_due(int interval_days) {
+    if (interval_days < 0) return false;
+    if (interval_days == 0) return true;
+    const auto last = last_backup_at();
+    if (!last || last->size() < 19) return true;
+    std::tm tm{};
+    if (std::sscanf(last->c_str(), "%4d-%2d-%2dT%2d:%2d:%2d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min,
+                    &tm.tm_sec) != 6)
+        return true;
+    tm.tm_year -= 1900;
+    tm.tm_mon -= 1;
+#ifdef _WIN32
+    const std::time_t then = _mkgmtime(&tm);
+#else
+    const std::time_t then = timegm(&tm);
+#endif
+    return std::difftime(std::time(nullptr), then) >= static_cast<double>(interval_days) * 86400.0;
+}
+
 Catalog::CatalogInfo Catalog::info() {
     CatalogInfo i;
     {

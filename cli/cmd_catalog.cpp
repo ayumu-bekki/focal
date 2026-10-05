@@ -168,6 +168,45 @@ int cmd_optimize(int argc, char** argv) {
     return 0;
 }
 
+int cmd_backup(int argc, char** argv) {
+    Args args(argc, argv, {"no-check", "allow-damaged"});
+    if (args.positional().size() != 1) {
+        std::fprintf(stderr, "usage: focal backup <dest dir> [--no-check] [--allow-damaged] [--keep N]   カタログのバックアップ（開けるパッケージ）を取る\n");
+        return 2;
+    }
+    auto catalog = Catalog::open(catalog_path(args));
+    const fs::path dest = utf8_to_path(args.positional()[0]);
+    BackupOptions opt;
+    opt.check_integrity = !args.has("no-check");
+    opt.allow_damaged = args.has("allow-damaged");
+    opt.progress = [](double p) { std::fprintf(stderr, "\r  %3.0f%%", p * 100); };
+    const BackupResult r = catalog->backup_to(dest, opt);
+    std::fprintf(stderr, "\n");
+    if (r.skipped_damaged) {
+        std::fprintf(stderr, "integrity check failed; not backed up (use --allow-damaged):\n%s\n", r.integrity_message.c_str());
+        return 1;
+    }
+    std::printf("%s (%s)\n", path_to_utf8(r.path).c_str(), size_text(r.bytes).c_str());
+    if (const int keep = args.get_int("keep", 0); keep > 0) {
+        const int removed = prune_backups(dest, catalog->name(), keep);
+        if (removed) std::printf("removed %d old backups\n", removed);
+    }
+    return 0;
+}
+
+int cmd_backups(int argc, char** argv) {
+    Args args(argc, argv);
+    if (args.positional().size() != 1) {
+        std::fprintf(stderr, "usage: focal backups <dest dir>   カタログのバックアップの一覧（新しい順）と、最後のバックアップの日時\n");
+        return 2;
+    }
+    auto catalog = Catalog::open(catalog_path(args));
+    std::printf("last backup: %s\n", catalog->last_backup_at().value_or("never").c_str());
+    for (const auto& b : list_backups(utf8_to_path(args.positional()[0]), catalog->name()))
+        std::printf("%s  %s  %s\n", b.created.c_str(), size_text(b.bytes).c_str(), path_to_utf8(b.path).c_str());
+    return 0;
+}
+
 int cmd_catalog_info(int argc, char** argv) {
     Args args(argc, argv);
     auto catalog = Catalog::open(catalog_path(args));

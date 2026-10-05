@@ -1152,7 +1152,9 @@ final class FocalUITests: XCTestCase {
         let slider = app.sliders["exposureSlider"]
         XCTAssertTrue(slider.waitForExistence(timeout: 10))
         XCTAssertTrue(any("presetRow-Focal Standard").waitForExistence(timeout: 5))
-        XCTAssertTrue(waitUntil { selected("presetRow-none") }, "編集のない写真は「なし」にチェック")
+        // 先に「なし」にして、調整のない状態から始める（同じカタログを使うほかのテストが、この写真を編集していることがある）
+        any("presetRow-none").click()
+        XCTAssertTrue(waitUntil { selected("presetRow-none") }, "調整のない写真は「なし」にチェック")
         saveScreenshot(app, name: "preset-panel-none")
 
         // 一覧から適用: 露出 +1.5（位置 0.65）、チェックが Focal Standard に移る
@@ -1278,7 +1280,7 @@ final class FocalUITests: XCTestCase {
         XCTAssertEqual(notDevelopable, 2, "PNG と JPEG")
     }
 
-    /// カタログ情報（ファイル ▸ カタログ情報…）: 中身の数が出る。ルートを外すと情報は保管され、最適化のボタンで消える
+    /// 設定の「カタログ」タブ: カタログの情報が出る。ルートを外すと情報は保管され、最適化のボタンで消える
     @MainActor
     func testCatalogInfoAndOptimize() throws {
         let env = ProcessInfo.processInfo.environment
@@ -1295,31 +1297,21 @@ final class FocalUITests: XCTestCase {
         func text(_ part: String) -> Bool {
             app.staticTexts.matching(NSPredicate(format: "value CONTAINS %@ OR label CONTAINS %@", part, part)).firstMatch.exists
         }
-        // シートの中の識別子は、外側の識別子（catalogInfoSheet）にまとめられるので、ボタンは名前で探す
-        func sheetButton(_ titles: [String]) -> XCUIElement {
-            app.sheets.buttons.matching(NSPredicate(format: "label IN %@ OR title IN %@", titles, titles)).firstMatch
+        func openCatalogTab() {
+            app.typeKey(",", modifierFlags: .command)
+            let tab = app.toolbars.buttons.matching(NSPredicate(format: "label == 'カタログ' OR label == 'Catalog' OR title == 'カタログ' OR title == 'Catalog'")).firstMatch
+            XCTAssertTrue(tab.waitForExistence(timeout: 5))
+            tab.click()
         }
-        func closeInfo() {
-            let done = sheetButton(["完了", "Done"])
-            XCTAssertTrue(done.waitForExistence(timeout: 3))
-            done.click()
-            XCTAssertTrue(waitGone(any("catalogInfoSheet")))
-        }
-        func openInfo() {
-            app.menuBars.menuBarItems.matching(NSPredicate(format: "title == 'ファイル' OR title == 'File'")).firstMatch.click()
-            let item = app.menuBars.menuItems.matching(NSPredicate(format: "title BEGINSWITH 'カタログ情報' OR title BEGINSWITH 'Catalog Information'")).firstMatch
-            XCTAssertTrue(item.waitForExistence(timeout: 3))
-            item.click()
-            XCTAssertTrue(any("catalogInfoSheet").waitForExistence(timeout: 5))
-        }
+        func closeSettings() { app.typeKey("w", modifierFlags: .command) }
 
         // 1 枚、保管している情報はない
         XCTAssertTrue(waitValue(app.staticTexts["photoCount"], "1 / 1"))
-        openInfo()
+        openCatalogTab()
         XCTAssertTrue(waitUntil { text("1 枚") || text("1 photos") }, "写真の数")
         XCTAssertTrue(waitUntil { text("なし") || text("None") }, "保管している情報はない")
-        saveScreenshot(app, name: "catalog-info")
-        closeInfo()
+        saveScreenshot(app, name: "catalog-settings")
+        closeSettings()
 
         // ルートを外す（右クリック ▸ 情報を見る… ▸ カタログから外す…）
         let folder = any("folder-detach")
@@ -1337,19 +1329,161 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(waitGone(any("folder-detach")))
 
         // 保管している情報が 1 枚分ある → 最適化で消える
-        openInfo()
+        openCatalogTab()
         XCTAssertTrue(waitUntil { text("1 枚（うち") || text("1 photos (1 with edits)") || text("1 photos (0 with edits)") }, "保管している情報")
-        saveScreenshot(app, name: "catalog-info-saved")
-        let optimize = sheetButton(["最適化…", "Optimize…"])
+        saveScreenshot(app, name: "catalog-settings-saved")
+        let optimize = app.buttons.matching(NSPredicate(format: "label IN %@", ["最適化…", "Optimize…"])).firstMatch
         XCTAssertTrue(optimize.waitForExistence(timeout: 3))
         optimize.click()
-        let go = sheetButton(["削除して最適化", "Delete and Optimize"])
+        let go = app.sheets.buttons.matching(NSPredicate(format: "label IN %@", ["削除して最適化", "Delete and Optimize"])).firstMatch
         XCTAssertTrue(go.waitForExistence(timeout: 3))
         go.click()
         XCTAssertTrue(waitUntil(timeout: 30) { text("削除しました") || text("Removed the saved information") }, "最適化の結果")
         XCTAssertTrue(waitUntil { text("なし") || text("None") }, "最適化したあとは保管している情報がない")
-        saveScreenshot(app, name: "catalog-info-optimized")
-        closeInfo()
+        saveScreenshot(app, name: "catalog-settings-optimized")
+        closeSettings()
+    }
+
+    /// カタログのバックアップ: 設定から今すぐ取れる。終了時に聞かれ、取ってから終了する（Lightroom Classic と同じ）
+    @MainActor
+    func testBackupNowAndOnQuit() throws {
+        try requireCatalog()
+        let env = ProcessInfo.processInfo.environment
+        let dir = NSTemporaryDirectory() + "focal-ui-backups-\(UUID().uuidString)"
+        func backups() -> [String] {
+            ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []).filter { $0.hasSuffix(".focalcatalog") }
+        }
+        func launchApp(interval: String?) -> XCUIApplication {
+            let app = XCUIApplication()
+            app.launchEnvironment["FOCAL_CATALOG"] = env["FOCAL_CATALOG"]
+            app.launchEnvironment["FOCAL_CACHE"] = env["FOCAL_CACHE"]
+            app.launchEnvironment["FOCAL_BACKUP_DIR"] = dir
+            if let interval {
+                app.launchEnvironment["FOCAL_BACKUP_INTERVAL"] = interval
+                app.launchEnvironment["FOCAL_BACKUP_ASK"] = "1"
+            }
+            app.launchEnvironment["FOCAL_WINDOW_SIZE"] = "1440x900"
+            app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+            app.launch()
+            XCTAssertTrue(app.windows["library"].waitForExistence(timeout: 10))
+            return app
+        }
+        func panelButton(_ app: XCUIApplication, _ titles: [String]) -> XCUIElement {
+            app.buttons.matching(NSPredicate(format: "label IN %@ OR title IN %@", titles, titles)).firstMatch
+        }
+
+        // 1. 設定の「カタログ」タブから、今すぐバックアップ
+        var app = launchApp(interval: nil)
+        app.typeKey(",", modifierFlags: .command)
+        let tab = app.toolbars.buttons.matching(NSPredicate(format: "label == 'カタログ' OR label == 'Catalog' OR title == 'カタログ' OR title == 'Catalog'")).firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 5))
+        tab.click()
+        let now = panelButton(app, ["今すぐバックアップ", "Back Up Now"])
+        XCTAssertTrue(now.waitForExistence(timeout: 5))
+        now.click()
+        XCTAssertTrue(waitUntil(timeout: 30) { backups().count == 1 }, "バックアップができる")
+        saveScreenshot(app, name: "backup-settings")
+        // できたバックアップは、そのまま開けるカタログ（catalog.sqlite がある）
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir + "/" + backups()[0] + "/catalog.sqlite"))
+        app.typeKey("w", modifierFlags: .command)
+        app.terminate()
+
+        // 2. 終了時（毎回）: 聞かれる。キャンセルすると終了しない
+        app = launchApp(interval: "0")
+        app.typeKey("q", modifierFlags: .command)
+        let start = panelButton(app, ["バックアップして終了", "Back Up and Quit"])
+        XCTAssertTrue(start.waitForExistence(timeout: 5), "終了時にバックアップを聞く")
+        saveScreenshot(app, name: "backup-quit-ask")
+        panelButton(app, ["キャンセル", "Cancel"]).click()
+        XCTAssertTrue(waitGone(start))
+        XCTAssertTrue(app.windows["library"].exists, "キャンセルすると終了しない")
+        XCTAssertEqual(backups().count, 1)
+
+        // 3. もう一度終了: 「バックアップせずに終了」では取らずに終了
+        app.typeKey("q", modifierFlags: .command)
+        let skip = panelButton(app, ["バックアップせずに終了", "Skip and Quit"])
+        XCTAssertTrue(skip.waitForExistence(timeout: 5))
+        skip.click()
+        XCTAssertTrue(app.wait(for: .notRunning, timeout: 20), "終了する")
+        XCTAssertEqual(backups().count, 1, "スキップしたので増えない")
+
+        // 4. 「バックアップして終了」: 取ってから終了する
+        app = launchApp(interval: "0")
+        app.typeKey("q", modifierFlags: .command)
+        let go = panelButton(app, ["バックアップして終了", "Back Up and Quit"])
+        XCTAssertTrue(go.waitForExistence(timeout: 5))
+        go.click()
+        XCTAssertTrue(app.wait(for: .notRunning, timeout: 30), "バックアップのあとで終了する")
+        XCTAssertTrue(waitUntil(timeout: 10) { backups().count == 2 }, "終了時のバックアップができる")
+    }
+
+    /// 設定: 取り込みの設定はカタログごと（別のカタログには影響しない）。キャッシュの最大サイズの選択肢は 500 MB〜20 GB
+    @MainActor
+    func testImportSettingsArePerCatalog() throws {
+        let env = ProcessInfo.processInfo.environment
+        try XCTSkipIf(env["FOCAL_MIXED_CATALOG"] == nil || env["FOCAL_DETACH_CATALOG"] == nil, "scripts/ui-test.sh から実行する")
+        func launchApp(_ catalog: String) -> XCUIApplication {
+            let app = XCUIApplication()
+            app.launchEnvironment["FOCAL_CATALOG"] = catalog
+            app.launchEnvironment["FOCAL_CACHE"] = env["FOCAL_CACHE"]
+            app.launchEnvironment["FOCAL_WINDOW_SIZE"] = "1440x900"
+            app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+            app.launch()
+            XCTAssertTrue(app.windows["library"].waitForExistence(timeout: 10))
+            return app
+        }
+        func tab(_ app: XCUIApplication, _ titles: [String]) {
+            app.typeKey(",", modifierFlags: .command)
+            let t = app.toolbars.buttons.matching(NSPredicate(format: "label IN %@ OR title IN %@", titles, titles)).firstMatch
+            XCTAssertTrue(t.waitForExistence(timeout: 5))
+            t.click()
+        }
+        func rescanSwitch(_ app: XCUIApplication) -> XCUIElement {
+            app.descendants(matching: .any).matching(identifier: "rescanOnLaunch").firstMatch
+        }
+        func rescanIsOn(_ app: XCUIApplication) -> Bool {
+            let e = rescanSwitch(app)
+            XCTAssertTrue(e.waitForExistence(timeout: 5))
+            return "\(e.value ?? "")" == "1"
+        }
+
+        // 取り込みの設定は「カタログ」タブの中にある（「取り込み」のタブはない）
+        // カタログ A（mixed）で、起動時の再スキャンをオフにする
+        var app = launchApp(env["FOCAL_MIXED_CATALOG"]!)
+        tab(app, ["カタログ", "Catalog"])
+        let importTab = app.toolbars.buttons.matching(NSPredicate(format: "label IN %@ OR title IN %@", ["取り込み", "Import"], ["取り込み", "Import"])).firstMatch
+        XCTAssertFalse(importTab.exists, "「取り込み」のタブはない（カタログのタブの中に移した）")
+        XCTAssertTrue(rescanIsOn(app), "既定はオン")
+        rescanSwitch(app).click()
+        XCTAssertTrue(waitUntil { !rescanIsOn(app) })
+        saveScreenshot(app, name: "settings-import")
+        app.typeKey("w", modifierFlags: .command)
+        app.terminate()
+
+        // カタログ B（detach）は影響を受けない（オンのまま）
+        app = launchApp(env["FOCAL_DETACH_CATALOG"]!)
+        tab(app, ["カタログ", "Catalog"])
+        XCTAssertTrue(rescanIsOn(app), "別のカタログには影響しない")
+        // キャッシュの最大サイズの選択肢
+        app.toolbars.buttons.matching(NSPredicate(format: "label IN %@ OR title IN %@", ["キャッシュ", "Cache"], ["キャッシュ", "Cache"])).firstMatch.click()
+        let limit = app.popUpButtons["previewCacheLimit"]
+        XCTAssertTrue(limit.waitForExistence(timeout: 5))
+        limit.click()
+        for t in ["500 MB", "1 GB", "2 GB", "5 GB", "10 GB", "20 GB"] {
+            XCTAssertTrue(limit.menuItems[t].waitForExistence(timeout: 3), "選択肢 \(t)")
+        }
+        saveScreenshot(app, name: "settings-cache-sizes")
+        app.typeKey(.escape, modifierFlags: [])
+        app.typeKey("w", modifierFlags: .command)
+        app.terminate()
+
+        // カタログ A に戻ると、オフのまま（カタログに保存されている）。元に戻しておく
+        app = launchApp(env["FOCAL_MIXED_CATALOG"]!)
+        tab(app, ["カタログ", "Catalog"])
+        XCTAssertFalse(rescanIsOn(app), "カタログに保存されている")
+        rescanSwitch(app).click()
+        XCTAssertTrue(waitUntil { rescanIsOn(app) })
+        app.typeKey("w", modifierFlags: .command)
     }
 
     /// ファイルメニューの並び: カタログ / 登録したフォルダ / アルバム / 取り込みと書き出し が区切りでグループになっている
@@ -1365,7 +1499,7 @@ final class FocalUITests: XCTestCase {
         saveScreenshot(app, name: "file-menu")
         // 項目と区切りの並び（"-" は区切り）。標準の項目（閉じる・プリントなど）は含めず、Focal の項目だけを順に見る
         let ours: [[String]] = [
-            ["新規カタログ…", "New Catalog…"], ["カタログを開く…", "Open Catalog…"], ["カタログ情報…", "Catalog Information…"],
+            ["新規カタログ…", "New Catalog…"], ["カタログを開く…", "Open Catalog…"],
             ["フォルダを追加…", "Add Folder…"], ["すべてのフォルダを再スキャン", "Rescan All Folders"],
             ["新規アルバム…", "New Album…"], ["新規スマートアルバム…", "New Smart Album…"],
             ["新規アルバムフォルダ…", "New Album Folder…"],
@@ -1384,13 +1518,14 @@ final class FocalUITests: XCTestCase {
         XCTAssertEqual(positions, positions.sorted(), "並びが決めた順")
         // グループの区切り: 隣り合う項目の間に区切り（title が空）が入るのはグループの境目だけ
         func separated(_ a: Int, _ b: Int) -> Bool { (positions[a] + 1..<positions[b]).contains { titles[$0].isEmpty } }
-        XCTAssertFalse(separated(0, 1) || separated(1, 2), "カタログの 3 項目は同じグループ")
-        XCTAssertTrue(separated(2, 3), "カタログとフォルダの間に区切り")
-        XCTAssertFalse(separated(3, 4), "フォルダを追加と再スキャンは同じグループ")
-        XCTAssertTrue(separated(4, 5), "フォルダとアルバムの間に区切り")
-        XCTAssertFalse(separated(5, 6) || separated(6, 7), "アルバムの 3 項目は同じグループ")
-        XCTAssertTrue(separated(7, 8), "アルバムと取り込み・書き出しの間に区切り")
-        XCTAssertFalse(separated(8, 9), "取り込みと書き出しは同じグループ")
+        XCTAssertFalse(separated(0, 1), "新規カタログとカタログを開くは同じグループ")
+        XCTAssertTrue(separated(1, 2), "カタログとフォルダの間に区切り")
+        XCTAssertFalse(separated(2, 3), "フォルダを追加と再スキャンは同じグループ")
+        XCTAssertTrue(separated(3, 4), "フォルダとアルバムの間に区切り")
+        XCTAssertFalse(separated(4, 5) || separated(5, 6), "アルバムの 3 項目は同じグループ")
+        XCTAssertTrue(separated(6, 7), "アルバムと取り込み・書き出しの間に区切り")
+        XCTAssertFalse(separated(7, 8), "取り込みと書き出しは同じグループ")
+        XCTAssertFalse(titles.contains { $0.hasPrefix("カタログ情報") || $0.hasPrefix("Catalog Information") }, "カタログ情報は設定に統合した")
         app.typeKey(.escape, modifierFlags: [])
     }
 

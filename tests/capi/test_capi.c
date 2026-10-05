@@ -251,6 +251,29 @@ static void copy_file(const char* from, const char* to) {
     fclose(out);
 }
 
+typedef struct backup_done_ctx {
+    waiter* w;
+    fc_status status;
+    int skipped;
+    long long bytes;
+    char path[1100];
+} backup_done_ctx;
+
+static void on_backup_progress(void* user, double fraction) {
+    (void)user;
+    (void)fraction;
+}
+
+static void on_backup_done(void* user, fc_status status, const fc_backup_result* result, const char* path, const char* message) {
+    backup_done_ctx* c = (backup_done_ctx*)user;
+    (void)message;
+    c->status = status;
+    c->skipped = result->skipped_damaged;
+    c->bytes = result->bytes;
+    snprintf(c->path, sizeof c->path, "%s", path);
+    waiter_signal(c->w);
+}
+
 int main(void) {
     const char* data = FOCAL_TEST_DATA_DIR;
     char sony[1024];
@@ -851,6 +874,53 @@ int main(void) {
         CHECK(access(expect, R_OK) == 0);
         eo.dest_dir = NULL;
         CHECK(fc_export_start(cat, ids2, 2, &eo, NULL, on_export_done, &ex, &task) == FC_ERR_INVALID_ARGUMENT);
+    }
+
+    /* v3.24: 定期バックアップ（開けるパッケージ・一覧・整理・前回の日時） */
+    {
+        char bdir[1100];
+        snprintf(bdir, sizeof bdir, "%s/backups", tmp);
+        fc_string* name = NULL;
+        REQUIRE_OK(fc_catalog_name(cat, &name));
+        CHECK(strlen(name->value) > 0);
+        fc_string* last = (fc_string*)1;
+        REQUIRE_OK(fc_catalog_last_backup_at(cat, &last));
+        CHECK(last == NULL);
+        int32_t due = 0;
+        REQUIRE_OK(fc_catalog_backup_due(cat, 7, &due));
+        CHECK(due == 1);
+        REQUIRE_OK(fc_catalog_backup_due(cat, -1, &due));
+        CHECK(due == 0);
+
+        waiter bw;
+        waiter_init(&bw);
+        backup_done_ctx bc = {&bw, FC_OK, 0, {0}};
+        fc_backup_options bo = {bdir, 1, 0};
+        fc_task* btask = NULL;
+        REQUIRE_OK(fc_catalog_backup_start(cat, &bo, on_backup_progress, on_backup_done, &bc, &btask));
+        waiter_wait_calls(&bw, 1);
+        fc_task_release(btask);
+        CHECK(bc.status == FC_OK);
+        CHECK(bc.skipped == 0);
+        CHECK(bc.bytes > 0);
+        CHECK(strstr(bc.path, ".focalcatalog") != NULL);
+
+        REQUIRE_OK(fc_catalog_last_backup_at(cat, &last));
+        CHECK(last != NULL);
+        fc_string_free(last);
+        REQUIRE_OK(fc_catalog_backup_due(cat, 7, &due));
+        CHECK(due == 0);
+
+        fc_backup_array* list = NULL;
+        REQUIRE_OK(fc_backups_list(bdir, name->value, &list));
+        CHECK(list->count == 1);
+        CHECK(list->items[0].bytes > 0);
+        fc_backup_array_free(list);
+        int32_t removed = -1;
+        REQUIRE_OK(fc_backups_prune(bdir, name->value, 5, &removed));
+        CHECK(removed == 0);
+        CHECK(fc_backups_list(NULL, "x", &list) == FC_ERR_INVALID_ARGUMENT);
+        fc_string_free(name);
     }
 
     /* v3.23: カタログから外した情報の保管と最適化 */

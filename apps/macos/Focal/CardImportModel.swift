@@ -54,8 +54,8 @@ final class CardImportModel {
     init() {
         let env = ProcessInfo.processInfo.environment
         // UI テスト用: 取り込み元と読み込み先を環境変数で指定する
-        destination = env["FOCAL_IMPORT_DEST"].map { URL(fileURLWithPath: $0) }
-            ?? AppPaths.savedImportDestination ?? AppPaths.fallbackImportDestination
+        // （カタログごとの読み込み先は、configure でカタログの設定から読む）
+        destination = env["FOCAL_IMPORT_DEST"].map { URL(fileURLWithPath: $0) } ?? AppPaths.fallbackImportDestination
         chosenFolder = env["FOCAL_IMPORT_SOURCE"].map { URL(fileURLWithPath: $0) }
         if env["FOCAL_IMPORT_DEST"] == nil {
             // UI テスト（FOCAL_IMPORT_DEST 指定）では、記録を読み書きせず「なし」から始める
@@ -70,9 +70,11 @@ final class CardImportModel {
 
     func configure(model: LibraryModel) {
         self.model = model
-        // 設定がなければ、すでにつながっているルートを既定にする
-        if AppPaths.savedImportDestination == nil, ProcessInfo.processInfo.environment["FOCAL_IMPORT_DEST"] == nil,
-           let first = model.roots.first(where: \.isOnline) {
+        guard ProcessInfo.processInfo.environment["FOCAL_IMPORT_DEST"] == nil else { return }
+        if let saved = model.prefs.importDestination {
+            destination = saved  // このカタログの設定
+        } else if let first = model.roots.first(where: \.isOnline) {
+            // 設定がなければ、すでにつながっているルートを既定にする
             destination = URL(fileURLWithPath: first.path)
             model.reloadSidebar()
         }
@@ -170,9 +172,7 @@ final class CardImportModel {
             setDestination(URL(fileURLWithPath: first.path))
         } else {
             destination = AppPaths.fallbackImportDestination
-            if ProcessInfo.processInfo.environment["FOCAL_IMPORT_DEST"] == nil {
-                UserDefaults.standard.removeObject(forKey: AppPaths.importDestinationKey)
-            }
+            model?.prefs.setImportDestination(nil)  // このカタログの設定を消す
             refreshFreeSpace()
             model?.reloadSidebar()
         }
@@ -185,10 +185,9 @@ final class CardImportModel {
         model?.reloadSidebar()
     }
 
-    /// 読み込み先を設定に記録する（UI テストで環境変数で指定したときは、実際の設定を変えない）
+    /// 読み込み先を、このカタログの設定に記録する（UI テストで環境変数で指定したときは、記録しない）
     private func persistDestination() {
-        guard ProcessInfo.processInfo.environment["FOCAL_IMPORT_DEST"] == nil else { return }
-        UserDefaults.standard.set(destination.path, forKey: AppPaths.importDestinationKey)
+        model?.prefs.setImportDestination(destination)
     }
 
     /// 枚数と大きさの概算（遅いカードがあるので別のスレッドで）

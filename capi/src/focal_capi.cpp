@@ -152,6 +152,12 @@ struct StringBox : fc_string {
     std::string text;
 };
 
+struct BackupArray : fc_backup_array {
+    std::vector<BackupInfo> src;
+    std::vector<std::string> paths;
+    std::vector<fc_backup_item> v;
+};
+
 struct PresetArray : fc_preset_array {
     std::vector<PresetInfo> src;
     std::vector<fc_preset_info> v;
@@ -784,6 +790,122 @@ fc_status fc_catalog_scan_async(fc_catalog* catalog, int64_t root_id, const char
             done(user, status, &stats, message.c_str());
         });
         *out_task = task.release();
+    });
+}
+
+// ---- 定期バックアップ（v3.24）------------------------------------------------------
+
+fc_status fc_catalog_backup_start(fc_catalog* catalog, const fc_backup_options* options, fc_backup_progress_fn progress,
+                                  fc_backup_done_fn done, void* user, fc_task** out_task) {
+    return guard([&] {
+        require(catalog && options && options->dest_dir && done && out_task,
+                "catalog, options, done and out_task must not be NULL");
+        *out_task = nullptr;
+        auto task = std::make_unique<fc_task>();
+        fc_task* t = task.get();
+        Catalog* c = catalog->catalog.get();
+        const std::string dest = options->dest_dir;
+        const bool check = options->check_integrity != 0, allow = options->allow_damaged != 0;
+        task->thread = std::thread([t, c, dest, check, allow, progress, done, user] {
+            fc_backup_result out{};
+            fc_status status = FC_OK;
+            std::string message, path;
+            try {
+                BackupOptions opt;
+                opt.check_integrity = check;
+                opt.allow_damaged = allow;
+                opt.cancel = &t->cancel;
+                if (progress) opt.progress = [progress, user](double f) { progress(user, f); };
+                const BackupResult r = c->backup_to(utf8_to_path(dest), opt);
+                out.skipped_damaged = r.skipped_damaged ? 1 : 0;
+                out.bytes = r.bytes;
+                path = r.path.empty() ? std::string() : path_to_utf8(r.path);
+                message = r.integrity_message;
+            } catch (const Error& e) {
+                status = to_status(e.code());
+                message = e.what();
+            } catch (const std::exception& e) {
+                status = FC_ERR_INTERNAL;
+                message = e.what();
+            }
+            done(user, status, &out, path.c_str(), message.c_str());
+        });
+        *out_task = task.release();
+    });
+}
+
+fc_status fc_catalog_name(fc_catalog* catalog, fc_string** out) {
+    return guard([&] {
+        require(catalog && out, "catalog and out must not be NULL");
+        auto b = std::make_unique<StringBox>();
+        b->text = catalog->catalog->name();
+        b->value = b->text.c_str();
+        *out = b.release();
+    });
+}
+
+fc_status fc_catalog_last_backup_at(fc_catalog* catalog, fc_string** out) {
+    return guard([&] {
+        require(catalog && out, "catalog and out must not be NULL");
+        *out = nullptr;
+        if (const auto last = catalog->catalog->last_backup_at()) {
+            auto b = std::make_unique<StringBox>();
+            b->text = *last;
+            b->value = b->text.c_str();
+            *out = b.release();
+        }
+    });
+}
+
+fc_status fc_catalog_backup_due(fc_catalog* catalog, int32_t interval_days, int32_t* out_due) {
+    return guard([&] {
+        require(catalog && out_due, "catalog and out_due must not be NULL");
+        *out_due = catalog->catalog->backup_due(interval_days) ? 1 : 0;
+    });
+}
+
+fc_status fc_catalog_get_preference(fc_catalog* catalog, const char* name, fc_string** out) {
+    return guard([&] {
+        require(catalog && name && out, "catalog, name and out must not be NULL");
+        *out = nullptr;
+        if (const auto v = catalog->catalog->preference(name)) {
+            auto b = std::make_unique<StringBox>();
+            b->text = *v;
+            b->value = b->text.c_str();
+            *out = b.release();
+        }
+    });
+}
+
+fc_status fc_catalog_set_preference(fc_catalog* catalog, const char* name, const char* value) {
+    return guard([&] {
+        require(catalog && name, "catalog and name must not be NULL");
+        catalog->catalog->set_preference(name, value ? std::optional<std::string>(value) : std::nullopt);
+    });
+}
+
+fc_status fc_backups_list(const char* dir, const char* catalog_name, fc_backup_array** out) {
+    return guard([&] {
+        require(dir && catalog_name && out, "dir, catalog_name and out must not be NULL");
+        *out = nullptr;
+        auto a = std::make_unique<BackupArray>();
+        a->src = list_backups(utf8_to_path(dir), catalog_name);
+        for (const auto& b : a->src) a->paths.push_back(path_to_utf8(b.path));
+        for (size_t i = 0; i < a->src.size(); ++i)
+            a->v.push_back({a->paths[i].c_str(), a->src[i].created.c_str(), a->src[i].bytes});
+        a->count = a->v.size();
+        a->items = a->v.data();
+        *out = a.release();
+    });
+}
+
+void fc_backup_array_free(fc_backup_array* array) { delete static_cast<BackupArray*>(array); }
+
+fc_status fc_backups_prune(const char* dir, const char* catalog_name, int32_t keep, int32_t* out_removed) {
+    return guard([&] {
+        require(dir && catalog_name, "dir and catalog_name must not be NULL");
+        const int n = prune_backups(utf8_to_path(dir), catalog_name, keep);
+        if (out_removed) *out_removed = n;
     });
 }
 

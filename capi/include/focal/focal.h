@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 19
+#define FC_API_VERSION 21
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -379,6 +379,58 @@ fc_status fc_catalog_scan_async(fc_catalog* catalog, int64_t root_id, const char
 void fc_task_cancel(fc_task* task);
 /* 実行中なら完了まで待ってから解放する */
 void fc_task_release(fc_task* task);
+
+/* ---- カタログの定期バックアップ（v3.24、design.md 7.1 章） ----
+   dest_dir に、そのまま開けるカタログのパッケージ（<名前> YYYY-MM-DD HHMM.focalcatalog）として保存する。
+   操作の前の安全バックアップ（カタログのパッケージの中の *.bak）とは別 */
+typedef struct fc_backup_options {
+    const char* dest_dir;
+    int32_t check_integrity; /* 1: 取る前に PRAGMA quick_check を行う */
+    int32_t allow_damaged;   /* 1: 整合性の確認に失敗しても取る */
+} fc_backup_options;
+
+typedef struct fc_backup_result {
+    int32_t skipped_damaged; /* 1: 整合性の確認に失敗したので取らなかった（message に SQLite の報告） */
+    int64_t bytes;           /* 作ったバックアップの catalog.sqlite の大きさ */
+} fc_backup_result;
+
+/* 進み具合（0..1）。別のスレッドから呼ばれる */
+typedef void (*fc_backup_progress_fn)(void* user, double fraction);
+/* 完了。必ず 1 回だけ呼ばれる（キャンセル時は FC_ERR_CANCELLED）。path は作ったバックアップ（取らなかったときは ""）。
+   result・path・message はコールバックの間だけ有効 */
+typedef void (*fc_backup_done_fn)(void* user, fc_status status, const fc_backup_result* result, const char* path,
+                                  const char* message);
+
+/* core のスレッドでバックアップを取る。成功すると、最後のバックアップの日時をカタログに記録する。
+   catalog は完了まで閉じないこと。out_task は fc_task_release で手放す（fc_task_cancel で打ち切り、書きかけは消える） */
+fc_status fc_catalog_backup_start(fc_catalog* catalog, const fc_backup_options* options, fc_backup_progress_fn progress,
+                                  fc_backup_done_fn done, void* user, fc_task** out_task);
+/* カタログの名前（バックアップの名前に使う）。fc_string_free で解放 */
+fc_status fc_catalog_name(fc_catalog* catalog, fc_string** out);
+/* 最後に定期バックアップを取った日時（UTC、"YYYY-MM-DDTHH:MM:SSZ"）。取ったことがなければ *out は NULL（FC_OK） */
+fc_status fc_catalog_last_backup_at(fc_catalog* catalog, fc_string** out);
+/* 前回から interval_days 日以上たっている（または一度も取っていない）か。0 は常に 1（毎回）、負は常に 0（自動なし） */
+fc_status fc_catalog_backup_due(fc_catalog* catalog, int32_t interval_days, int32_t* out_due);
+
+/* カタログごとの設定（v3.25。カタログと一緒に持ち運べる）。name は小文字・数字・'_' だけ。
+   get は、設定がなければ *out が NULL（FC_OK）。set は value が NULL なら設定を消す（既定に戻る） */
+fc_status fc_catalog_get_preference(fc_catalog* catalog, const char* name, fc_string** out);
+fc_status fc_catalog_set_preference(fc_catalog* catalog, const char* name, const char* value);
+
+typedef struct fc_backup_item {
+    const char* path;    /* バックアップのパッケージ */
+    const char* created; /* "YYYY-MM-DD HH:MM"（名前から） */
+    int64_t bytes;
+} fc_backup_item;
+typedef struct fc_backup_array {
+    size_t count;
+    const fc_backup_item* items;
+} fc_backup_array;
+/* dir の中の catalog_name のバックアップを新しい順に返す */
+fc_status fc_backups_list(const char* dir, const char* catalog_name, fc_backup_array** out);
+void fc_backup_array_free(fc_backup_array* array);
+/* 新しい keep 個を残して古いものを消す（keep <= 0 は何も消さない）。消した数を返す */
+fc_status fc_backups_prune(const char* dir, const char* catalog_name, int32_t keep, int32_t* out_removed);
 
 /* ---- 写真の削除（v3.19、design.md 5.11 章） ------------------------------ */
 
