@@ -5,7 +5,7 @@ import SwiftUI
 /// 設定ウィンドウ（⌘,）: 外観、カタログの場所と、キャッシュの上限・使用量・削除
 struct SettingsView: View {
     let state: AppState
-    @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system
+    @AppStorage(AppAppearance.key) private var appearance = AppAppearance.defaultValue
     @State private var usage: UInt64?
     @State private var clearing = false
 
