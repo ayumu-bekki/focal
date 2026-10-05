@@ -163,8 +163,16 @@ constexpr const char* kSchemaV4 = R"SQL(
 CREATE INDEX IF NOT EXISTS idx_photos_hash ON photos(quick_hash, file_size);
 )SQL";
 
+// v3.22: RAW 以外の写真（JPEG・TIFF・PNG・HEIF）。kind は主役のファイルの種類（photo_file.h の PhotoKind。0 = RAW）。
+// companions は同じ名前（拡張子を除く）の付属の写真ファイル（RAW の JPEG など）。ファイル名を '/' で区切る（なければ NULL）
+constexpr const char* kSchemaV5 = R"SQL(
+ALTER TABLE photos ADD COLUMN kind INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE photos ADD COLUMN companions TEXT;
+)SQL";
+
 const std::vector<Migration>& catalog_migrations() {
-    static const std::vector<Migration> m = {{1, kSchemaV1}, {2, kSchemaV2}, {3, kSchemaV3}, {4, kSchemaV4}};
+    static const std::vector<Migration> m = {{1, kSchemaV1}, {2, kSchemaV2}, {3, kSchemaV3}, {4, kSchemaV4},
+                                             {5, kSchemaV5}};
     return m;
 }
 

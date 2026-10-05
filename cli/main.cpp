@@ -3,6 +3,9 @@
 #include <exception>
 
 #include "commands.h"
+#ifdef FOCAL_HAVE_APPLE_IMAGE_READER
+#include "platform/apple_image_reader.h"
+#endif
 
 namespace {
 
@@ -62,6 +65,9 @@ int main(int argc, char** argv) {
         return 2;
     }
     const char* cmd = argv[1];
+#ifdef FOCAL_HAVE_APPLE_IMAGE_READER
+    focal::platform::register_apple_image_reader();  // macOS では HEIF も読む（v3.22）
+#endif
     try {
         if (!std::strcmp(cmd, "render")) return focal::cli::cmd_render(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "info")) return focal::cli::cmd_info(argc - 2, argv + 2);

@@ -1235,6 +1235,49 @@ final class FocalUITests: XCTestCase {
         app.typeKey("w", modifierFlags: .command)
     }
 
+    /// RAW 以外の写真（v3.22）: RAW と同じ名前の JPEG は 1 枚、PNG・JPEG だけの写真もグリッドに出る。現像できるのは RAW だけ
+    @MainActor
+    func testNonRawPhotos() throws {
+        let env = ProcessInfo.processInfo.environment
+        try XCTSkipIf(env["FOCAL_MIXED_CATALOG"] == nil, "scripts/ui-test.sh から実行する")
+        let app = XCUIApplication()
+        app.launchEnvironment["FOCAL_CATALOG"] = env["FOCAL_MIXED_CATALOG"]
+        app.launchEnvironment["FOCAL_CACHE"] = env["FOCAL_CACHE"]
+        app.launchEnvironment["FOCAL_IMPORT_DEST"] = NSTemporaryDirectory() + "focal-ui-dest-\(UUID().uuidString)"
+        app.launchEnvironment["FOCAL_WINDOW_SIZE"] = "1440x900"
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        app.launch()
+        XCTAssertTrue(app.windows["library"].waitForExistence(timeout: 10))
+        let grid = app.descendants(matching: .any)["photoGrid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 10))
+        // RAW + 同じ名前の JPEG は 1 枚、PNG だけ・JPEG だけを足して 3 枚
+        XCTAssertTrue(waitValue(app.staticTexts["photoCount"], "1 / 3"), "count = \(app.staticTexts["photoCount"].value ?? "?")")
+        saveScreenshot(app, name: "non-raw-grid")
+
+        func any(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+        let cells = grid.descendants(matching: .any).matching(identifier: "photoCell")
+        XCTAssertTrue(cells.element(boundBy: 2).waitForExistence(timeout: 5))
+        var notDevelopable = 0
+        var developable = 0
+        for i in 0..<3 {
+            cells.element(boundBy: i).click()
+            app.typeText("v")
+            XCTAssertTrue(app.descendants(matching: .any)["developView"].waitForExistence(timeout: 5))
+            if any("notDevelopable").waitForExistence(timeout: 3) {
+                notDevelopable += 1
+                XCTAssertFalse(app.sliders["exposureSlider"].exists, "RAW 以外には現像のスライダーを出さない")
+                saveScreenshot(app, name: "non-raw-viewer-\(i)")
+            } else {
+                XCTAssertTrue(app.sliders["exposureSlider"].waitForExistence(timeout: 10))
+                developable += 1
+            }
+            app.typeKey(.escape, modifierFlags: [])
+            XCTAssertTrue(grid.waitForExistence(timeout: 5))
+        }
+        XCTAssertEqual(developable, 1, "RAW は 1 枚")
+        XCTAssertEqual(notDevelopable, 2, "PNG と JPEG")
+    }
+
     /// n: 0 新規アルバム、1 新規スマートアルバム、2 新規フォルダ（メニュー項目の識別子は取れないので名前で選ぶ）
     private func chooseNewAlbumItem(_ app: XCUIApplication, _ n: Int) {
         openNewAlbumMenu(app)

@@ -21,18 +21,20 @@ cd "$ROOT"
 if [[ ! -f "$BUILD/build.ninja" ]]; then
   cmake --preset "$PRESET" >/dev/null
 fi
-cmake --build --preset "$PRESET" --target focal_capi focal_gpu >/dev/null
+cmake --build --preset "$PRESET" --target focal_capi focal_gpu focal_platform_apple >/dev/null
 
 STATIC_LIBS=(
   "$BUILD/capi/libfocal_capi.a"
   "$BUILD/core/libfocal_core.a"
   "$BUILD/gpu/libfocal_gpu.a"
+  "$BUILD/platform/apple/libfocal_platform_apple.a"
   "$LIBDIR/liblcms2.a"
   "$LIBDIR/libsqlite3.a"
   "$LIBDIR/libblake3.a"
   "$LIBDIR/libutf8proc.a"
   "$LIBDIR/libjpeg.a"
   "$LIBDIR/libtiff.a"
+  "$LIBDIR/libpng16.a"
   "$LIBDIR/libz.a"
 )
 
@@ -46,7 +48,7 @@ mkdir -p "$LIC"
 SHARE="$BUILD/vcpkg_installed/arm64-osx-focal/share"
 cp -f "$ROOT/LICENSE" "$LIC/Focal.txt"
 for pair in "LibRaw:libraw" "LLVM OpenMP (libomp):llvm-openmp" "Little CMS:lcms" "SQLite:sqlite3" "BLAKE3:blake3" \
-            "utf8proc:utf8proc" "libjpeg-turbo:libjpeg-turbo" "LibTIFF:tiff" "zlib:zlib" "nlohmann-json:nlohmann-json" \
+            "utf8proc:utf8proc" "libjpeg-turbo:libjpeg-turbo" "LibTIFF:tiff" "libpng:libpng" "zlib:zlib" "nlohmann-json:nlohmann-json" \
             "metal-cpp:metal-cpp"; do
   name="${pair%%:*}"; port="${pair##*:}"
   cp -f "$SHARE/$port/copyright" "$LIC/$name.txt"

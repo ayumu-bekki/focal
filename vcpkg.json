@@ -15,6 +15,7 @@
     "blake3",
     "nlohmann-json",
     "libjpeg-turbo",
+    "libpng",
     {
       "name": "tiff",
       "default-features": false,

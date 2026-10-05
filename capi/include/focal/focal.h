@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 16
+#define FC_API_VERSION 17
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -232,6 +232,16 @@ typedef enum fc_photo_status {
     FC_PHOTO_UNSUPPORTED = 2,
 } fc_photo_status;
 
+/* 写真のファイルの種類（photos.kind、v3.22）。RAW のほかに通常の画像ファイルも写真として管理する。
+   RAW 以外（JPEG・TIFF・PNG・HEIF）は現像できない（表示・★・タグ・アルバムなどは同じ）。HEIF は macOS だけ */
+typedef enum fc_photo_kind {
+    FC_KIND_RAW = 0,
+    FC_KIND_JPEG = 1,
+    FC_KIND_TIFF = 2,
+    FC_KIND_PNG = 3,
+    FC_KIND_HEIF = 4,
+} fc_photo_kind;
+
 typedef struct fc_photo {
     int64_t id;
     int64_t folder_id;
@@ -253,6 +263,8 @@ typedef struct fc_photo {
     int32_t flag;          /* -1: リジェクト、0: なし、1: ピック */
     int64_t file_size;
     int64_t file_mtime;
+    int32_t kind;            /* fc_photo_kind。主役のファイルの種類（RAW 以外は現像できない） */
+    const char* companions;  /* 同じ名前（拡張子を除く）の付属の写真ファイル（RAW の JPEG など）。ファイル名を '/' で区切る。なければ "" */
 } fc_photo;
 
 typedef struct fc_photo_array {

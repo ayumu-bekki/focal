@@ -1,4 +1,5 @@
 #include "catalog/photo_delete.h"
+#include "imaging/photo_kind.h"
 
 #include <system_error>
 
@@ -42,6 +43,10 @@ DeletePlan plan_delete(Catalog& catalog, std::span<const int64_t> photo_ids) {
         }
         item.raw = *raw;
         item.network = on_network_volume(*raw);
+        // 写真の主役が RAW のときだけ、同じ名前の RAW 以外の写真（JPEG など）を付属ファイルとして一緒に扱う。
+        // 主役が JPEG などのとき、同じ名前の別の写真ファイル（PNG など）は別の写真なので巻き込まない（v3.22）
+        const auto rec = catalog.photo(id);
+        const bool raw_primary = rec && rec->kind == PhotoKind::Raw;
         // 同じフォルダで、名前の幹が同じ JPEG・動画・サイドカー
         const std::string stem = casefold_key(path_to_utf8(raw->stem()));
         for (fs::directory_iterator it(raw->parent_path(), ec), end; !ec && it != end; it.increment(ec)) {
@@ -49,6 +54,7 @@ DeletePlan plan_delete(Catalog& catalog, std::span<const int64_t> photo_ids) {
             const std::string name = to_nfc(path_to_utf8(it->path().filename()));
             if (it->path() == *raw || name.empty() || name[0] == '.') continue;
             if (!is_companion_file_name(name)) continue;
+            if (const auto k = photo_kind_for_name(name); k && !(raw_primary && *k != PhotoKind::Raw)) continue;
             if (casefold_key(path_to_utf8(it->path().stem())) == stem) item.companions.push_back(it->path());
         }
         plan.files += 1 + static_cast<int>(item.companions.size());

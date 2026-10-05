@@ -200,7 +200,8 @@ TEST_CASE("カード取り込み: 撮影日時が読めないものはファイ�
     CHECK(r.imported == 1);
     CHECK(r.estimated_dates == 1);
     CHECK(fs::exists(lib / "Photos" / "2020" / "2020-05-06" / "IMG_0001.JPG"));
-    CHECK(c->count(PhotoFilter{}) == 0);  // JPEG は写真として登録しない（RAW だけ）
+    // JPEG だけの 1 枚も写真として登録する（v3.22）。中身が JPEG として読めないので「非対応」の行になる
+    CHECK(c->count(PhotoFilter{}) == 1);
 
     // 2 回目: コピー先に同じ名前・大きさ・更新日時があるのでスキップ
     CHECK(import_from_card(*c, opt).skipped_duplicates == 1);

@@ -8,6 +8,7 @@
 #include "imaging/color_pipeline.h"
 #include "imaging/geometry.h"
 #include "imaging/libraw_util.h"
+#include "imaging/photo_file.h"
 #include "imaging/renderer.h"
 #include "imaging/resample.h"
 #include "imaging/white_balance.h"
@@ -420,9 +421,18 @@ void Editor::run_preview(const std::shared_ptr<EditSession>& s, int long_edge) {
     try {
         const auto path = catalog_.photo_disk_path(s->photo_id());
         if (!path) throw Error(Error::Code::NotFound, "file not found");
-        auto raw = std::make_unique<LibRaw>();
-        open_libraw(*raw, *path);
-        const RawMetadata meta = metadata_from_libraw(*raw);
+        // RAW 以外の写真（v3.22）は LibRaw を使わず、画像そのものを縮小してプレビューにする
+        const auto kind = photo_kind_for_name(path->filename().string());
+        const bool is_raw = !kind || *kind == PhotoKind::Raw;
+        std::unique_ptr<LibRaw> raw;
+        RawMetadata meta;
+        if (is_raw) {
+            raw = std::make_unique<LibRaw>();
+            open_libraw(*raw, *path);
+            meta = metadata_from_libraw(*raw);
+        } else {
+            meta = read_image_file_metadata(*path, *kind);
+        }
         // 前に表示したときの現像結果があればそれを、なければカメラの埋め込みプレビュー
         std::optional<ImageU8> preview;
         bool display_p3 = false;
@@ -434,7 +444,12 @@ void Editor::run_preview(const std::shared_ptr<EditSession>& s, int long_edge) {
                 display_p3 = true;
             }
         }
-        if (!preview) preview = extract_embedded_preview(*raw, std::max(256, long_edge));
+        if (!preview) {
+            if (is_raw)
+                preview = extract_embedded_preview(*raw, std::max(256, long_edge));
+            else
+                preview = image_file_thumbnail(*path, *kind, std::max(256, long_edge));
+        }
         bool emit_preview = false;
         {
             std::lock_guard lock(s->mutex_);

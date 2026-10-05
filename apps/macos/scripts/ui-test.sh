@@ -34,6 +34,14 @@ cat > "$WORK/builtin-presets/Focal Standard.focalpreset" <<'JSON'
 {"focalPreset": 1, "name": "Focal Standard", "settings": {"schema": 1, "processVersion": 1, "exposure": 1.5, "contrast": 10}}
 JSON
 
+# RAW 以外の写真（v3.22）のテスト用: RAW + 同じ名前の JPEG（1 枚）、PNG だけ、JPEG だけ
+mkdir -p "$WORK/mixed"
+cp -c "$ROOT/tests/data/canon_eos_m50.CR3" "$WORK/mixed/MIX_1.CR3"
+sips -s format jpeg "$WORK/mixed/MIX_1.CR3" --out "$WORK/mixed/MIX_1.JPG" >/dev/null
+sips -s format png "$WORK/mixed/MIX_1.JPG" --out "$WORK/mixed/MIX_2.png" >/dev/null
+cp -c "$WORK/mixed/MIX_1.JPG" "$WORK/mixed/MIX_3.jpg"
+"$ROOT/build/release/cli/focal" import "$WORK/mixed" --catalog "$WORK/mixed-catalog.sqlite" --cache "$WORK/thumbs" >/dev/null
+
 # 読み込み先を外したときの移行のテスト用: 3 つのルート（a・b・c）を持つカタログ
 for r in a b c; do
   mkdir -p "$WORK/multi/$r"
@@ -62,6 +70,7 @@ TEST_RUNNER_FOCAL_IMPORT_CATALOG="$WORK/import-catalog.sqlite" \
 TEST_RUNNER_FOCAL_DELETE_CATALOG="$WORK/delete-catalog.sqlite" \
 TEST_RUNNER_FOCAL_MULTI_CATALOG="$WORK/multi-catalog.sqlite" \
 TEST_RUNNER_FOCAL_NESTED_CATALOG="$WORK/nested-catalog.sqlite" \
+TEST_RUNNER_FOCAL_MIXED_CATALOG="$WORK/mixed-catalog.sqlite" \
 TEST_RUNNER_FOCAL_PRESET_CARD="$WORK/preset-card" \
 TEST_RUNNER_FOCAL_PRESET_DEST="$WORK/preset-dest" \
 TEST_RUNNER_FOCAL_PRESET_CATALOG="$WORK/preset-catalog.sqlite" \

@@ -4,6 +4,7 @@ include(Catch)
 add_executable(focal_tests
     test_settings.cpp
     test_preset.cpp
+    test_photo_files.cpp
     test_white_balance.cpp
     test_pipeline.cpp
     test_local_contrast.cpp
@@ -28,6 +29,11 @@ target_compile_definitions(focal_tests PRIVATE FOCAL_TEST_DATA_DIR="${CMAKE_CURR
 if(TARGET focal_gpu)
     target_sources(focal_tests PRIVATE test_gpu.cpp)
     target_link_libraries(focal_tests PRIVATE focal_gpu)
+endif()
+# macOS の ImageIO で HEIF を読む（v3.22）
+if(TARGET focal_platform_apple)
+    target_sources(focal_tests PRIVATE test_apple_image.cpp)
+    target_link_libraries(focal_tests PRIVATE focal_platform_apple)
 endif()
 if(WIN32)
     # テスト名が日本語なので、catch_discover_tests が作る「名前を引数に渡す」実行は、Windows のコマンドラインの

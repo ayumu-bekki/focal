@@ -345,6 +345,8 @@ int main(void) {
     CHECK(photos->items[0].status == FC_PHOTO_OK);
     const int64_t sony_id = photos->items[0].id;
     const int64_t canon_id = photos->items[1].id;
+    CHECK(photos->items[0].kind == FC_KIND_RAW);  /* v3.22: 種類と付属ファイル */
+    CHECK(photos->items[0].companions != NULL && photos->items[0].companions[0] == '\0');
     fc_photo_array_free(photos);
 
     fc_id_array* ids = NULL;

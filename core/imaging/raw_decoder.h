@@ -22,6 +22,8 @@ struct ColorInfo {
     Mat3 rgb_cam = Mat3::identity();
     // XYZ → カメラ RGB（WB 前）。LibRaw の cam_xyz、なければ rgb_cam から導出
     Mat3 cam_xyz = Mat3::identity();
+    // RAW 以外の写真（JPEG・TIFF・PNG・HEIF）: すでに表示用の階調。ベースカーブを入れない（v3.22）
+    bool display_referred = false;
 };
 
 // 7.3 章のメタデータ。
@@ -55,9 +57,10 @@ struct DecodedRaw {
 };
 
 // LibRaw でデモザイクまで行う。失敗時は Error を投げる。
+// 拡張子が RAW 以外の写真（JPEG・TIFF・PNG・HEIF）なら、imaging/photo_file の経路で読む（v3.22）。
 DecodedRaw decode_raw(const std::filesystem::path& path, const DecodeOptions& options = {});
 
-// メタデータのみ取得する（unpack しない）。
+// メタデータのみ取得する（unpack しない）。RAW 以外の写真は拡張子で別の経路。
 RawMetadata read_raw_metadata(const std::filesystem::path& path);
 
 } // namespace focal

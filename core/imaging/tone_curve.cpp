@@ -43,7 +43,8 @@ double tone_reference(double x, const ToneParams& p) {
     // 白・黒: ハイライト・シャドウより外側（ベースカーブの肩とつま先）だけに効く
     e += 2.0 * (p.whites / 100.0) * smoothstep(0.5, 4.0, e);
     e += 2.0 * (p.blacks / 100.0) * smoothstep(1.5, 5.5, -e);
-    double y = std::clamp(base_curve(kMidGray * std::exp2(e)), 0.0, 1.0);
+    const double lin = kMidGray * std::exp2(e);
+    double y = std::clamp(p.base_curve ? base_curve(lin) : lin, 0.0, 1.0);
     // 明るさ: 0 と 1 を動かさずに中間調を持ち上げる（+100 で指数 1/2.0、-100 で 2.0）
     if (p.brightness != 0.0) y = std::pow(y, std::exp2(-p.brightness / 100.0));
     return y;

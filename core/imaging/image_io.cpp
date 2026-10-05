@@ -10,7 +10,9 @@
 #include <string>
 
 #include <jpeglib.h>
+#include <png.h>
 #include <tiffio.h>
+#include <lcms2.h>
 
 #include "util/error.h"
 #include "util/file.h"
@@ -180,6 +182,7 @@ void read_ifd(const TiffReader& r, size_t ifd, ExifInfo& info, size_t* exif_ifd)
         const size_t e = ifd + 2 + 12 * i;
         switch (r.u16(e)) {
         case 0x010F: info.make = r.str(e); break;
+        case 0x0112: info.orientation = r.u16(e + 8); break;
         case 0x0110: info.model = r.str(e); break;
         case 0x0132:
             if (info.capture_time.empty()) info.capture_time = from_exif_datetime(r.str(e));
@@ -515,6 +518,242 @@ LoadedImage read_jpeg(const std::filesystem::path& path) {
     }
     jpeg_destroy_decompress(&cinfo);
     return img;
+}
+
+// ---- 通常の画像ファイル（JPEG・TIFF・PNG）の読み取り -------------------------------------------
+
+namespace {
+
+std::vector<uint8_t> read_whole_file(const std::filesystem::path& path) {
+    std::unique_ptr<FILE, FileCloser> f(open_file(path, "rb"));
+    if (!f) throw Error(Error::Code::Io, "cannot open: " + path.string());
+    std::fseek(f.get(), 0, SEEK_END);
+    const long size = std::ftell(f.get());
+    if (size < 0) throw Error(Error::Code::Io, "cannot read: " + path.string());
+    std::fseek(f.get(), 0, SEEK_SET);
+    std::vector<uint8_t> bytes(static_cast<size_t>(size));
+    if (!bytes.empty() && std::fread(bytes.data(), 1, bytes.size(), f.get()) != bytes.size())
+        throw Error(Error::Code::Io, "cannot read: " + path.string());
+    return bytes;
+}
+
+} // namespace
+
+int flip_from_exif_orientation(int orientation) {
+    // dcraw と同じ対応: "50132467"[orientation & 7]（Orientation 8 は 0 として 5）
+    if (orientation < 1 || orientation > 8) return 0;
+    return "50132467"[orientation & 7] - '0';
+}
+
+ImageHeader read_jpeg_header(const std::filesystem::path& path) {
+    std::unique_ptr<FILE, FileCloser> file(open_file(path, "rb"));
+    if (!file) throw Error(Error::Code::Io, "cannot open: " + path.string());
+    jpeg_decompress_struct cinfo{};
+    jpeg_error_mgr jerr{};
+    cinfo.err = jpeg_std_error(&jerr);
+    jerr.error_exit = [](j_common_ptr c) {
+        char msg[JMSG_LENGTH_MAX];
+        (*c->err->format_message)(c, msg);
+        throw Error(Error::Code::Decode, std::string("JPEG read failed: ") + msg);
+    };
+    jerr.emit_message = [](j_common_ptr, int) {};
+    jpeg_create_decompress(&cinfo);
+    ImageHeader h;
+    try {
+        jpeg_stdio_src(&cinfo, file.get());
+        jpeg_save_markers(&cinfo, JPEG_APP0 + 1, 0xFFFF);
+        jpeg_save_markers(&cinfo, JPEG_APP0 + 2, 0xFFFF);
+        jpeg_read_header(&cinfo, TRUE);
+        h.width = static_cast<int>(cinfo.image_width);
+        h.height = static_cast<int>(cinfo.image_height);
+        for (auto* m = cinfo.marker_list; m; m = m->next)
+            if (m->marker == JPEG_APP0 + 1 && m->data_length > 6 && std::memcmp(m->data, "Exif\0\0", 6) == 0) {
+                h.exif = parse_exif_tiff(m->data + 6, m->data_length - 6);
+                break;
+            }
+        JOCTET* icc = nullptr;
+        unsigned int icc_len = 0;
+        if (jpeg_read_icc_profile(&cinfo, &icc, &icc_len) && icc) {
+            h.icc.assign(icc, icc + icc_len);
+            std::free(icc);
+        }
+    } catch (...) {
+        jpeg_destroy_decompress(&cinfo);
+        throw;
+    }
+    jpeg_destroy_decompress(&cinfo);
+    return h;
+}
+
+ImageU8 decode_jpeg_file(const std::filesystem::path& path, int min_long_edge) {
+    const auto bytes = read_whole_file(path);
+    return decode_jpeg(bytes.data(), bytes.size(), min_long_edge);
+}
+
+ImageHeader read_tiff_header(const std::filesystem::path& path) {
+    std::unique_ptr<TIFF, TiffCloser> tif(open_tiff(path, "r"));
+    if (!tif) throw Error(Error::Code::Decode, "cannot open TIFF: " + path.string());
+    TIFF* t = tif.get();
+    ImageHeader h;
+    uint32_t w = 0, hh = 0;
+    TIFFGetField(t, TIFFTAG_IMAGEWIDTH, &w);
+    TIFFGetField(t, TIFFTAG_IMAGELENGTH, &hh);
+    h.width = static_cast<int>(w);
+    h.height = static_cast<int>(hh);
+    ExifInfo info;
+    char* s = nullptr;
+    if (TIFFGetField(t, TIFFTAG_DATETIME, &s) && s) info.capture_time = from_exif_datetime(s);
+    if (TIFFGetField(t, TIFFTAG_MAKE, &s) && s) info.make = s;
+    if (TIFFGetField(t, TIFFTAG_MODEL, &s) && s) info.model = s;
+    uint16_t orientation = 0;
+    if (TIFFGetField(t, TIFFTAG_ORIENTATION, &orientation) && orientation >= 1 && orientation <= 8)
+        info.orientation = orientation;
+    uint32_t icc_len = 0;
+    void* icc_data = nullptr;
+    if (TIFFGetField(t, TIFFTAG_ICCPROFILE, &icc_len, &icc_data) && icc_len > 0) {
+        const auto* p = static_cast<const uint8_t*>(icc_data);
+        h.icc.assign(p, p + icc_len);
+    }
+    // カメラが作る TIFF は EXIF の IFD を持つ。読めなくても、ここまでの情報は使う
+    uint64_t exif_offset = 0;
+    if (TIFFGetField(t, TIFFTAG_EXIFIFD, &exif_offset) && exif_offset && TIFFReadEXIFDirectory(t, exif_offset)) {
+        if (TIFFGetField(t, EXIFTAG_DATETIMEORIGINAL, &s) && s) info.capture_time = from_exif_datetime(s);
+        double d = 0;
+        if (TIFFGetField(t, EXIFTAG_EXPOSURETIME, &d) && d > 0) info.exposure_time = d;
+        if (TIFFGetField(t, EXIFTAG_FNUMBER, &d) && d > 0) info.f_number = d;
+        if (TIFFGetField(t, EXIFTAG_FOCALLENGTH, &d) && d > 0) info.focal_length = d;
+        uint16_t count = 0;
+        uint16_t* iso = nullptr;
+        if (TIFFGetField(t, EXIFTAG_ISOSPEEDRATINGS, &count, &iso) && count > 0 && iso) info.iso = iso[0];
+    }
+    if (!info.empty() || info.orientation) h.exif = info;
+    return h;
+}
+
+ImageU8 decode_tiff_file(const std::filesystem::path& path) {
+    std::unique_ptr<TIFF, TiffCloser> tif(open_tiff(path, "r"));
+    if (!tif) throw Error(Error::Code::Decode, "cannot open TIFF: " + path.string());
+    TIFF* t = tif.get();
+    uint32_t w = 0, h = 0;
+    TIFFGetField(t, TIFFTAG_IMAGEWIDTH, &w);
+    TIFFGetField(t, TIFFTAG_IMAGELENGTH, &h);
+    if (w == 0 || h == 0 || static_cast<uint64_t>(w) * h > (1ull << 31))
+        throw Error(Error::Code::Unsupported, "unsupported TIFF size: " + path.string());
+    // libtiff に RGBA 8-bit へ変換させる（パレット・グレー・16-bit・アルファ付きも読める）。向きは自分で扱う
+    std::vector<uint32_t> rgba(static_cast<size_t>(w) * h);
+    if (!TIFFReadRGBAImageOriented(t, w, h, rgba.data(), ORIENTATION_TOPLEFT, 0))
+        throw Error(Error::Code::Decode, "TIFF decode failed: " + path.string());
+    ImageU8 img(static_cast<int>(w), static_cast<int>(h));
+    uint8_t* dst = img.data.data();
+    for (size_t i = 0; i < rgba.size(); ++i) {
+        const uint32_t px = rgba[i];
+        dst[i * 3 + 0] = static_cast<uint8_t>(TIFFGetR(px));
+        dst[i * 3 + 1] = static_cast<uint8_t>(TIFFGetG(px));
+        dst[i * 3 + 2] = static_cast<uint8_t>(TIFFGetB(px));
+    }
+    return img;
+}
+
+namespace {
+
+struct PngReader {
+    png_structp png = nullptr;
+    png_infop info = nullptr;
+    std::unique_ptr<FILE, FileCloser> file;
+
+    explicit PngReader(const std::filesystem::path& path) : file(open_file(path, "rb")) {
+        if (!file) throw Error(Error::Code::Io, "cannot open: " + path.string());
+        uint8_t sig[8];
+        if (std::fread(sig, 1, 8, file.get()) != 8 || png_sig_cmp(sig, 0, 8) != 0)
+            throw Error(Error::Code::Decode, "not a PNG file: " + path.string());
+        png = png_create_read_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
+        if (png) info = png_create_info_struct(png);
+        if (!png || !info) throw Error(Error::Code::Internal, "cannot initialize libpng");
+    }
+    ~PngReader() { png_destroy_read_struct(&png, &info, nullptr); }
+    PngReader(const PngReader&) = delete;
+    PngReader& operator=(const PngReader&) = delete;
+};
+
+// libpng のエラーは longjmp で来る。例外にして、呼び出し側（PngReader の後始末が走る）へ伝える
+void png_throw(png_structp, png_const_charp msg) {
+    throw Error(Error::Code::Decode, std::string("PNG read failed: ") + (msg ? msg : ""));
+}
+void png_ignore(png_structp, png_const_charp) {}
+
+} // namespace
+
+ImageHeader read_png_header(const std::filesystem::path& path) {
+    PngReader r(path);
+    png_set_error_fn(r.png, nullptr, png_throw, png_ignore);
+    png_init_io(r.png, r.file.get());
+    png_set_sig_bytes(r.png, 8);
+    png_read_info(r.png, r.info);
+    ImageHeader h;
+    h.width = static_cast<int>(png_get_image_width(r.png, r.info));
+    h.height = static_cast<int>(png_get_image_height(r.png, r.info));
+    png_charp name = nullptr;
+    int compression = 0;
+    png_bytep profile = nullptr;
+    png_uint_32 profile_len = 0;
+    if (png_get_iCCP(r.png, r.info, &name, &compression, &profile, &profile_len) == PNG_INFO_iCCP && profile)
+        h.icc.assign(profile, profile + profile_len);
+    png_uint_32 exif_len = 0;
+    png_bytep exif = nullptr;
+    if (png_get_eXIf_1(r.png, r.info, &exif_len, &exif) && exif) h.exif = parse_exif_tiff(exif, exif_len);
+    return h;
+}
+
+ImageU8 decode_png_file(const std::filesystem::path& path) {
+    PngReader r(path);
+    png_set_error_fn(r.png, nullptr, png_throw, png_ignore);
+    png_init_io(r.png, r.file.get());
+    png_set_sig_bytes(r.png, 8);
+    png_read_info(r.png, r.info);
+    const int w = static_cast<int>(png_get_image_width(r.png, r.info));
+    const int h = static_cast<int>(png_get_image_height(r.png, r.info));
+    if (w <= 0 || h <= 0 || static_cast<uint64_t>(w) * h > (1ull << 31))
+        throw Error(Error::Code::Unsupported, "unsupported PNG size: " + path.string());
+    const int color = png_get_color_type(r.png, r.info);
+    const int depth = png_get_bit_depth(r.png, r.info);
+    if (color == PNG_COLOR_TYPE_PALETTE) png_set_palette_to_rgb(r.png);
+    if (color == PNG_COLOR_TYPE_GRAY && depth < 8) png_set_expand_gray_1_2_4_to_8(r.png);
+    if (png_get_valid(r.png, r.info, PNG_INFO_tRNS)) png_set_tRNS_to_alpha(r.png);
+    if (depth == 16) png_set_strip_16(r.png);
+    if (color == PNG_COLOR_TYPE_GRAY || color == PNG_COLOR_TYPE_GRAY_ALPHA) png_set_gray_to_rgb(r.png);
+    png_set_strip_alpha(r.png);
+    png_read_update_info(r.png, r.info);
+    if (png_get_rowbytes(r.png, r.info) != static_cast<size_t>(w) * 3)
+        throw Error(Error::Code::Unsupported, "unsupported PNG format: " + path.string());
+    ImageU8 img(w, h);
+    std::vector<png_bytep> rows(static_cast<size_t>(h));
+    for (int y = 0; y < h; ++y) rows[static_cast<size_t>(y)] = img.row(y);
+    png_read_image(r.png, rows.data());
+    return img;
+}
+
+void convert_to_srgb(ImageU8& image, const std::vector<uint8_t>& icc) {
+    if (icc.empty() || image.empty()) return;
+    cmsHPROFILE in = cmsOpenProfileFromMem(icc.data(), static_cast<cmsUInt32Number>(icc.size()));
+    if (!in) return;
+    cmsHPROFILE out = cmsCreate_sRGBProfile();
+    bool skip = cmsGetColorSpace(in) != cmsSigRgbData;
+    if (!skip) {
+        // 説明（"sRGB IEC61966-2.1" など）が sRGB なら変換は要らない
+        char desc[256] = {0};
+        cmsGetProfileInfoASCII(in, cmsInfoDescription, "en", "US", desc, sizeof desc);
+        skip = std::string(desc).find("sRGB") != std::string::npos;
+    }
+    if (!skip) {
+        cmsHTRANSFORM tr = cmsCreateTransform(in, TYPE_RGB_8, out, TYPE_RGB_8, INTENT_RELATIVE_COLORIMETRIC,
+                                              cmsFLAGS_BLACKPOINTCOMPENSATION);
+        if (tr) {
+            for (int y = 0; y < image.height; ++y) cmsDoTransform(tr, image.row(y), image.row(y), image.width);
+            cmsDeleteTransform(tr);
+        }
+    }
+    cmsCloseProfile(out);
+    cmsCloseProfile(in);
 }
 
 } // namespace focal

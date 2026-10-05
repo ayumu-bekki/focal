@@ -1,6 +1,7 @@
 #include "imaging/raw_decoder.h"
 
 #include "imaging/libraw_util.h"
+#include "imaging/photo_file.h"
 
 #include <algorithm>
 #include <memory>
@@ -53,12 +54,17 @@ RawMetadata metadata_from_libraw(const LibRaw& raw) {
 }
 
 RawMetadata read_raw_metadata(const std::filesystem::path& path) {
+    // RAW 以外の写真（JPEG・TIFF・PNG・HEIF。v3.22）は、拡張子で種類を見て別の経路で読む
+    if (const auto kind = photo_kind_for_name(path.filename().string()); kind && *kind != PhotoKind::Raw)
+        return read_image_file_metadata(path, *kind);
     auto raw = std::make_unique<LibRaw>();
     open_libraw(*raw, path);
     return metadata_from_libraw(*raw);
 }
 
 DecodedRaw decode_raw(const std::filesystem::path& path, const DecodeOptions& options) {
+    if (const auto kind = photo_kind_for_name(path.filename().string()); kind && *kind != PhotoKind::Raw)
+        return decode_image_file(path, *kind, options);
     auto raw = std::make_unique<LibRaw>();
     auto& p = raw->imgdata.params;
     p.output_color = 0;  // カメラ RGB のまま

@@ -21,6 +21,7 @@ struct ExifInfo {
     std::optional<double> exposure_time;  // 秒
     std::optional<double> f_number;
     std::optional<double> focal_length;  // mm
+    std::optional<int> orientation;      // EXIF の Orientation（1〜8）。読んだときだけ入る（書き出しは常に 1）
 
     bool empty() const {
         return capture_time.empty() && make.empty() && model.empty() && lens.empty() && !iso && !exposure_time &&
@@ -62,5 +63,31 @@ LoadedImage read_tiff(const std::filesystem::path& path);
 // libjpeg の縮小デコード（1/2, 1/4, 1/8）を使って速く読む。
 ImageU8 decode_jpeg(const uint8_t* data, size_t size, int min_long_edge = 0);
 LoadedImage read_jpeg(const std::filesystem::path& path);
+
+// ---- 通常の画像ファイル（JPEG・TIFF・PNG）の読み取り（v3.22、取り込み用）-----------------------------
+
+// ヘッダだけ読んだ結果（画素は読まない）。width / height は向き補正の前の大きさ
+struct ImageHeader {
+    int width = 0;
+    int height = 0;
+    std::vector<uint8_t> icc;       // 埋め込みの ICC プロファイル。なければ空（sRGB とみなす）
+    std::optional<ExifInfo> exif;   // 撮影情報・向き。なければ nullopt
+};
+
+ImageHeader read_jpeg_header(const std::filesystem::path& path);
+ImageHeader read_tiff_header(const std::filesystem::path& path);
+ImageHeader read_png_header(const std::filesystem::path& path);
+
+// 画素を RGB 8-bit で読む（向きは補正しない。色空間は変換しない）。min_long_edge > 0 の JPEG は縮小デコードで速く読む。
+// 16-bit・パレット・グレー・アルファ付きも RGB 8-bit にする（アルファは捨てる）
+ImageU8 decode_jpeg_file(const std::filesystem::path& path, int min_long_edge = 0);
+ImageU8 decode_tiff_file(const std::filesystem::path& path);
+ImageU8 decode_png_file(const std::filesystem::path& path);
+
+// EXIF の Orientation（1〜8）→ LibRaw の flip 値（0 / 3 / 5 / 6 / 1 / 2 / 4 / 7）。範囲外は 0
+int flip_from_exif_orientation(int orientation);
+
+// icc（RGB のプロファイル）の色を sRGB に変換する。icc が空・sRGB・RGB でない（グレー・CMYK）ときは何もしない
+void convert_to_srgb(ImageU8& image, const std::vector<uint8_t>& icc);
 
 } // namespace focal

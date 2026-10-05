@@ -16,6 +16,8 @@ final class DevelopModel {
     // MARK: 表示の状態
 
     private(set) var photoID: Int64?
+    /// 現像できる写真か（RAW だけ。JPEG などは表示だけ。v3.22）
+    private(set) var isEditable = true
     private(set) var stage: SessionInfo.Stage = .opening
     private(set) var info: SessionInfo?
     /// UI が編集する値（core の Settings の写し）
@@ -87,10 +89,14 @@ final class DevelopModel {
 
     /// 写真を開く（5.3 章）。next があれば 1 枚だけ先読みする。
     /// placeholder（グリッドのサムネイル）があれば、埋め込みプレビューが出るまでそれを表示する
-    func open(photoID id: Int64, next: Int64?, placeholder: CGImage? = nil) {
-        guard id != photoID else { return }
+    func open(photoID id: Int64, next: Int64?, placeholder: CGImage? = nil, editable: Bool = true) {
+        if id == photoID {
+            isEditable = editable
+            return
+        }
         close()
         photoID = id
+        isEditable = editable
         stage = .opening
         info = nil
         fitImage = placeholder
@@ -181,7 +187,7 @@ final class DevelopModel {
     /// 値を変えて描き直す。beginChange 〜 endChange の外なら 1 回の Undo になる。
     /// render が false なら描き直さない（クロップモードで枠だけ動かしたとき）
     func update(render: Bool = true, _ change: (inout DevelopSettings) -> Void) {
-        guard let session else { return }
+        guard let session, isEditable else { return }
         var s = settings
         change(&s)
         guard s != settings else { return }
@@ -194,7 +200,7 @@ final class DevelopModel {
 
     /// プリセットの調整を重ねる（切り取り・回転・傾きはそのまま）。1 回の Undo になる
     func applyPreset(_ id: String, using presets: PresetStore) throws {
-        guard session != nil, stage == .ready, !cropMode else { return }
+        guard session != nil, isEditable, stage == .ready, !cropMode else { return }
         let merged = try presets.applying(id: id, to: settings)
         update { $0 = merged }
     }
@@ -227,7 +233,7 @@ final class DevelopModel {
     func toggleCropMode() { cropMode ? commitCrop() : enterCrop() }
 
     func enterCrop() {
-        guard let session, stage == .ready, !cropMode else { return }
+        guard let session, isEditable, stage == .ready, !cropMode else { return }
         session.beginChange()
         cropStart = settings
         cropMode = true

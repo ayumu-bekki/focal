@@ -17,6 +17,7 @@
 #include "catalog/smart_query.h"
 #include "catalog/sqlite.h"
 #include "imaging/libraw_util.h"
+#include "imaging/photo_file.h"
 #include "thumbs/thumbnail.h"
 #include "util/error.h"
 #include "util/file.h"
@@ -57,20 +58,9 @@ std::string album_name(std::string_view name) {
     return n;
 }
 
-const std::set<std::string>& raw_extensions() {
-    static const std::set<std::string> exts = {
-        "3fr", "arw", "cr2", "cr3", "crw", "dcr", "dng", "erf", "fff", "gpr", "iiq", "kdc", "mef", "mos",
-        "mrw", "nef", "nrw", "orf", "pef", "raf", "raw", "rw2", "rwl", "sr2", "srf", "srw", "x3f",
-    };
-    return exts;
-}
-
 bool is_raw_file(const std::string& name) {
-    const auto dot = name.find_last_of('.');
-    if (dot == std::string::npos) return false;
-    std::string ext = name.substr(dot + 1);
-    for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return raw_extensions().count(ext) > 0;
+    const auto kind = photo_kind_for_name(name);
+    return kind && *kind == PhotoKind::Raw;
 }
 
 std::string join_path(std::string_view root, std::string_view rel, std::string_view name = {}) {
@@ -116,7 +106,21 @@ struct FoundFile {
     std::string name;        // NFC
     fs::path disk;
     FileStat st;
+    PhotoKind kind = PhotoKind::Raw;
+    std::vector<std::string> companions;  // 同じ名前の付属の写真ファイル（RAW の JPEG など）。NFC、名前順
 };
+
+std::string join_companions(const std::vector<std::string>& names) {
+    std::string out;
+    for (const auto& n : names) out += (out.empty() ? "" : "/") + n;
+    return out;
+}
+
+// 拡張子を除いた名前
+std::string file_stem(const std::string& name) {
+    const auto dot = name.find_last_of('.');
+    return dot == std::string::npos ? name : name.substr(0, dot);
+}
 
 // 他のアプリが管理するライブラリ（中身を触る必要がなく、macOS では「写真」ライブラリの中へ入ると
 // 「写真」へのアクセスの許可を求められる）。スキャンは中へ入らず、フォルダとしても登録しない（v3.19）
@@ -156,11 +160,39 @@ void walk(const fs::path& disk_root, std::vector<std::string>& dirs, std::vector
                 continue;
             }
             dirs.push_back(rel);
-        } else if (is_raw_file(name)) {
-            if (auto st = stat_file(it->path())) files.push_back({parent_rel(rel), name, it->path(), *st});
+        } else if (const auto kind = photo_kind_for_name(name)) {
+            if (auto st = stat_file(it->path())) files.push_back({parent_rel(rel), name, it->path(), *st, *kind, {}});
         }
     }
     std::sort(dirs.begin(), dirs.end());  // 親が子より先に来る
+}
+
+// 同じフォルダで、拡張子を除いた名前が同じ（大文字小文字を区別しない）写真ファイルを 1 枚にする（v3.22、5.12 章）。
+// RAW があれば、同じ名前の RAW 以外（JPEG・TIFF・PNG・HEIF）はその RAW（名前順で先頭）の付属ファイルになり、
+// 写真の行を持たない。RAW がなければ、それぞれが別の写真。RAW 同士は別の写真（グループにしない）
+void attach_companions(std::vector<FoundFile>& files) {
+    std::map<std::pair<std::string, std::string>, std::vector<size_t>> groups;
+    for (size_t i = 0; i < files.size(); ++i)
+        groups[{files[i].folder_rel, casefold_key(file_stem(files[i].name))}].push_back(i);
+    std::vector<bool> drop(files.size(), false);
+    for (auto& [key, idx] : groups) {
+        if (idx.size() < 2) continue;
+        std::sort(idx.begin(), idx.end(), [&](size_t a, size_t b) { return files[a].name < files[b].name; });
+        const auto raw = std::find_if(idx.begin(), idx.end(), [&](size_t i) { return files[i].kind == PhotoKind::Raw; });
+        if (raw == idx.end()) continue;
+        for (size_t i : idx) {
+            if (files[i].kind == PhotoKind::Raw) continue;
+            files[*raw].companions.push_back(files[i].name);
+            drop[i] = true;
+        }
+    }
+    size_t out = 0;
+    for (size_t i = 0; i < files.size(); ++i)
+        if (!drop[i]) {
+            if (out != i) files[out] = std::move(files[i]);  // 自分自身へのムーブは中身が空になる
+            ++out;
+        }
+    files.resize(out);
 }
 
 // ---- 1 ファイル分の読み取り（サムネイルプールで並列に実行） ------------
@@ -174,6 +206,8 @@ struct Work {
     std::optional<int64_t> photo_id;  // 既存の写真を読み直すとき
     bool was_missing = false;
     bool thumb_only = false;  // メタデータは変わっていないが、サムネイルがない
+    PhotoKind kind = PhotoKind::Raw;
+    std::string companions;  // join_companions
 };
 
 struct Probe {
@@ -186,6 +220,33 @@ struct Probe {
 
 Probe probe(const Work& w, const ThumbnailCache* thumbs) {
     Probe p;
+    if (w.kind != PhotoKind::Raw) {
+        // RAW 以外の写真（v3.22）: 画像そのものを読んで、撮影情報とサムネイルを作る
+        try {
+            p.meta = read_image_file_metadata(w.disk, w.kind);
+            p.readable = true;
+        } catch (const std::exception&) {
+            // 非対応・破損（status 2）
+        }
+        if (!w.thumb_only) {
+            try {
+                p.hash = quick_hash(w.disk);
+            } catch (const Error&) {
+            }
+        }
+        if (thumbs && p.readable) {
+            const std::string key = thumbnail_key(w.nfc_path, w.st.size, w.st.mtime);
+            if (!thumbs->contains(key)) {
+                try {
+                    thumbs->store(key, image_file_thumbnail(w.disk, w.kind, kThumbnailLongEdge));
+                    p.thumb_made = true;
+                } catch (const std::exception&) {
+                    p.thumb_failed = true;
+                }
+            }
+        }
+        return p;
+    }
     auto raw = std::make_unique<LibRaw>();
     try {
         open_libraw(*raw, w.disk);
@@ -253,23 +314,30 @@ void write_probe(Database& db, const Work& w, const Probe& p) {
         return i;
     };
     auto hash = p.hash.empty() ? std::optional<std::string>() : std::optional<std::string>(p.hash);
+    const std::optional<std::string> companions =
+        w.companions.empty() ? std::nullopt : std::optional<std::string>(w.companions);
 
     if (w.photo_id) {
         auto st = db.prepare(
             "UPDATE photos SET folder_id = ?, file_name = ?, file_size = ?, file_mtime = ?, quick_hash = ?, status = ?,"
             " capture_time = ?, camera_make = ?, camera_model = ?, lens_model = ?, iso = ?, exposure_time = ?,"
-            " f_number = ?, focal_length = ?, width = ?, height = ?, orientation = ? WHERE id = ?");
+            " f_number = ?, focal_length = ?, width = ?, height = ?, orientation = ?, kind = ?, companions = ?"
+            " WHERE id = ?");
         st.bind(1, w.folder_id).bind(2, w.name).bind(3, w.st.size).bind(4, w.st.mtime).bind(5, hash).bind(6, status);
-        const int next = bind_meta(st, 7);
+        int next = bind_meta(st, 7);
+        st.bind(next++, static_cast<int64_t>(w.kind));
+        st.bind(next++, companions);
         st.bind(next, *w.photo_id);
         st.run();
     } else {
         auto st = db.prepare(
             "INSERT INTO photos (folder_id, file_name, file_size, file_mtime, quick_hash, status, capture_time,"
             " camera_make, camera_model, lens_model, iso, exposure_time, f_number, focal_length, width, height,"
-            " orientation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            " orientation, kind, companions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         st.bind(1, w.folder_id).bind(2, w.name).bind(3, w.st.size).bind(4, w.st.mtime).bind(5, hash).bind(6, status);
-        bind_meta(st, 7);
+        int next = bind_meta(st, 7);
+        st.bind(next++, static_cast<int64_t>(w.kind));
+        st.bind(next, companions);
         st.run();
     }
 }
@@ -279,7 +347,22 @@ void write_probe(Database& db, const Work& w, const Probe& p) {
 constexpr const char* kPhotoColumns =
     "p.id, p.folder_id, p.file_name, p.file_size, p.file_mtime, p.quick_hash, p.status, p.capture_time,"
     " p.camera_make, p.camera_model, p.lens_model, p.iso, p.exposure_time, p.f_number, p.focal_length,"
-    " p.width, p.height, p.orientation, p.rating, p.flag, r.path, f.rel_path";
+    " p.width, p.height, p.orientation, p.rating, p.flag, r.path, f.rel_path, p.kind, p.companions";
+
+// photos.companions（ファイル名を '/' で区切る）→ 並び
+std::vector<std::string> split_companions(const std::optional<std::string>& text) {
+    std::vector<std::string> out;
+    if (!text) return out;
+    size_t start = 0;
+    while (start <= text->size()) {
+        const size_t slash = text->find('/', start);
+        const size_t end = slash == std::string::npos ? text->size() : slash;
+        if (end > start) out.push_back(text->substr(start, end - start));
+        if (slash == std::string::npos) break;
+        start = slash + 1;
+    }
+    return out;
+}
 
 PhotoRecord read_photo(const Statement& st) {
     PhotoRecord r;
@@ -304,6 +387,8 @@ PhotoRecord read_photo(const Statement& st) {
     r.rating = st.column_int(18);
     r.flag = st.column_int(19);
     r.path = join_path(st.column_text(20), st.column_text(21), r.file_name);
+    r.kind = static_cast<PhotoKind>(st.column_int(22));
+    r.companions = split_companions(st.column_opt_text(23));
     return r;
 }
 
@@ -627,10 +712,8 @@ int photo_richness(Database& db, int64_t id) {
 
 // 同じファイルの行 a・b を 1 つにする。情報の多い方を残し、残る方が持っていないものを、消す方から移す。
 // 残った行の id を返す
-int64_t merge_photo_rows(Database& db, int64_t a, int64_t b) {
-    const int ra = photo_richness(db, a), rb = photo_richness(db, b);
-    const int64_t keep = (rb > ra || (rb == ra && b < a)) ? b : a;
-    const int64_t drop = keep == a ? b : a;
+// drop の行の情報を keep の行へ移して、drop を消す（keep が持っていないものだけ移す）
+void absorb_photo_row(Database& db, int64_t keep, int64_t drop) {
     // 現像: 残す方になければ移す
     db.prepare("UPDATE edits SET photo_id = ?1 WHERE photo_id = ?2 AND NOT EXISTS (SELECT 1 FROM edits WHERE photo_id = ?1)")
         .bind(1, keep).bind(2, drop).run();
@@ -646,6 +729,12 @@ int64_t merge_photo_rows(Database& db, int64_t a, int64_t b) {
         .bind(1, keep).bind(2, drop).run();
     db.prepare("UPDATE albums SET cover_photo_id = ?1 WHERE cover_photo_id = ?2").bind(1, keep).bind(2, drop).run();
     db.prepare("DELETE FROM photos WHERE id = ?").bind(1, drop).run();
+}
+
+int64_t merge_photo_rows(Database& db, int64_t a, int64_t b) {
+    const int ra = photo_richness(db, a), rb = photo_richness(db, b);
+    const int64_t keep = (rb > ra || (rb == ra && b < a)) ? b : a;
+    absorb_photo_row(db, keep, keep == a ? b : a);
     return keep;
 }
 
@@ -1035,6 +1124,7 @@ ScanStats Catalog::scan_root(int64_t root_id, const ScanOptions& opt) {
     std::vector<std::string> dirs;
     std::vector<FoundFile> files;
     walk(*disk_root, dirs, files);
+    attach_companions(files);  // RAW と同じ名前の JPEG などは、その RAW の付属ファイルにする（v3.22）
 
     ScanStats stats;
 
@@ -1090,17 +1180,21 @@ ScanStats Catalog::scan_root(int64_t root_id, const ScanOptions& opt) {
         int64_t id, folder_id, size, mtime;
         std::string name;
         int status;
+        PhotoKind kind = PhotoKind::Raw;
+        std::string companions;
         bool matched = false;
     };
     auto existing = writer_->call([&](Database& db) {
         std::vector<Existing> rows;
         auto st = db.prepare(
-            "SELECT p.id, p.folder_id, p.file_size, p.file_mtime, p.file_name, p.status FROM photos p"
+            "SELECT p.id, p.folder_id, p.file_size, p.file_mtime, p.file_name, p.status, p.kind,"
+            " COALESCE(p.companions, '') FROM photos p"
             " JOIN folders f ON f.id = p.folder_id WHERE f.root_id = ?");
         st.bind(1, root_id);
         while (st.step())
             rows.push_back({st.column_int64(0), st.column_int64(1), st.column_int64(2), st.column_int64(3),
-                            st.column_text(4), st.column_int(5)});
+                            st.column_text(4), st.column_int(5), static_cast<PhotoKind>(st.column_int(6)),
+                            st.column_text(7)});
         return rows;
     });
 
@@ -1109,6 +1203,12 @@ ScanStats Catalog::scan_root(int64_t root_id, const ScanOptions& opt) {
 
     std::vector<Work> work;
     std::vector<std::pair<int64_t, std::string>> renames;  // 内容は変わらず名前の大文字小文字だけ変わった
+    struct KindUpdate {
+        int64_t id;
+        PhotoKind kind;
+        std::string companions;
+    };
+    std::vector<KindUpdate> kind_updates;  // 内容は変わらず、付属ファイル（RAW の JPEG など）だけ変わった
 
     auto make_work = [&](const FoundFile& f, int64_t folder_id) {
         Work w;
@@ -1117,6 +1217,8 @@ ScanStats Catalog::scan_root(int64_t root_id, const ScanOptions& opt) {
         w.nfc_path = join_path(root->path, f.folder_rel, f.name);
         w.disk = f.disk;
         w.st = f.st;
+        w.kind = f.kind;
+        w.companions = join_companions(f.companions);
         return w;
     };
 
@@ -1128,6 +1230,8 @@ ScanStats Catalog::scan_root(int64_t root_id, const ScanOptions& opt) {
         if (same_content && e.status != static_cast<int>(PhotoStatus::Missing)) {
             ++stats.unchanged;
             if (name_changed) renames.emplace_back(e.id, f.name);
+            if (e.kind != f.kind || e.companions != join_companions(f.companions))
+                kind_updates.push_back({e.id, f.kind, join_companions(f.companions)});
             if (opt.thumbnails && e.status == static_cast<int>(PhotoStatus::Ok)) {
                 Work w = make_work(f, e.folder_id);
                 if (!opt.thumbnails->contains(thumbnail_key(w.nfc_path, w.st.size, w.st.mtime))) {
@@ -1165,8 +1269,40 @@ ScanStats Catalog::scan_root(int64_t root_id, const ScanOptions& opt) {
             });
             if (it != rows.end()) {
                 match(*f, existing[*it]);
-            } else {
+                continue;
+            }
+            // 同じ名前（拡張子を除く）で種類が違う行があれば、その写真が別のファイルに替わったとみなして引き継ぐ（v3.22）。
+            //   JPEG だけだった写真に同じ名前の RAW が来た → その行が RAW の写真になる
+            //   RAW がなくなって、同じ名前の JPEG だけが残った → その行が JPEG の写真になる
+            const std::string stem_key = casefold_key(file_stem(f->name));
+            auto stem_it = std::find_if(rows.begin(), rows.end(), [&](size_t i) {
+                return !existing[i].matched && ((existing[i].kind == PhotoKind::Raw) != (f->kind == PhotoKind::Raw)) &&
+                       casefold_key(file_stem(existing[i].name)) == stem_key;
+            });
+            if (stem_it != rows.end())
+                match(*f, existing[*stem_it]);
+            else
                 work.push_back(make_work(*f, folder_id));
+        }
+    }
+
+    // 付属ファイル（RAW の JPEG など）になった名前の行がまだ残っていれば、その RAW の行に合わせる。
+    // 行が残るのは、JPEG を先に登録したあとで RAW が戻ってきたとき（RAW の行は別にある）
+    struct Absorb {
+        int64_t drop_id, folder_id;
+        std::string primary_name;
+    };
+    std::vector<Absorb> absorbs;
+    for (const auto& f : files) {
+        if (f.companions.empty()) continue;
+        const int64_t folder_id = folder_ids.at(f.folder_rel);
+        for (auto& e : existing) {
+            if (e.matched || e.folder_id != folder_id) continue;
+            const std::string key = casefold_key(e.name);
+            if (std::any_of(f.companions.begin(), f.companions.end(),
+                            [&](const std::string& c) { return casefold_key(c) == key; })) {
+                e.matched = true;  // ファイルなしにしない
+                absorbs.push_back({e.id, folder_id, f.name});
             }
         }
     }
@@ -1176,16 +1312,32 @@ ScanStats Catalog::scan_root(int64_t root_id, const ScanOptions& opt) {
         if (!e.matched && e.status != static_cast<int>(PhotoStatus::Missing)) now_missing.push_back(e.id);
     stats.missing = static_cast<int>(now_missing.size());
 
-    if (!now_missing.empty() || !renames.empty()) {
+    if (!now_missing.empty() || !renames.empty() || !kind_updates.empty()) {
         writer_->call([&](Database& db) {
             auto miss = db.prepare("UPDATE photos SET status = 1 WHERE id = ?");
             for (int64_t id : now_missing) miss.bind(1, id).run();
             auto ren = db.prepare("UPDATE photos SET file_name = ? WHERE id = ?");
             for (const auto& [id, name] : renames) ren.bind(1, name).bind(2, id).run();
+            auto upd = db.prepare("UPDATE photos SET kind = ?, companions = ? WHERE id = ?");
+            for (const auto& u : kind_updates)
+                upd.bind(1, static_cast<int64_t>(u.kind))
+                    .bind(2, u.companions.empty() ? std::nullopt : std::optional<std::string>(u.companions))
+                    .bind(3, u.id)
+                    .run();
         });
     }
 
     process_works(*writer_, work, opt, stats);
+    if (!absorbs.empty()) {
+        writer_->call([&](Database& db) {
+            auto find = db.prepare("SELECT id FROM photos WHERE folder_id = ? AND file_name = ? COLLATE NOCASE LIMIT 1");
+            for (const auto& a : absorbs) {
+                find.bind(1, a.folder_id).bind(2, a.primary_name);
+                if (find.step()) absorb_photo_row(db, find.column_int64(0), a.drop_id);
+                find.reset();
+            }
+        });
+    }
     // ディスクにもうないフォルダのうち、写真（ファイルなしを含む）を 1 枚も持たないものはカタログから消す。
     // 消えたフォルダ・登録しなくなったライブラリ（.photoslibrary など）の跡がサイドバーに残らないようにする（v3.19）。
     // 写真を持つフォルダと、その親は残す（★・タグ・編集を持つ写真を巻き込まない）
@@ -1470,11 +1622,13 @@ ScanStats Catalog::register_files(int64_t root_id, std::span<const fs::path> fil
         const std::string name = to_nfc(path_to_utf8(f.filename()));
         if (rel.empty() || rel.rfind("..", 0) == 0)
             throw Error(Error::Code::InvalidArgument, "file is outside the root: " + path_to_utf8(f));
-        if (!is_raw_file(name)) throw Error(Error::Code::InvalidArgument, "not a RAW file: " + path_to_utf8(f));
+        const auto kind = photo_kind_for_name(name);
+        if (!kind) throw Error(Error::Code::InvalidArgument, "not a photo file: " + path_to_utf8(f));
         const auto st = stat_file(f);
         if (!st) throw Error(Error::Code::NotFound, "no such file: " + path_to_utf8(f));
-        found.push_back({parent_rel(rel), name, f, *st});
+        found.push_back({parent_rel(rel), name, f, *st, *kind, {}});
     }
+    attach_companions(found);  // 同じ名前の RAW があれば、JPEG などはその付属ファイルにする（v3.22）
 
     ScanStats stats;
     std::vector<Work> work;
@@ -1508,6 +1662,8 @@ ScanStats Catalog::register_files(int64_t root_id, std::span<const fs::path> fil
             w.nfc_path = join_path(root->path, f.folder_rel, f.name);
             w.disk = f.disk;
             w.st = f.st;
+            w.kind = f.kind;
+            w.companions = join_companions(f.companions);
             q.reset();
             q.bind(1, w.folder_id).bind(2, w.name);
             if (q.step()) {
@@ -1740,6 +1896,8 @@ void Catalog::save_edit(int64_t photo_id, int process_version, std::optional<std
 
 void Catalog::apply_preset(std::span<const int64_t> photo_ids, const Settings& preset) {
     for (const int64_t id : photo_ids) {
+        // RAW 以外の写真（JPEG など）は現像の対象外（v3.22）
+        if (const auto photo = this->photo(id); photo && photo->kind != PhotoKind::Raw) continue;
         const auto json = edit_json(id);
         const Settings merged = focal::apply_preset(json ? settings_from_json(*json) : Settings{}, preset);
         if (settings_need_no_row(merged))

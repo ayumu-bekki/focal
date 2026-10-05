@@ -770,6 +770,16 @@
         }
       }
     },
+    "Companion Files" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "付属ファイル"
+          }
+        }
+      }
+    },
     "Connected" : {
       "localizations" : {
         "ja" : {
@@ -2271,6 +2281,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "OK"
+          }
+        }
+      }
+    },
+    "Only RAW photos can be developed. You can still rate, flag, tag and organize this photo." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現像できるのは RAW の写真だけです。この写真の評価・フラグ・タグ・アルバムへの追加などは使えます。"
           }
         }
       }

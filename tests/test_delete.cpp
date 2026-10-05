@@ -110,7 +110,7 @@ TEST_CASE("削除: ファイルをゴミ箱へ送り、カタログの情報（�
     // カタログ: A だけ消え、アルバムの所属・カバー・タグも消える
     CHECK(c->photo(a) == std::nullopt);
     CHECK(c->photo(b).has_value());
-    CHECK(c->count(PhotoFilter{}) == 1);
+    CHECK(c->count(PhotoFilter{}) == 2);  // B と、別の名前の AB.JPG（JPEG だけの 1 枚。v3.22）
     PhotoFilter f;
     f.album_id = album;
     CHECK(c->count(f) == 1);

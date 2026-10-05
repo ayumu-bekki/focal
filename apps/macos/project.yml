@@ -43,7 +43,7 @@ targets:
         DEFINES_MODULE: YES
         SKIP_INSTALL: YES
         LIBRARY_SEARCH_PATHS: $(PROJECT_DIR)/build/Frameworks
-        OTHER_LDFLAGS: -lraw_r -lomp -lc++
+        OTHER_LDFLAGS: -lraw_r -lomp -lc++ -framework ImageIO -framework CoreGraphics -framework CoreFoundation
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks @loader_path/../Frameworks @loader_path/Frameworks"
 
   Focal:

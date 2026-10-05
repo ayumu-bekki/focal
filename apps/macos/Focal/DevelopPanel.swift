@@ -49,6 +49,7 @@ struct DevelopTools: View {
                     .labelStyle(.iconOnly)
             }
             .toggleStyle(.button)
+            .disabled(!develop.isEditable)
             .help("Crop (C)")
             .accessibilityIdentifier("cropButton")
             Menu {
@@ -59,14 +60,16 @@ struct DevelopTools: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .disabled(develop.stage != .ready || develop.cropMode)
+            .disabled(develop.stage != .ready || develop.cropMode || !develop.isEditable)
             .help("Presets")
             .accessibilityLabel("Presets")
             .accessibilityIdentifier("presetsMenu")
             Button { develop.rotate(by: -1) } label: { Image(systemName: "rotate.left") }
+                .disabled(!develop.isEditable)
                 .help("Rotate Left ([)")
                 .accessibilityIdentifier("rotateLeftButton")
             Button { develop.rotate(by: 1) } label: { Image(systemName: "rotate.right") }
+                .disabled(!develop.isEditable)
                 .help("Rotate Right (])")
                 .accessibilityIdentifier("rotateRightButton")
         }

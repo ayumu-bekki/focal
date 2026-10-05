@@ -104,6 +104,7 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 ## コード構成
 
 - `core/imaging/` — `raw_decoder`（LibRaw）、`resample`（プロキシ・Lanczos3）、`white_balance`（Robertson 法の K/tint ⇔ 係数）、`tone_curve`（5.5 章 + ベースカーブ + 白・黒・明るさ、4096 要素 LUT）、`color_pipeline`（5.4 章 (2)〜(5b)。(5b) は彩度・自然な彩度。`process_tone` と `process_color` に分けられる）、`local_contrast`（(5a) 明瞭度。ガイデッドフィルタ、縮小して計算）、`detail`（(5a) ノイズ低減・シャープネス。半径はフル解像度の画素）、`geometry`（5.6 章の逆写像・自動クロップ）、`output_transform`（lcms2、(6)(7)）、`renderer`（(1)〜(7) の組み立て）、`image_io`（TIFF / JPEG）
+- `core/imaging/photo_kind`・`photo_file` — RAW 以外の写真（v3.22、design.md 5.12 章）。`PhotoKind`・`photo_kind_for_name`（拡張子。HEIF は OS の読み取り部品が登録されているときだけ）、`read_image_file_metadata` / `decode_image_file`（`DecodedRaw` に読む。色の行列は恒等、`display_referred` でベースカーブを入れない）/ `image_file_thumbnail`。`decode_raw` / `read_raw_metadata` / `make_thumbnail` は拡張子で RAW か RAW 以外かを振り分ける。JPEG・TIFF・PNG の読み取りと EXIF は `image_io`。HEIF は `platform/apple`（ImageIO。`register_apple_image_reader`。capi の `fc_catalog_open` と CLI の起動時に登録）
 - `core/edit/settings` — 6.1 章の JSON（未知キー保持）
 - `core/edit/preset` — 現像のプリセット（v3.21、design.md 6.3 章）。調整だけ（`geometry` は含めない）、`apply_preset`（調整は丸ごと置き換え、geometry・processVersion・未知キーは写真のまま）、`PresetStore`（1 プリセット 1 JSON ファイル `.focalpreset`、利用者のフォルダ + 同梱の読み取り専用フォルダ、id は `user:` / `builtin:`）。`Catalog::apply_preset`、`CardImportOptions::preset`。Focal 標準は `apps/macos/Presets/`（README.md に登録の手順）。`PresetStore` は一覧・照合の結果をキャッシュ（`find_match` はスライダー操作のたびに呼ぶ。save / remove / rename / list で読み直す）。右ペインの「プリセット」区分は `DevelopPanel.presetSection`、状態は `PresetModel`（`appliedID`・`revision`）。プリセットの項目を足すときは `settings` と同じ項目を `apply_preset` が丸ごと置き換えることを確認する
 - `core/catalog/` — `sqlite`（RAII ラッパー）、`schema`（7.2 章とマイグレーション。移行前に `VACUUM INTO` でバックアップ）、`db_writer`（書き込み専用スレッド。最大 500 件を 1 トランザクションにまとめ、ジョブごとに SAVEPOINT）、`catalog`（ルート登録・スキャン・照合・絞り込み・★/フラグ/タグ・アルバム・最近の取り込み）
@@ -138,6 +139,7 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 - 画像処理ホットパスは `-O3`。再現性のため `-ffast-math` は使わない。
 - カタログに保存するパス・ファイル名・タグ名はすべて NFC。ファイルを開くときは `Catalog::photo_disk_path()`（`resolve_nfc_path`）を使い、保存した文字列をそのまま開かない。
 - スキャンの照合はフォルダごとに「完全一致 → case folding で一致」の 2 段階。大文字小文字だけのリネームは同じ写真として扱い、★・フラグ・タグを引き継ぐ。別フォルダへの移動は、ファイル名・サイズ・撮影日時が同じ「ファイルなし」の写真がちょうど 1 枚あればその写真につなぎ直す（v3.19。★・フラグ・タグ・アルバム・編集を引き継ぐ。候補が複数なら新規）。
+- 写真の行は主役のファイル 1 つ（`photos.kind`）。同じフォルダで拡張子を除いた名前が同じ（大文字小文字不問）なら、**RAW があるときだけ**、RAW 以外はその RAW の付属ファイル（`photos.companions`、行を持たない）。RAW がない RAW 以外・RAW 同士は別の写真。スキャンは `attach_companions` でグループ化してから照合し、種類が違う同じ名前の行は引き継ぐ（id を保つ）。RAW 以外は現像しない（`apply_preset`・プリセットの取り込みは飛ばす。アプリは `DevelopModel.isEditable`）。削除は、主役が RAW のときだけ同じ名前の RAW 以外の写真ファイルも一緒に消す。
 - ルートは入れ子にしない。`add_root` は既存ルートの中なら既存の id を返し、既存ルートを含むなら `merge_root_into` で統合（`merge_photo_rows` が編集・★・タグ等を保つ）。破壊的な操作（`remove_root`、統合）の前に `Catalog::backup()` が `catalog.sqlite.before-<理由>-<日時>-NN.bak` を作る（理由ごとに 5 つ残す）。`relocate_root`・`nested_roots`・`merge_nested_roots`（CLI は `relocate` / `merge-roots`）。
 - スキャンで新規の写真が既存の写真と quick_hash + サイズ一致なら `inherit_from_copies` が編集・★・フラグ・タグを複製（元ファイルがディスクになければ行をつなぎ直す）。ディスクの存在確認は DB スレッドの外。
 - ルートフォルダにアクセスできない（外付けドライブを外した等）ときは、写真をファイルなしにせず Error を投げる。

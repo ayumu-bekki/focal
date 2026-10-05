@@ -193,11 +193,14 @@ int cmd_ls(int argc, char** argv) {
     const auto rows = catalog->query(f, args.get_int("offset", 0), args.get_int("limit", -1));
     for (const auto& p : rows) {
         const std::string stars(static_cast<size_t>(p.rating), '*');
-        std::printf("%6lld %-5s %s %-19s %-24s ISO%-6s %-8s %s%s\n", static_cast<long long>(p.id), stars.c_str(),
+        std::string with;  // 同じ名前の付属の写真ファイル（RAW の JPEG など）
+        for (const auto& c : p.companions) with += (with.empty() ? "  (+" : ", ") + c;
+        if (!with.empty()) with += ")";
+        std::printf("%6lld %-5s %s %-19s %-24s ISO%-6s %-8s %s%s%s\n", static_cast<long long>(p.id), stars.c_str(),
                     flag_mark(p.flag), p.capture_time.value_or("-").c_str(),
                     (p.camera_make + " " + p.camera_model).c_str(),
                     p.iso ? std::to_string(*p.iso).c_str() : "-", format_shutter(p.exposure_time).c_str(),
-                    p.path.c_str(),
+                    p.path.c_str(), with.c_str(),
                     p.status == PhotoStatus::Missing       ? "  [missing]"
                     : p.status == PhotoStatus::Unsupported ? "  [unsupported]"
                                                            : "");

@@ -8,6 +8,16 @@ struct InspectorView: View {
     @AppStorage("inspector.metadata.expanded") private var metadataExpanded = true
     @AppStorage("inspector.tags.expanded") private var tagsExpanded = true
 
+    static func kindName(_ kind: PhotoKind) -> String {
+        switch kind {
+        case .raw: "RAW"
+        case .jpeg: "JPEG"
+        case .tiff: "TIFF"
+        case .png: "PNG"
+        case .heif: "HEIF"
+        }
+    }
+
     private var developing: Bool { model.mode == .viewer && model.currentPhoto != nil }
 
     var body: some View {
@@ -26,13 +36,26 @@ struct InspectorView: View {
     private var form: some View {
         Form {
             if developing {
-                DevelopPanel(develop: model.develop, presets: model.presets)
+                if model.develop.isEditable {
+                    DevelopPanel(develop: model.develop, presets: model.presets)
+                } else {
+                    // RAW 以外（JPEG・TIFF・PNG・HEIF）は表示だけ（v3.22）
+                    Section {
+                        Text("Only RAW photos can be developed. You can still rate, flag, tag and organize this photo.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("notDevelopable")
+                    }
+                }
             }
             if let p = model.currentPhoto {
                 // ここから下は現像ではなく写真の情報（区切り線で分ける）
                 Section {
                     if metadataExpanded {
                         row("File", p.fileName)
+                        if p.kind != .raw { row("Format", Self.kindName(p.kind)) }
+                        if !p.companions.isEmpty { row("Companion Files", p.companions.joined(separator: ", ")) }
                         LabeledContent("Rating") {
                             HStack(spacing: 2) {
                                 ForEach(1...5, id: \.self) { i in

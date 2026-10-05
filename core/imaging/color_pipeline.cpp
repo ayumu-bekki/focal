@@ -9,8 +9,8 @@ namespace focal {
 
 namespace {
 
-ToneParams tone_params(const Settings& s) {
-    return {s.exposure, s.contrast, s.highlights, s.shadows, s.whites, s.blacks, s.brightness};
+ToneParams tone_params(const Settings& s, bool base_curve) {
+    return {s.exposure, s.contrast, s.highlights, s.shadows, s.whites, s.blacks, s.brightness, base_curve};
 }
 
 // Rec.2020 の輝度の係数
@@ -38,7 +38,8 @@ std::array<double, 3> ColorPipeline::effective_wb(const Settings& s, const Color
     return color.as_shot_wb;
 }
 
-ColorPipeline::ColorPipeline(const Settings& settings, const ColorInfo& color) : tone_(tone_params(settings)) {
+ColorPipeline::ColorPipeline(const Settings& settings, const ColorInfo& color)
+    : tone_(tone_params(settings, !color.display_referred)) {
     if (settings.process_version != 1)
         throw Error(Error::Code::Unsupported,
                     "unsupported processVersion " + std::to_string(settings.process_version));

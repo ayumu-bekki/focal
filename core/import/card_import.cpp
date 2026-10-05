@@ -78,10 +78,17 @@ struct Shot {
         for (const auto& f : files) n += f.size;
         return n;
     }
+    // カタログの写真になるファイル: RAW、なければ（JPEG だけの 1 枚）写真として扱う画像ファイルの先頭（v3.22）。
+    // RAW と同じ名前の JPEG などは、その RAW の付属ファイル
     const File* primary() const {
         for (const auto& f : files)
             if (f.cls == FileClass::Raw) return &f;
+        for (const auto& f : files)
+            if (f.cls == FileClass::Image && photo_kind_for_name(f.name)) return &f;
         return nullptr;
+    }
+    bool is_photo_file(const File& f) const {
+        return f.cls == FileClass::Raw || (f.cls == FileClass::Image && photo_kind_for_name(f.name));
     }
 };
 
@@ -384,7 +391,8 @@ CardImportResult import_from_card(Catalog& catalog, const CardImportOptions& opt
         fs::path dir;
         std::string name;
     };
-    std::vector<Copied> raws;  // コピーした RAW（カタログの id を引くため）
+    std::vector<Copied> raws;  // コピーした写真の主役のファイル（RAW、なければ JPEG など。カタログの id を引くため）
+    std::vector<fs::path> companions;  // 同じ名前の付属の写真ファイル（RAW の JPEG など）
     int done = 0;
     int64_t bytes_done = 0;
     for (const auto& s : shots) {
@@ -402,11 +410,18 @@ CardImportResult import_from_card(Catalog& catalog, const CardImportOptions& opt
                 report(CardImportProgress::Phase::Copying, done, to_copy, bytes_done, bytes_total, name);
                 copy_file_verified(f.path, s.dest_dir / utf8_to_path(name), opt.verify, opt.cancel, &bytes_done);
                 ++result.files_copied;
-                if (f.cls == FileClass::Raw) raws.push_back({s.dest_dir, to_nfc(name)});
+                if (&f == s.primary()) raws.push_back({s.dest_dir, to_nfc(name)});
+                else if (s.is_photo_file(f)) companions.push_back(s.dest_dir / utf8_to_path(name));
             }
-            for (size_t i = 0; i < s.files.size(); ++i)  // すでにコピー済みの RAW も登録の対象（途中で止まった取り込みの続き）
-                if (s.already_copied[i] && s.files[i].cls == FileClass::Raw)
-                    raws.push_back({s.dest_dir, to_nfc(dest_name(s.files[i], s.dest_stem))});
+            for (size_t i = 0; i < s.files.size(); ++i) {  // すでにコピー済みの写真も登録の対象（途中で止まった取り込みの続き）
+                if (!s.already_copied[i]) continue;
+                const auto& f = s.files[i];
+                const std::string name = dest_name(f, s.dest_stem);
+                if (&f == s.primary())
+                    raws.push_back({s.dest_dir, to_nfc(name)});
+                else if (s.is_photo_file(f))
+                    companions.push_back(s.dest_dir / utf8_to_path(name));
+            }
             ++result.imported;
         } catch (const Error& e) {
             if (e.code() == Error::Code::Cancelled) {
@@ -435,8 +450,10 @@ CardImportResult import_from_card(Catalog& catalog, const CardImportOptions& opt
     so.thumbnails = opt.thumbnails;
     so.progress = [&](int d, int t) { report(CardImportProgress::Phase::Cataloging, d, t, 0, 0, {}); };
     // コピーした RAW だけを登録する（ルートは走査しない。ほかの写真には触れず、ルートが大きくても遅くならない）
+    // （RAW と同じ名前の JPEG などの付属ファイルも渡す。カタログがその RAW の付属ファイルとして記録する）
     std::vector<fs::path> raw_paths;
     for (const auto& r : raws) raw_paths.push_back(r.dir / utf8_to_path(r.name));
+    for (const auto& c : companions) raw_paths.push_back(c);
     try {
         result.scan = catalog.register_files(root->id, raw_paths, so);
     } catch (const Error& e) {

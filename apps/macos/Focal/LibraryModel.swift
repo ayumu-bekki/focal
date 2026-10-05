@@ -226,7 +226,8 @@ final class LibraryModel {
             return
         }
         let next = photoIDs.indices.contains(i + 1) ? photoIDs[i + 1] : nil
-        develop.open(photoID: photoIDs[i], next: next, placeholder: thumbnails.cached(photoIDs[i]))
+        develop.open(photoID: photoIDs[i], next: next, placeholder: thumbnails.cached(photoIDs[i]),
+                     editable: photo(at: i)?.kind.isDevelopable ?? true)
     }
 
     // MARK: 書き出し（5.8 章）

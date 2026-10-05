@@ -20,6 +20,9 @@
 #include "thumbs/thumbnail_service.h"
 #include "util/error.h"
 #include "util/file.h"
+#ifdef FOCAL_HAVE_APPLE_IMAGE_READER
+#include "platform/apple_image_reader.h"
+#endif
 
 #ifdef FOCAL_HAVE_GPU
 #include "gpu/metal_renderer.h"
@@ -171,6 +174,7 @@ struct AlbumArray : fc_album_array {
 
 struct PhotoArray : fc_photo_array {
     std::vector<PhotoRecord> src;
+    std::vector<std::string> companions;  // fc_photo.companions の文字列（ファイル名を '/' で区切る）
     std::vector<fc_photo> v;
 };
 
@@ -192,8 +196,14 @@ fc_photo_array* make_photos(std::vector<PhotoRecord> photos) {
     auto a = std::make_unique<PhotoArray>();
     a->src = std::move(photos);
     a->v.reserve(a->src.size());
+    a->companions.reserve(a->src.size());
     for (const auto& p : a->src) {
         fc_photo c{};
+        std::string joined;
+        for (const auto& name : p.companions) joined += (joined.empty() ? "" : "/") + name;
+        a->companions.push_back(std::move(joined));
+        c.companions = a->companions.back().c_str();
+        c.kind = static_cast<int32_t>(p.kind);
         c.id = p.id;
         c.folder_id = p.folder_id;
         c.file_name = p.file_name.c_str();
@@ -288,6 +298,9 @@ const char* fc_last_error(void) { return g_last_error.c_str(); }
 
 fc_status fc_catalog_open(const char* path, fc_catalog** out) {
     return guard([&] {
+#ifdef FOCAL_HAVE_APPLE_IMAGE_READER
+        focal::platform::register_apple_image_reader();  // HEIF を ImageIO で読む（何度呼んでもよい）
+#endif
         require(path && out, "path and out must not be NULL");
         *out = nullptr;
         auto c = std::make_unique<fc_catalog>();

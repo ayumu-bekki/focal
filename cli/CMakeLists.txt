@@ -16,3 +16,9 @@ if(TARGET focal_gpu)
     target_link_libraries(focal PRIVATE focal_gpu)
     target_compile_definitions(focal PRIVATE FOCAL_HAVE_GPU)
 endif()
+
+# macOS では HEIF を ImageIO で読む（v3.22）
+if(TARGET focal_platform_apple)
+    target_link_libraries(focal PRIVATE focal_platform_apple)
+    target_compile_definitions(focal PRIVATE FOCAL_HAVE_APPLE_IMAGE_READER)
+endif()

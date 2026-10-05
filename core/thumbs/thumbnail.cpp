@@ -11,6 +11,7 @@
 #include "edit/settings.h"
 #include "imaging/image_io.h"
 #include "imaging/libraw_util.h"
+#include "imaging/photo_file.h"
 #include "imaging/output_transform.h"
 #include "imaging/renderer.h"
 #include "imaging/resample.h"
@@ -289,6 +290,11 @@ Thumbnail make_thumbnail(LibRaw& raw, const fs::path& raw_path, const ThumbnailO
 }
 
 Thumbnail make_thumbnail(const fs::path& raw_path, const ThumbnailOptions& options) {
+    // RAW 以外の写真（v3.22）: 編集の反映がなければ、画像そのものを縮小する。あれば RAW と同じレンダリング（decode_raw が振り分ける）
+    if (const auto kind = photo_kind_for_name(raw_path.filename().string()); kind && *kind != PhotoKind::Raw) {
+        if (options.settings) return render_thumbnail(raw_path, options.long_edge, *options.settings);
+        return {image_file_thumbnail(raw_path, *kind, options.long_edge), ThumbnailSource::Embedded};
+    }
     auto raw = std::make_unique<LibRaw>();
     open_libraw(*raw, raw_path);
     return make_thumbnail(*raw, raw_path, options);

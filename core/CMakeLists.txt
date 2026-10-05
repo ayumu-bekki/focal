@@ -10,6 +10,7 @@ add_library(focal_core STATIC
     edit/undo_stack.cpp
     edit/editor.cpp
     imaging/raw_decoder.cpp
+    imaging/photo_file.cpp
     imaging/resample.cpp
     imaging/white_balance.cpp
     imaging/tone_curve.cpp
@@ -43,6 +44,7 @@ target_link_libraries(focal_core
         nlohmann_json::nlohmann_json
         JPEG::JPEG
         TIFF::TIFF
+        PNG::PNG
         unofficial::sqlite3::sqlite3
         BLAKE3::blake3
         utf8proc::utf8proc

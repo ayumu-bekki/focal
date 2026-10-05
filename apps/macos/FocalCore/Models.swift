@@ -96,6 +96,13 @@ public enum PhotoStatus: Int32, Sendable {
     case ok = 0, missing = 1, unsupported = 2
 }
 
+/// 写真のファイルの種類（v3.22）。RAW 以外は現像できない（表示・★・タグ・アルバムなどは同じ）
+public enum PhotoKind: Int32, Sendable {
+    case raw = 0, jpeg = 1, tiff = 2, png = 3, heif = 4
+
+    public var isDevelopable: Bool { self == .raw }
+}
+
 public enum PhotoFlag: Int32, Sendable {
     case rejected = -1, none = 0, picked = 1
 }
@@ -122,6 +129,10 @@ public struct Photo: Identifiable, Hashable, Sendable {
     public var flag: PhotoFlag
     public let fileSize: Int64
     public let fileMTime: Int64
+    /// 主役のファイルの種類
+    public let kind: PhotoKind
+    /// 同じ名前（拡張子を除く）の付属の写真ファイル（RAW の JPEG など）。主役と同じ 1 枚として扱う
+    public let companions: [String]
 
     init(_ c: fc_photo) {
         id = c.id
@@ -144,6 +155,8 @@ public struct Photo: Identifiable, Hashable, Sendable {
         flag = PhotoFlag(rawValue: c.flag) ?? .none
         fileSize = c.file_size
         fileMTime = c.file_mtime
+        kind = PhotoKind(rawValue: c.kind) ?? .raw
+        companions = String(cString: c.companions).split(separator: "/").map(String.init)
     }
 }
 

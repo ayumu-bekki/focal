@@ -14,6 +14,8 @@ struct ToneParams {
     double whites = 0.0;      // -100..100
     double blacks = 0.0;      // -100..100
     double brightness = 0.0;  // -100..100（ベースカーブの後、0 と 1 を動かさないべき乗）
+    // false なら、ベースカーブを入れない（すでに表示用の階調になっている JPEG などの写真。何も調整しなければ入力と同じ値が出る。v3.22）
+    bool base_curve = true;
 };
 
 // LUT を使わずに 1 点を厳密に計算する（LUT 生成とテスト用）

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "edit/settings.h"
+#include "imaging/photo_kind.h"
 
 namespace focal {
 
@@ -107,6 +108,9 @@ struct PhotoRecord {
     int rating = 0;
     int flag = 0;  // -1: リジェクト、0: なし、1: ピック
     std::string path;  // 絶対パス（NFC）。ディスク上の実名とは正規化が違うことがある（photo_disk_path を使う）
+    PhotoKind kind = PhotoKind::Raw;  // 主役のファイルの種類（v3.22）。RAW 以外は現像できない
+    // 同じ名前（拡張子を除く）の付属の写真ファイル。RAW の JPEG など（v3.22）。主役と同じ 1 枚として扱う
+    std::vector<std::string> companions;
 };
 
 enum class FlagFilter { Any, Picked, Rejected, Unflagged, NotRejected };
