@@ -82,7 +82,15 @@ hdiutil create -quiet -volname "Focal $VERSION" -srcfolder "$STAGE" -format UDZO
 if [[ -n "${NOTARY_PROFILE:-}" ]]; then
   [[ "$IDENTITY" == "-" ]] && { echo "公証には Developer ID の署名が要る（SIGN_IDENTITY）"; exit 1; }
   echo "== 公証"
-  xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
+  # 却下（Invalid）でも submit は成功で返るので、結果を見て、Accepted でなければ Apple のログを出して止める
+  RESULT=$(xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait 2>&1) || true
+  echo "$RESULT"
+  if ! grep -q "status: Accepted" <<<"$RESULT"; then
+    SUBMISSION=$(awk '/^ *id:/{print $2; exit}' <<<"$RESULT")
+    echo "== 公証が通らなかった。Apple のログ（${SUBMISSION}）"
+    [[ -n "$SUBMISSION" ]] && xcrun notarytool log "$SUBMISSION" --keychain-profile "$NOTARY_PROFILE" || true
+    exit 1
+  fi
   xcrun stapler staple "$DMG"
   spctl --assess --type open --context context:primary-signature -v "$DMG"
 fi
