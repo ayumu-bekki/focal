@@ -1,0 +1,174 @@
+# macOS アプリのリリース（タグ駆動）。docs/release.md を参照。
+#
+#   develop で開発 → main にマージ → main の上で  git tag v26.0.0 && git push origin v26.0.0
+#
+# v<数字3つ>（正式版）または v<数字3つ>-<種類>（β など。プレリリース）のタグを push したときだけ動く。
+# main へのマージだけではリリースしない。タグが main の履歴にないときは中止する。
+# 版はタグで決める（project.yml の MARKETING_VERSION は開発用）。
+# Developer ID で署名 → 公証（notarytool）→ staple した DMG を、GitHub Releases に添付する。
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  VCPKG_COMMIT: 4a1c77189c64dae7afd478333a64d1e604d5dc91   # vcpkg.json の builtin-baseline と同じ
+
+jobs:
+  release:
+    name: Build, sign, notarize and release
+    runs-on: macos-latest
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the tag
+        id: tag
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          if [[ ! "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-([0-9A-Za-z.-]+))?$ ]]; then
+            echo "::error::タグ $TAG は v1.2.3 または v1.2.3-beta の形ではありません"; exit 1
+          fi
+          NUMBER="${BASH_REMATCH[1]}"
+          SUFFIX="${BASH_REMATCH[3]}"
+          # β などの表示（-beta、-beta.2 は β、それ以外はそのまま）。空なら正式版
+          case "$SUFFIX" in
+            "") CHANNEL="" ;;
+            beta*) CHANNEL="β" ;;
+            *) CHANNEL="$SUFFIX" ;;
+          esac
+          # タグが main の履歴にあること（main にマージしたあとにタグを打つ）
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::このタグのコミットは main にマージされていません。main にマージしてからタグを打ってください"; exit 1
+          fi
+          {
+            echo "number=$NUMBER"
+            echo "channel=$CHANNEL"
+            echo "prerelease=$([[ -n "$SUFFIX" ]] && echo true || echo false)"
+            echo "asset=Focal-${NUMBER}${SUFFIX:+-$SUFFIX}.dmg"
+          } >> "$GITHUB_OUTPUT"
+          echo "== Focal $NUMBER ${CHANNEL}（タグ $TAG）"
+
+      - name: Check the secrets
+        env:
+          P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=""
+          for v in P12 P12_PASSWORD APPLE_ID APPLE_APP_PASSWORD APPLE_TEAM_ID; do
+            [[ -n "${!v}" ]] || missing="$missing $v"
+          done
+          if [[ -n "$missing" ]]; then
+            echo "::error::署名・公証の Secrets がありません:$missing（docs/release.md）。署名なしの DMG はリリースしません"; exit 1
+          fi
+
+      - name: Tools
+        run: brew install ninja xcodegen
+      - name: vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          git -C "$VCPKG_ROOT" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+      - name: vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/vcpkg/archives
+          key: vcpkg-macos-latest-${{ hashFiles('vcpkg.json', 'triplets/**', 'ports/**') }}
+          restore-keys: vcpkg-macos-latest-
+      - name: Test RAW files
+        uses: actions/cache@v4
+        with:
+          path: tests/data
+          key: rawdata-${{ hashFiles('tests/data/fetch.sh') }}
+      - name: Fetch test RAW files
+        run: tests/data/fetch.sh
+
+      - name: Build core (XCFramework)
+        run: apps/macos/scripts/build-core.sh
+      - name: Test (XCTest)
+        working-directory: apps/macos
+        run: |
+          xcodegen -q
+          xcodebuild test -project Focal.xcodeproj -scheme Focal -destination 'platform=macOS' \
+            -derivedDataPath build/DerivedData -only-testing:FocalCoreTests CODE_SIGN_IDENTITY=-
+
+      - name: Import the Developer ID certificate
+        id: keychain
+        env:
+          P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/focal-release.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -F'"' '/Developer ID Application/{print $2; exit}')"
+          if [[ -z "$IDENTITY" ]]; then
+            echo "::error::証明書に Developer ID Application の署名用の鍵がありません"; exit 1
+          fi
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+          echo "keychain=$KEYCHAIN" >> "$GITHUB_OUTPUT"
+
+      - name: Store the notarization credentials
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcrun notarytool store-credentials focal-release \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" \
+            --keychain "${{ steps.keychain.outputs.keychain }}"
+
+      - name: Package (sign, notarize, staple)
+        env:
+          SIGN_IDENTITY: ${{ steps.keychain.outputs.identity }}
+          NOTARY_PROFILE: focal-release
+          MARKETING_VERSION: ${{ steps.tag.outputs.number }}
+          FOCAL_RELEASE_CHANNEL: ${{ steps.tag.outputs.channel }}
+          CURRENT_PROJECT_VERSION: ${{ github.run_number }}
+        run: |
+          apps/macos/scripts/package.sh
+          # GitHub のアセット名は空白や β を避けた名前にする
+          DMG="$(ls apps/macos/build/dist/*.dmg | head -1)"
+          cp "$DMG" "apps/macos/build/dist/${{ steps.tag.outputs.asset }}"
+          shasum -a 256 "apps/macos/build/dist/${{ steps.tag.outputs.asset }}" | tee "apps/macos/build/dist/${{ steps.tag.outputs.asset }}.sha256"
+
+      - name: Remove the keychain
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/focal-release.keychain-db" || true
+
+      - name: Create the release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Focal ${{ steps.tag.outputs.number }}${{ steps.tag.outputs.channel && format(' {0}', steps.tag.outputs.channel) || '' }}
+          prerelease: ${{ steps.tag.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          files: |
+            apps/macos/build/dist/${{ steps.tag.outputs.asset }}
+            apps/macos/build/dist/${{ steps.tag.outputs.asset }}.sha256

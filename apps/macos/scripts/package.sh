@@ -14,14 +14,20 @@ DIST="$MAC/build/dist"
 IDENTITY="${SIGN_IDENTITY:--}"
 export PATH="/opt/local/bin:$PATH"
 
-VERSION=$(awk -F'"' '/^ *MARKETING_VERSION:/{print $2; exit}' "$MAC/project.yml")
+# 版は project.yml から。環境変数 MARKETING_VERSION / FOCAL_RELEASE_CHANNEL / CURRENT_PROJECT_VERSION があればそちらを使う
+# （GitHub のリリースはタグから決める。FOCAL_RELEASE_CHANNEL は空の指定で正式版）
+NUMBER="${MARKETING_VERSION:-$(awk -F'"' '/^ *MARKETING_VERSION:/{print $2; exit}' "$MAC/project.yml")}"
+CHANNEL="${FOCAL_RELEASE_CHANNEL-$(awk -F'"' '/^ *FOCAL_RELEASE_CHANNEL:/{print $2; exit}' "$MAC/project.yml")}"  # 例: β
+VERSION="$NUMBER"
+[[ -n "$CHANNEL" ]] && VERSION="$NUMBER $CHANNEL"
 echo "== Focal ${VERSION}（署名: ${IDENTITY}）"
 
 "$MAC/scripts/build-core.sh"
 cd "$MAC"
 xcodegen -q
 DERIVED="$MAC/build/DerivedData-release"
-SIGN_ARGS=(CODE_SIGN_IDENTITY="$IDENTITY")
+SIGN_ARGS=(CODE_SIGN_IDENTITY="$IDENTITY" MARKETING_VERSION="$NUMBER" FOCAL_RELEASE_CHANNEL="$CHANNEL")
+[[ -n "${CURRENT_PROJECT_VERSION:-}" ]] && SIGN_ARGS+=(CURRENT_PROJECT_VERSION="$CURRENT_PROJECT_VERSION")
 if [[ "$IDENTITY" == "-" ]]; then
   # ローカル署名（ad-hoc）には Team ID がないので、Hardened Runtime のライブラリ検証で
   # 同梱のフレームワークが読み込めない。Hardened Runtime は公証のためのもので、ローカルでは不要

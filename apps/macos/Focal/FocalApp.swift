@@ -252,6 +252,12 @@ struct LibraryCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        // 「Focal について」: 版に、β などのリリースの種類を添える（Info.plist の FocalReleaseChannel）
+        CommandGroup(replacing: .appInfo) {
+            Button("About Focal") {
+                NSApp.orderFrontStandardAboutPanel(options: [.applicationVersion: AppInfo.displayVersion])
+            }
+        }
         CommandGroup(after: .help) {
             Button("Third-Party Licenses") { openWindow(id: "licenses") }
         }
@@ -409,5 +415,15 @@ extension UserDefaults {
     /// 値がなければ既定値
     func bool(forKey key: String, default value: Bool) -> Bool {
         object(forKey: key) == nil ? value : bool(forKey: key)
+    }
+}
+
+/// アプリの版の表示（26.0.0 β のように、版にリリースの種類を添える。種類が空なら版だけ）
+enum AppInfo {
+    static var displayVersion: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? ""
+        let channel = (info["FocalReleaseChannel"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+        return channel.isEmpty ? version : "\(version) \(channel)"
     }
 }

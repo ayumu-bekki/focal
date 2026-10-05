@@ -1218,6 +1218,23 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(waitGone(any("presetRow-Renamed")))
     }
 
+    /// 「Focal について」: 版に β などの種類が添えられている（26.0.0 β）
+    @MainActor
+    func testAboutPanelShowsVersion() throws {
+        try requireCatalog()
+        let app = launch()
+        XCTAssertTrue(app.descendants(matching: .any)["photoGrid"].waitForExistence(timeout: 10))
+        let about = app.menuBars.menuItems.matching(NSPredicate(format: "title BEGINSWITH 'Focal について' OR title BEGINSWITH 'About Focal'")).firstMatch
+        XCTAssertTrue(about.waitForExistence(timeout: 3) || { app.menuBars.menuBarItems["Focal"].click(); return about.waitForExistence(timeout: 3) }())
+        about.click()
+        let text = app.staticTexts.matching(NSPredicate(format: "value CONTAINS '26.0.0'")).firstMatch
+        XCTAssertTrue(text.waitForExistence(timeout: 5))
+        saveScreenshot(app, name: "about-panel")
+        let value = text.value as? String ?? ""
+        XCTAssertTrue(value.contains("β") || value.contains("beta"), "版に種類が出る: \(value)")
+        app.typeKey("w", modifierFlags: .command)
+    }
+
     /// n: 0 新規アルバム、1 新規スマートアルバム、2 新規フォルダ（メニュー項目の識別子は取れないので名前で選ぶ）
     private func chooseNewAlbumItem(_ app: XCUIApplication, _ n: Int) {
         openNewAlbumMenu(app)

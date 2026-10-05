@@ -81,6 +81,7 @@ targets:
       properties:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        FocalReleaseChannel: $(FOCAL_RELEASE_CHANNEL)
         # カタログ（〜.focalcatalog）はパッケージ（Finder では 1 つのファイルに見える）
         UTExportedTypeDeclarations:
           - UTTypeIdentifier: jp.bekki.focal.catalog
@@ -105,7 +106,10 @@ targets:
         LOCALIZATION_PREFERS_STRING_CATALOGS: YES
         SWIFT_EMIT_LOC_STRINGS: YES
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
-        MARKETING_VERSION: "0.2.0"
+        # 版は数字だけ（CFBundleShortVersionString は 26.0.0 のような数字の並びでなければならない）。
+        # 「β」などの表示は FOCAL_RELEASE_CHANNEL（空なら正式版）で持ち、「Focal について」と DMG の名前に使う
+        MARKETING_VERSION: "26.0.0"
+        FOCAL_RELEASE_CHANNEL: "β"
         CURRENT_PROJECT_VERSION: "1"
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

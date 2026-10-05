@@ -236,6 +236,16 @@
         }
       }
     },
+    "About Focal" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Focal について"
+          }
+        }
+      }
+    },
     "Add" : {
       "localizations" : {
         "ja" : {
