@@ -206,6 +206,16 @@
         }
       }
     },
+    "A preset with this name already exists." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同じ名前のプリセットがあります。"
+          }
+        }
+      }
+    },
     "A preset with this name already exists. It will be replaced." : {
       "localizations" : {
         "ja" : {
@@ -1874,6 +1884,16 @@
         }
       }
     },
+    "Modified" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "変更あり"
+          }
+        }
+      }
+    },
     "Move %lld photos to the Trash?" : {
       "localizations" : {
         "ja" : {
@@ -2305,6 +2325,16 @@
         }
       }
     },
+    "Overwrite this preset with the current adjustments" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このプリセットを、いまの調整で上書きします"
+          }
+        }
+      }
+    },
     "Photo" : {
       "localizations" : {
         "ja" : {
@@ -2621,6 +2651,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "フォルダの名前を変更"
+          }
+        }
+      }
+    },
+    "Rename Preset" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プリセットの名前を変更"
           }
         }
       }
@@ -3221,6 +3261,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "新規スマートアルバム"
+          }
+        }
+      }
+    },
+    "Update" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新"
           }
         }
       }

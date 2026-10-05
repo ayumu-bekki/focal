@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 15
+#define FC_API_VERSION 16
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -554,6 +554,12 @@ void fc_preset_array_free(fc_preset_array* array);
 fc_status fc_presets_save(fc_presets* presets, const char* name, const fc_settings* settings, fc_string** out_id);
 /* 利用者のプリセットだけ消せる */
 fc_status fc_presets_delete(fc_presets* presets, const char* id);
+/* 利用者のプリセットの表示名を変える。同じ名前の別のプリセットがあれば FC_ERR_INVALID_ARGUMENT */
+fc_status fc_presets_rename(fc_presets* presets, const char* id, const char* name);
+/* settings の調整と同じ調整のプリセット（同梱が先。切り取りなどは見ない）の id。なければ *out_id は NULL（FC_OK）。
+   読み込み済みの内容と比べるので、スライダーの操作のたびに呼んでよい（fc_presets_list・save・delete・rename で読み直す）。
+   out_id は fc_string_free で解放 */
+fc_status fc_presets_match(fc_presets* presets, const fc_settings* settings, fc_string** out_id);
 /* base にプリセットの調整を重ねた設定を返す（切り取り・回転・傾きは base のまま）。現像中の写真に使う */
 fc_status fc_presets_apply(fc_presets* presets, const char* id, const fc_settings* base, fc_settings* out);
 /* 写真のカタログ上の編集にプリセットを重ねる（書き込みは core のスレッドで、完了を待たない）。

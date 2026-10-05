@@ -151,3 +151,57 @@ TEST_CASE("プリセット: カタログの写真に重ねる（切り取りは�
     REQUIRE(c->edit_json(ids[0]));
     CHECK(settings_from_json(*c->edit_json(ids[0])).geometry.crop == CropRect{0, 0, 0.5, 0.5});
 }
+
+TEST_CASE("プリセット: 調整が同じプリセットを探す・名前を変える", "[preset]") {
+    TempDir user, builtin;
+    PresetStore maker(builtin.path());
+    Settings std_look;
+    std_look.contrast = 30;
+    std_look.shadows = 10;
+    maker.save("Focal Default", std_look);
+    PresetStore store(user.path(), builtin.path());
+    Settings mine;
+    mine.exposure = 0.5;
+    const std::string mine_id = store.save("Mine", mine);
+
+    // 切り取りなどがあっても、調整が同じなら一致する。同梱が先
+    Settings s = std_look;
+    s.geometry.rotate90 = 2;
+    s.geometry.crop = {0, 0, 0.5, 0.5};
+    REQUIRE(store.find_match(s));
+    CHECK(*store.find_match(s) == "builtin:Focal Default");
+    s.contrast = 31;
+    CHECK_FALSE(store.find_match(s));
+    CHECK(store.find_match(mine) == mine_id);
+
+    // As Shot なら、色温度の古い値は見ない。カスタムなら見る
+    Settings stale = std_look;
+    stale.wb.temperature = 4000;
+    CHECK(store.find_match(stale) == "builtin:Focal Default");
+    Settings custom = std_look;
+    custom.wb.mode = WhiteBalanceSettings::Mode::Custom;
+    CHECK_FALSE(store.find_match(custom));
+
+    // 保存すると、探す内容も新しくなる
+    Settings fresh;
+    fresh.clarity = 12;
+    CHECK_FALSE(store.find_match(fresh));
+    const std::string fresh_id = store.save("Fresh", fresh);
+    CHECK(store.find_match(fresh) == fresh_id);
+    store.remove(fresh_id);
+    CHECK_FALSE(store.find_match(fresh));
+
+    // 名前の変更: 中身は変わらない。同じ名前の別のプリセット・空の名前・同梱は不可
+    store.rename(mine_id, "Mine 2");
+    REQUIRE(store.list().size() == 2);
+    CHECK(store.list()[1].name == "Mine 2");
+    CHECK(store.find_match(mine) == mine_id);
+    CHECK(store.load(mine_id).exposure == 0.5);
+    store.save("Other", fresh);
+    CHECK_THROWS_AS(store.rename(mine_id, "other"), Error);
+    CHECK_THROWS_AS(store.rename(mine_id, "  "), Error);
+    CHECK_THROWS_AS(store.rename("builtin:Focal Default", "X"), Error);
+    CHECK_THROWS_AS(store.rename("user:none", "X"), Error);
+    store.rename(mine_id, "MINE 2");  // 自分自身との大文字小文字だけの違いは許す
+    CHECK(store.list()[1].name == "MINE 2");
+}

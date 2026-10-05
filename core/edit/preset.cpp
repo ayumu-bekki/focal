@@ -104,15 +104,44 @@ Settings apply_preset(const Settings& base, const Settings& preset) {
     return s;
 }
 
+bool adjustments_equal(const Settings& a, const Settings& b) {
+    const bool wb_same = a.wb.mode == b.wb.mode &&
+                         (a.wb.mode == WhiteBalanceSettings::Mode::AsShot ||
+                          (a.wb.temperature == b.wb.temperature && a.wb.tint == b.wb.tint));
+    return wb_same && a.exposure == b.exposure && a.contrast == b.contrast && a.highlights == b.highlights &&
+           a.shadows == b.shadows && a.whites == b.whites && a.blacks == b.blacks && a.brightness == b.brightness &&
+           a.saturation == b.saturation && a.vibrance == b.vibrance && a.clarity == b.clarity &&
+           a.sharpness == b.sharpness && a.noise_reduction == b.noise_reduction &&
+           a.color_noise_reduction == b.color_noise_reduction;
+}
+
 PresetStore::PresetStore(fs::path user_dir, std::optional<fs::path> builtin_dir)
     : user_dir_(std::move(user_dir)), builtin_dir_(std::move(builtin_dir)) {}
 
-std::vector<PresetInfo> PresetStore::list() const {
-    std::vector<PresetInfo> out;
+std::vector<PresetStore::Cached> PresetStore::read_all() const {
+    std::vector<Cached> out;
     if (builtin_dir_)
-        for (const auto& e : read_dir(*builtin_dir_)) out.push_back({"builtin:" + e.stem, e.loaded.name, true});
-    for (const auto& e : read_dir(user_dir_)) out.push_back({"user:" + e.stem, e.loaded.name, false});
+        for (auto& e : read_dir(*builtin_dir_))
+            out.push_back({{"builtin:" + e.stem, e.loaded.name, true}, std::move(e.loaded.settings)});
+    for (auto& e : read_dir(user_dir_))
+        out.push_back({{"user:" + e.stem, e.loaded.name, false}, std::move(e.loaded.settings)});
     return out;
+}
+
+std::vector<PresetInfo> PresetStore::list() const {
+    std::lock_guard lock(mutex_);
+    cache_ = read_all();
+    std::vector<PresetInfo> out;
+    for (const auto& c : *cache_) out.push_back(c.info);
+    return out;
+}
+
+std::optional<std::string> PresetStore::find_match(const Settings& settings) const {
+    std::lock_guard lock(mutex_);
+    if (!cache_) cache_ = read_all();
+    for (const auto& c : *cache_)
+        if (adjustments_equal(settings, c.settings)) return c.info.id;
+    return std::nullopt;
 }
 
 Settings PresetStore::load(const std::string& id) const {
@@ -177,6 +206,10 @@ std::string PresetStore::save(const std::string& name_in, const Settings& settin
         fs::remove(tmp, ec);
         throw Error(Error::Code::Io, "cannot save " + path_to_utf8(path));
     }
+    {
+        std::lock_guard lock(mutex_);
+        cache_.reset();
+    }
     return "user:" + stem;
 }
 
@@ -186,8 +219,52 @@ void PresetStore::remove(const std::string& id) {
     if (stem.empty() || stem.find_first_of("/\\") != std::string::npos || stem.find("..") != std::string::npos)
         throw Error(Error::Code::InvalidArgument, "invalid preset id: " + id);
     std::error_code ec;
-    if (!fs::remove(user_dir_ / utf8_to_path(stem + kExt), ec))
-        throw Error(Error::Code::NotFound, "preset not found: " + id);
+    const bool removed = fs::remove(user_dir_ / utf8_to_path(stem + kExt), ec);
+    {
+        std::lock_guard lock(mutex_);
+        cache_.reset();
+    }
+    if (!removed) throw Error(Error::Code::NotFound, "preset not found: " + id);
+}
+
+void PresetStore::rename(const std::string& id, const std::string& new_name) {
+    if (id.rfind("user:", 0) != 0) throw Error(Error::Code::InvalidArgument, "only your own presets can be renamed");
+    const std::string stem = id.substr(5);
+    if (stem.empty() || stem.find_first_of("/\\") != std::string::npos || stem.find("..") != std::string::npos)
+        throw Error(Error::Code::InvalidArgument, "invalid preset id: " + id);
+    const std::string name = to_nfc(new_name);
+    const size_t first = name.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) throw Error(Error::Code::InvalidArgument, "preset name is empty");
+    const std::string trimmed = name.substr(first, name.find_last_not_of(" \t\r\n") - first + 1);
+    if (trimmed.size() > 200) throw Error(Error::Code::InvalidArgument, "preset name is too long");
+
+    const fs::path path = user_dir_ / utf8_to_path(stem + kExt);
+    const auto current = read_preset_file(path);
+    if (!current) throw Error(Error::Code::NotFound, "preset not found: " + id);
+    const std::string key = casefold_key(trimmed);
+    for (const auto& e : read_dir(user_dir_))
+        if (e.stem != stem && casefold_key(e.loaded.name) == key)
+            throw Error(Error::Code::InvalidArgument, "a preset with this name already exists");
+
+    json doc = json::object();
+    doc["focalPreset"] = 1;
+    doc["name"] = trimmed;
+    doc["settings"] = json::parse(settings_to_json(preset_adjustments(current->settings)));
+    const fs::path tmp = user_dir_ / utf8_to_path(stem + ".tmp");
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        if (!out) throw Error(Error::Code::Io, "cannot write " + path_to_utf8(tmp));
+        out << doc.dump(2) << '\n';
+        if (!out) throw Error(Error::Code::Io, "cannot write " + path_to_utf8(tmp));
+    }
+    std::error_code ec;
+    fs::rename(tmp, path, ec);
+    if (ec) {
+        fs::remove(tmp, ec);
+        throw Error(Error::Code::Io, "cannot save " + path_to_utf8(path));
+    }
+    std::lock_guard lock(mutex_);
+    cache_.reset();
 }
 
 } // namespace focal

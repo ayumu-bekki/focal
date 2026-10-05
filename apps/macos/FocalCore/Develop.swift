@@ -32,6 +32,16 @@ public struct DevelopSettings: Equatable, Sendable {
         self.init(c)
     }
 
+    /// 調整がすべて初期値か（切り取り・回転・傾きは見ない）
+    public var hasNoAdjustments: Bool {
+        let d = DevelopSettings()
+        return customWhiteBalance == d.customWhiteBalance && exposure == d.exposure && contrast == d.contrast
+            && highlights == d.highlights && shadows == d.shadows && whites == d.whites && blacks == d.blacks
+            && brightness == d.brightness && saturation == d.saturation && vibrance == d.vibrance
+            && clarity == d.clarity && sharpness == d.sharpness && noiseReduction == d.noiseReduction
+            && colorNoiseReduction == d.colorNoiseReduction
+    }
+
     init(_ c: fc_settings) {
         processVersion = c.process_version
         customWhiteBalance = c.wb_mode == Int32(FC_WB_CUSTOM.rawValue)

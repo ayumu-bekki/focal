@@ -563,6 +563,26 @@ fc_status fc_presets_delete(fc_presets* presets, const char* id) {
     });
 }
 
+fc_status fc_presets_rename(fc_presets* presets, const char* id, const char* name) {
+    return guard([&] {
+        require(presets && id && name, "invalid arguments");
+        presets->store.rename(id, name);
+    });
+}
+
+fc_status fc_presets_match(fc_presets* presets, const fc_settings* settings, fc_string** out_id) {
+    return guard([&] {
+        require(presets && settings && out_id, "invalid arguments");
+        *out_id = nullptr;
+        if (const auto id = presets->store.find_match(to_settings(*settings))) {
+            auto b = std::make_unique<StringBox>();
+            b->text = *id;
+            b->value = b->text.c_str();
+            *out_id = b.release();
+        }
+    });
+}
+
 fc_status fc_presets_apply(fc_presets* presets, const char* id, const fc_settings* base, fc_settings* out) {
     return guard([&] {
         require(presets && id && base && out, "invalid arguments");

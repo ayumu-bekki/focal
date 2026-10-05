@@ -199,6 +199,29 @@ final class DevelopModel {
         update { $0 = merged }
     }
 
+    /// 調整をすべて初期値に戻す（切り取り・回転・傾きはそのまま）。1 回の Undo になる
+    func resetAdjustments() {
+        update { s in
+            let d = DevelopSettings()
+            s.customWhiteBalance = d.customWhiteBalance
+            s.temperature = d.temperature
+            s.tint = d.tint
+            s.exposure = d.exposure
+            s.contrast = d.contrast
+            s.highlights = d.highlights
+            s.shadows = d.shadows
+            s.whites = d.whites
+            s.blacks = d.blacks
+            s.brightness = d.brightness
+            s.saturation = d.saturation
+            s.vibrance = d.vibrance
+            s.clarity = d.clarity
+            s.sharpness = d.sharpness
+            s.noiseReduction = d.noiseReduction
+            s.colorNoiseReduction = d.colorNoiseReduction
+        }
+    }
+
     // MARK: ジオメトリ（5.6 章、9.2 章）
 
     func toggleCropMode() { cropMode ? commitCrop() : enterCrop() }

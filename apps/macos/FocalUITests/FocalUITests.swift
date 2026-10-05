@@ -1120,6 +1120,97 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(waitUntil { abs(slider.normalizedSliderPosition - 0.65) < 0.02 }, "position \(slider.normalizedSliderPosition)")
     }
 
+    /// 右ペインのプリセット: 一覧から適用、チェック・変更あり・更新（上書き）、＋で保存、名前の変更、削除、「なし」
+    @MainActor
+    func testPresetPanel() throws {
+        let env = ProcessInfo.processInfo.environment
+        try XCTSkipIf(env["FOCAL_PRESET_CARD"] == nil || env["FOCAL_PRESETS"] == nil, "scripts/ui-test.sh から実行する")
+        // このテストだけの空のプリセットのフォルダ（ほかのテストの保存と混ざらないように）
+        let userDir = NSTemporaryDirectory() + "focal-ui-presets-\(UUID().uuidString)"
+        let app = XCUIApplication()
+        app.launchEnvironment["FOCAL_CATALOG"] = env["FOCAL_CATALOG"]
+        app.launchEnvironment["FOCAL_CACHE"] = env["FOCAL_CACHE"]
+        app.launchEnvironment["FOCAL_PRESETS"] = userDir
+        app.launchEnvironment["FOCAL_BUILTIN_PRESETS"] = env["FOCAL_BUILTIN_PRESETS"]
+        app.launchEnvironment["FOCAL_IMPORT_DEST"] = NSTemporaryDirectory() + "focal-ui-dest-\(UUID().uuidString)"
+        app.launchEnvironment["FOCAL_WINDOW_SIZE"] = "1440x900"
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        app.launch()
+        let grid = app.descendants(matching: .any)["photoGrid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 10))
+        grid.click()
+        app.typeText("v")
+        func any(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+        func selected(_ id: String) -> Bool { (any(id).value as? String) == "selected" }
+        let slider = app.sliders["exposureSlider"]
+        XCTAssertTrue(slider.waitForExistence(timeout: 10))
+        XCTAssertTrue(any("presetRow-Focal Standard").waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil { selected("presetRow-none") }, "編集のない写真は「なし」にチェック")
+        saveScreenshot(app, name: "preset-panel-none")
+
+        // 一覧から適用: 露出 +1.5（位置 0.65）、チェックが Focal Standard に移る
+        any("presetRow-Focal Standard").click()
+        XCTAssertTrue(waitUntil { abs(slider.normalizedSliderPosition - 0.65) < 0.02 })
+        XCTAssertTrue(waitUntil { selected("presetRow-Focal Standard") })
+        XCTAssertFalse(selected("presetRow-none"))
+
+        // 動かすとチェックが外れ、「変更あり」。同梱のプリセットには「更新」は出ない
+        slider.adjust(toNormalizedSliderPosition: 0.4)
+        XCTAssertTrue(waitUntil { !selected("presetRow-Focal Standard") })
+        XCTAssertFalse(any("presetRow-Focal Standard-update").exists)
+
+        // ＋ で保存 → 一覧に増え、チェックが付く
+        any("presetAdd").click()
+        let name = app.textFields["presetName"]
+        XCTAssertTrue(name.waitForExistence(timeout: 3))
+        name.click()
+        name.typeText("Panel Look")
+        app.buttons["presetNameOK"].click()
+        XCTAssertTrue(any("presetRow-Panel Look").waitForExistence(timeout: 3))
+        XCTAssertTrue(waitUntil { selected("presetRow-Panel Look") })
+        saveScreenshot(app, name: "preset-panel-saved")
+
+        // さらに動かすと「更新」が出て、押すと上書き（チェックが戻る）
+        slider.adjust(toNormalizedSliderPosition: 0.55)
+        let update = any("presetRow-Panel Look-update")
+        XCTAssertTrue(update.waitForExistence(timeout: 3))
+        XCTAssertFalse(selected("presetRow-Panel Look"))
+        saveScreenshot(app, name: "preset-panel-modified")
+        update.click()
+        XCTAssertTrue(waitUntil { selected("presetRow-Panel Look") })
+
+        // 名前の変更（右クリック）
+        any("presetRow-Panel Look").rightClick()
+        let rename = app.menuItems.matching(NSPredicate(format: "title BEGINSWITH '名前を変更' OR title BEGINSWITH 'Rename'")).firstMatch
+        XCTAssertTrue(rename.waitForExistence(timeout: 3))
+        rename.click()
+        let field = app.textFields["presetName"]
+        XCTAssertTrue(field.waitForExistence(timeout: 3))
+        field.click()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText("Renamed")
+        app.buttons["presetNameOK"].click()
+        XCTAssertTrue(any("presetRow-Renamed").waitForExistence(timeout: 3))
+        XCTAssertTrue(waitGone(any("presetRow-Panel Look")))
+        XCTAssertTrue(waitUntil { selected("presetRow-Renamed") }, "名前を変えても中身は同じ")
+
+        // 「なし」: 調整が初期値に戻る
+        any("presetRow-none").click()
+        XCTAssertTrue(waitUntil { abs(slider.normalizedSliderPosition - 0.5) < 0.02 })
+        XCTAssertTrue(waitUntil { selected("presetRow-none") })
+
+        // 削除（右クリック）
+        any("presetRow-Renamed").rightClick()
+        // メニューバーにも同じ名前の項目があるので、開いているポップアップの（押せる）項目を選ぶ
+        let deletes = app.menuItems.matching(NSPredicate(format: "title == '削除' OR title == 'Delete'"))
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline, !(deletes.allElementsBoundByIndex.contains { $0.isHittable }) { usleep(100_000) }
+        let delete = deletes.allElementsBoundByIndex.first(where: { $0.isHittable }) ?? deletes.firstMatch
+        XCTAssertTrue(delete.exists)
+        delete.click()
+        XCTAssertTrue(waitGone(any("presetRow-Renamed")))
+    }
+
     /// n: 0 新規アルバム、1 新規スマートアルバム、2 新規フォルダ（メニュー項目の識別子は取れないので名前で選ぶ）
     private func chooseNewAlbumItem(_ app: XCUIApplication, _ n: Int) {
         openNewAlbumMenu(app)

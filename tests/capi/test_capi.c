@@ -891,6 +891,20 @@ int main(void) {
         CHECK(out.crop_w == 1.0);
         CHECK(fc_presets_apply(presets, "user:none", &base, &out) == FC_ERR_NOT_FOUND);
 
+        /* 調整が同じプリセットを探す（切り取りは見ない）・名前の変更 */
+        fc_string* match = NULL;
+        fc_settings same = ps;
+        same.rotate90 = 2;
+        REQUIRE_OK(fc_presets_match(presets, &same, &match));
+        CHECK(match != NULL && strcmp(match->value, id->value) == 0);
+        fc_string_free(match);
+        match = (fc_string*)1;
+        REQUIRE_OK(fc_presets_match(presets, &base, &match));
+        CHECK(match == NULL);
+        REQUIRE_OK(fc_presets_rename(presets, id->value, "Landscape 2"));
+        CHECK(fc_presets_rename(presets, id->value, "  ") == FC_ERR_INVALID_ARGUMENT);
+        CHECK(fc_presets_rename(presets, "builtin:x", "X") == FC_ERR_INVALID_ARGUMENT);
+
         int64_t one[1] = {canon_id};
         REQUIRE_OK(fc_catalog_apply_preset(cat, presets, id->value, one, 1));
         REQUIRE_OK(fc_catalog_flush(cat));

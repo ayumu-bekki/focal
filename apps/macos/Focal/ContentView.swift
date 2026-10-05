@@ -100,8 +100,8 @@ struct ContentView: View {
                 AlbumNameSheet(model: model, prompt: prompt)
             }
         }
-        .sheet(isPresented: Binding(get: { model.presets.showNamePrompt }, set: { model.presets.showNamePrompt = $0 })) {
-            PresetNameSheet(presets: model.presets)
+        .sheet(item: Binding(get: { model.presets.namePrompt }, set: { model.presets.namePrompt = $0 })) { prompt in
+            PresetNameSheet(presets: model.presets, prompt: prompt)
         }
         .sheet(isPresented: $model.showImport) {
             ImportSheet(model: model, importer: model.cardImport) {

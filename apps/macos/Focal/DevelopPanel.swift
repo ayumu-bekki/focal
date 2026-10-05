@@ -79,6 +79,8 @@ struct DevelopTools: View {
 /// 区分ごとに開閉でき、開閉の状態は次回の起動でも保つ
 struct DevelopPanel: View {
     @Bindable var develop: DevelopModel
+    let presets: PresetModel
+    @AppStorage("inspector.presets.expanded") private var presetsExpanded = true
     @AppStorage("inspector.whiteBalance.expanded") private var wbExpanded = true
     @AppStorage("inspector.light.expanded") private var lightExpanded = true
     @AppStorage("inspector.color.expanded") private var colorExpanded = true
@@ -87,6 +89,8 @@ struct DevelopPanel: View {
     var body: some View {
         // 読み込み中は中身だけを操作できなくする（見出しは開閉できる）
         let disabled = develop.stage != .ready
+        presetSection(disabled: disabled)
+
         Section {
             if wbExpanded {
                 Group {
@@ -202,6 +206,89 @@ struct DevelopPanel: View {
 
     private var displayTint: Double {
         develop.settings.customWhiteBalance ? develop.settings.tint : (develop.info?.asShotTint ?? 0)
+    }
+
+    // MARK: プリセット（v3.21）
+
+    /// プリセットの一覧。クリックで適用、いまの調整と同じプリセットにはチェックを付ける。調整を動かすと「変更あり」と、
+    /// 自分のプリセットなら「更新」（上書き）を出す。右クリックで名前の変更・削除、見出しの ＋ でいまの調整を保存
+    @ViewBuilder private func presetSection(disabled: Bool) -> some View {
+        Section {
+            if presetsExpanded {
+                let match = disabled ? nil : presets.match(develop.settings)
+                Group {
+                    presetRow(title: Text("None"), selected: develop.settings.hasNoAdjustments, modified: false,
+                              identifier: "presetRow-none", update: nil) { develop.resetAdjustments() }
+                    ForEach(presets.builtIn) { p in
+                        presetRow(preset: p, match: match)
+                    }
+                    ForEach(presets.user) { p in
+                        presetRow(preset: p, match: match)
+                            .contextMenu {
+                                Button("Rename…") { presets.namePrompt = .rename(p) }
+                                Button("Delete", role: .destructive) { presets.delete(p) }
+                            }
+                    }
+                }
+                .disabled(disabled)
+            }
+        } header: {
+            InspectorSectionHeader(title: "Presets", expanded: $presetsExpanded, identifier: "presetsGroup")
+                .overlay(alignment: .trailing) {
+                    Button {
+                        presets.namePrompt = .save
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Save Settings as Preset…")
+                    .accessibilityLabel("Save Settings as Preset…")
+                    .accessibilityIdentifier("presetAdd")
+                    .disabled(disabled)
+                }
+        }
+        .onChange(of: develop.photoID) { presets.appliedID = nil }
+    }
+
+    private func presetRow(preset: PresetInfo, match: String?) -> some View {
+        let selected = match == preset.id
+        let modified = !selected && presets.appliedID == preset.id
+        return presetRow(title: Text(preset.name), selected: selected, modified: modified,
+                         identifier: "presetRow-\(preset.name)",
+                         update: modified && !preset.isBuiltIn ? { presets.update(preset) } : nil) {
+            presets.apply(preset)
+        }
+    }
+
+    private func presetRow(title: Text, selected: Bool, modified: Bool, identifier: String,
+                           update: (() -> Void)?, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark")
+                .font(.caption.weight(.semibold))
+                .frame(width: 12)
+                .opacity(selected ? 1 : 0)
+            Button(action: action) {
+                HStack(spacing: 6) {
+                    title.lineLimit(1).truncationMode(.tail)
+                    if modified {
+                        Text("Modified").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(identifier)
+            .accessibilityValue(selected ? "selected" : "")
+            if let update {
+                Button("Update", action: update)
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .help("Overwrite this preset with the current adjustments")
+                    .accessibilityIdentifier("\(identifier)-update")
+            }
+        }
+        .font(.callout)
     }
 
     private var temperatureSlider: Binding<Double> {

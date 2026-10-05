@@ -7,9 +7,24 @@ import Foundation
 @Observable
 final class PresetModel {
     private(set) var list: [PresetInfo] = []
-    /// 名前を聞くシートを出す（現像中の設定をプリセットとして保存する）
-    var showNamePrompt = false
+    enum NamePrompt: Identifiable {
+        case save
+        case rename(PresetInfo)
+        var id: String {
+            switch self {
+            case .save: "save"
+            case .rename(let p): "rename-\(p.id)"
+            }
+        }
+    }
+
+    /// 名前を聞くシート（現像中の設定をプリセットとして保存する・名前を変える）
+    var namePrompt: NamePrompt?
+    /// いまの写真で最後に適用したプリセット。調整を動かして一致しなくなったら「変更あり」と上書きの操作を出す
+    var appliedID: String?
     private(set) var store: PresetStore?
+    /// プリセットの中身を書き換えた（上書きなど）世代。一覧の「いまの調整と同じか」の表示を作り直すために、ビューが読む
+    private(set) var revision = 0
     private weak var model: LibraryModel?
 
     var builtIn: [PresetInfo] { list.filter(\.isBuiltIn) }
@@ -35,14 +50,38 @@ final class PresetModel {
         } catch { model?.report(error) }
     }
 
+    /// いまの調整と同じ調整のプリセットの id（スライダーの操作のたびに呼んでよい）
+    func match(_ settings: DevelopSettings) -> String? {
+        _ = revision
+        return store?.matching(settings)
+    }
+
+    func rename(_ preset: PresetInfo, to name: String) {
+        guard let store, !preset.isBuiltIn else { return }
+        do {
+            try store.rename(id: preset.id, to: name)
+            revision += 1
+            reload()
+        } catch { model?.report(error) }
+    }
+
+    /// 自分のプリセットを、いまの調整で上書きする
+    func update(_ preset: PresetInfo) {
+        guard !preset.isBuiltIn else { return }
+        saveCurrent(name: preset.name)
+        appliedID = preset.id  // 上書きしても、同じ名前のファイルなので id は変わらない
+    }
+
     func name(of id: String?) -> String? { id.flatMap { id in list.first { $0.id == id }?.name } }
 
     /// いま現像している写真の調整を、この名前のプリセットにする（同じ名前があれば上書き）
     func saveCurrent(name: String) {
         guard let model, let store else { return }
         do {
-            try store.save(name: name, from: model.develop.settings)
+            let id = try store.save(name: name, from: model.develop.settings)
+            revision += 1
             reload()
+            appliedID = id
         } catch { model.report(error) }
     }
 
@@ -61,6 +100,7 @@ final class PresetModel {
         do {
             if model.mode == .viewer {
                 try model.develop.applyPreset(preset.id, using: store)
+                appliedID = preset.id
                 return
             }
             var ids = model.targetIDs
@@ -107,7 +147,7 @@ struct PresetMenuItems: View {
             Button(p.name) { presets.apply(p) }
         }
         Divider()
-        Button("Save Settings as Preset…") { presets.showNamePrompt = true }
+        Button("Save Settings as Preset…") { presets.namePrompt = .save }
             .disabled(!canSave)
         Menu("Delete Preset") {
             ForEach(presets.user) { p in
@@ -118,29 +158,40 @@ struct PresetMenuItems: View {
     }
 }
 
-/// プリセットの名前を聞くシート
+/// プリセットの名前を聞くシート（保存・名前の変更）
 struct PresetNameSheet: View {
     let presets: PresetModel
+    let prompt: PresetModel.NamePrompt
     @State private var name = ""
     @Environment(\.dismiss) private var dismiss
 
     private var trimmed: String { name.trimmingCharacters(in: .whitespaces) }
-    private var overwrites: Bool { presets.user.contains { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame } }
+    private var renaming: PresetInfo? {
+        if case .rename(let p) = prompt { return p }
+        return nil
+    }
+    /// 保存では、同じ名前の自分のプリセットを上書きする。名前の変更では、別のプリセットと同じ名前にはできない
+    private var collides: Bool {
+        presets.user.contains { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame && $0.id != renaming?.id }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Save Settings as Preset").font(.headline)
-            Text("Only the adjustments are saved. Crop, rotation and straightening are not included.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(width: 320, alignment: .leading)
+            Text(renaming == nil ? "Save Settings as Preset" : "Rename Preset").font(.headline)
+            if renaming == nil {
+                Text("Only the adjustments are saved. Crop, rotation and straightening are not included.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: 320, alignment: .leading)
+            }
             TextField("Name", text: $name)
                 .frame(width: 320)
                 .onSubmit(commit)
                 .accessibilityIdentifier("presetName")
-            if overwrites {
-                Text("A preset with this name already exists. It will be replaced.")
+            if collides {
+                Text(renaming == nil ? "A preset with this name already exists. It will be replaced."
+                                     : "A preset with this name already exists.")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -148,18 +199,19 @@ struct PresetNameSheet: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Save", action: commit)
+                Button(renaming == nil ? "Save" : "Rename", action: commit)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(trimmed.isEmpty)
+                    .disabled(trimmed.isEmpty || (renaming != nil && collides))
                     .accessibilityIdentifier("presetNameOK")
             }
         }
         .padding(20)
+        .onAppear { if let p = renaming { name = p.name } }
     }
 
     private func commit() {
-        guard !trimmed.isEmpty else { return }
-        presets.saveCurrent(name: trimmed)
+        guard !trimmed.isEmpty, !(renaming != nil && collides) else { return }
+        if let p = renaming { presets.rename(p, to: trimmed) } else { presets.saveCurrent(name: trimmed) }
         dismiss()
     }
 }

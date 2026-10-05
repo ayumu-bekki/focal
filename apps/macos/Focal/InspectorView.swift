@@ -26,7 +26,7 @@ struct InspectorView: View {
     private var form: some View {
         Form {
             if developing {
-                DevelopPanel(develop: model.develop)
+                DevelopPanel(develop: model.develop, presets: model.presets)
             }
             if let p = model.currentPhoto {
                 // ここから下は現像ではなく写真の情報（区切り線で分ける）

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -17,6 +18,9 @@ Settings preset_adjustments(const Settings& settings);
 
 // base にプリセットの調整を重ねる。geometry・process_version・未知のキーは base のまま
 Settings apply_preset(const Settings& base, const Settings& preset);
+
+// 調整が同じか（白バランスは、As Shot なら色温度・色かぶりを見ない）。切り取りなどは見ない
+bool adjustments_equal(const Settings& a, const Settings& b);
 
 struct PresetInfo {
     std::string id;    // "builtin:<ファイル名の幹>" または "user:<ファイル名の幹>"
@@ -39,10 +43,22 @@ public:
     std::string save(const std::string& name, const Settings& settings);
     // 利用者のプリセットだけ消せる（同梱は Error(InvalidArgument)）
     void remove(const std::string& id);
+    // 利用者のプリセットの表示名を変える（ファイル名はそのまま）。同じ名前の別のプリセットがあれば Error(InvalidArgument)
+    void rename(const std::string& id, const std::string& new_name);
+    // settings の調整と同じ調整のプリセット（同梱が先）。なければ nullopt。読み込み済みの内容と比べるので、スライダーの操作のたびに
+    // 呼んでよい（list・save・remove・rename で読み直す）。切り取りなどは見ない
+    std::optional<std::string> find_match(const Settings& settings) const;
 
 private:
+    struct Cached {
+        PresetInfo info;
+        Settings settings;
+    };
+    std::vector<Cached> read_all() const;  // フォルダを読み直す
     std::filesystem::path user_dir_;
     std::optional<std::filesystem::path> builtin_dir_;
+    mutable std::mutex mutex_;
+    mutable std::optional<std::vector<Cached>> cache_;
 };
 
 } // namespace focal

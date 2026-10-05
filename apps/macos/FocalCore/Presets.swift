@@ -51,6 +51,21 @@ public final class PresetStore: @unchecked Sendable {
         try id.withCString { try check(fc_presets_delete(handle, $0)) }
     }
 
+    /// 利用者のプリセットの表示名を変える
+    public func rename(id: String, to name: String) throws {
+        try id.withCString { cid in try name.withCString { try check(fc_presets_rename(handle, cid, $0)) } }
+    }
+
+    /// settings の調整と同じ調整のプリセット（同梱が先。切り取りなどは見ない）。なければ nil。
+    /// 読み込み済みの内容と比べるので、スライダーの操作のたびに呼んでよい
+    public func matching(_ settings: DevelopSettings) -> String? {
+        var c = settings.c
+        var out: UnsafeMutablePointer<fc_string>?
+        guard fc_presets_match(handle, &c, &out) == FC_OK, let out else { return nil }
+        defer { fc_string_free(out) }
+        return String(cString: out.pointee.value)
+    }
+
     /// settings にプリセットの調整を重ねた結果（切り取り・回転・傾きは settings のまま）
     public func applying(id: String, to settings: DevelopSettings) throws -> DevelopSettings {
         var base = settings.c
