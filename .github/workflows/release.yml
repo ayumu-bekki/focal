@@ -156,7 +156,8 @@ jobs:
           # GitHub のアセット名は空白や β を避けた名前にする
           DMG="$(ls apps/macos/build/dist/*.dmg | head -1)"
           cp "$DMG" "apps/macos/build/dist/${{ steps.tag.outputs.asset }}"
-          shasum -a 256 "apps/macos/build/dist/${{ steps.tag.outputs.asset }}" | tee "apps/macos/build/dist/${{ steps.tag.outputs.asset }}.sha256"
+          # ファイル名だけを書く（ダウンロードしたフォルダで shasum -a 256 -c が使えるように）
+          (cd apps/macos/build/dist && shasum -a 256 "${{ steps.tag.outputs.asset }}" | tee "${{ steps.tag.outputs.asset }}.sha256")
 
       - name: Remove the keychain
         if: always()

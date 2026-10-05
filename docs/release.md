@@ -51,6 +51,8 @@ git push origin v26.0.0
 - 公証が通らないときは、Actions のログの `notarytool submit` の出力（`xcrun notarytool log <id>`）を見る。
 - 手元で同じ DMG を作る: `SIGN_IDENTITY="Developer ID Application: … (TEAMID)" NOTARY_PROFILE=… MARKETING_VERSION=26.0.0 FOCAL_RELEASE_CHANNEL=β apps/macos/scripts/package.sh`（環境変数を付けなければ `project.yml` の値）。
 
-## 未確認
+## 確認済み
 
-- ワークフロー全体は、まだ一度も Actions で実行していない（Secrets がなく、リポジトリでの実行は未確認）。`package.sh` の署名なし（ad-hoc）の経路は手元で確認済み。署名・公証の経路は、実際の証明書では未確認。
+- `v26.0.0-test` で、署名 → 公証 → staple → GitHub Releases への添付まで通ることを確認した（ダウンロードした DMG が `stapler validate`・`spctl` で Notarized Developer ID）。
+- 公証が却下される主な原因は、Xcode が付けるデバッグ用の権限 `com.apple.security.get-task-allow`（`package.sh` が `CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO` で防ぐ）。`package.sh` は、公証が Accepted でなければ Apple のログを出して止まる。
+- テスト用のリリース（`v26.0.0-test`）は、不要になったら GitHub の Releases から削除し、タグも消す: `gh release delete v26.0.0-test --cleanup-tag`。
