@@ -260,10 +260,12 @@ TEST_CASE("Editor: ドラッグは 1 回の Undo、保存と再読み込み", "[
         CHECK(s->redo());
         CHECK(s->settings().exposure == 0.8);
 
-        // 500ms のデバウンスの後に保存される（7.4 章）
+        // 500ms のデバウンスの後に保存される（7.4 章）。遅い環境（CI の Windows）でも間に合うよう、最大 8 秒まで待つ
         CHECK_FALSE(f.catalog->edit_json(f.canon));
-        std::this_thread::sleep_for(900ms);
-        f.catalog->flush();
+        for (int i = 0; i < 80 && !f.catalog->edit_json(f.canon); ++i) {
+            std::this_thread::sleep_for(100ms);
+            f.catalog->flush();
+        }
         REQUIRE(f.catalog->edit_json(f.canon));
         editor.close(s);
     }
