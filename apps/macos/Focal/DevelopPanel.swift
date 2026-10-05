@@ -4,11 +4,12 @@ import SwiftUI
 /// インスペクタの上に固定するヒストグラム（9.1 章）。スクロールしても隠れない
 struct HistogramHeader: View {
     let develop: DevelopModel
+    let presets: PresetModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HistogramView(histogram: develop.histogram)
-            DevelopTools(develop: develop)
+            DevelopTools(develop: develop, presets: presets)
             if develop.stage != .ready {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
@@ -27,6 +28,7 @@ struct HistogramHeader: View {
 /// 現像の操作（9.5 章）: Fit / 100%、切り抜き、90° 回転。ヒストグラムの下に固定する
 struct DevelopTools: View {
     let develop: DevelopModel
+    let presets: PresetModel
 
     var body: some View {
         HStack(spacing: 8) {
@@ -49,6 +51,18 @@ struct DevelopTools: View {
             .toggleStyle(.button)
             .help("Crop (C)")
             .accessibilityIdentifier("cropButton")
+            Menu {
+                PresetMenuItems(presets: presets, canSave: develop.stage == .ready)
+            } label: {
+                Image(systemName: "slider.horizontal.2.square")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .disabled(develop.stage != .ready || develop.cropMode)
+            .help("Presets")
+            .accessibilityLabel("Presets")
+            .accessibilityIdentifier("presetsMenu")
             Button { develop.rotate(by: -1) } label: { Image(systemName: "rotate.left") }
                 .help("Rotate Left ([)")
                 .accessibilityIdentifier("rotateLeftButton")

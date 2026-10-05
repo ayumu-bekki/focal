@@ -78,6 +78,17 @@ fs::path cache_path(const Args& args) {
     return env_path("FOCAL_CACHE", cache_dir() / "thumbs");
 }
 
+fs::path presets_path(const Args& args) {
+    if (auto p = args.get("presets")) return utf8_to_path(*p);
+    return env_path("FOCAL_PRESETS", data_dir() / "Presets");
+}
+
+std::optional<fs::path> builtin_presets_path(const Args& args) {
+    if (auto p = args.get("builtin-presets")) return utf8_to_path(*p);
+    if (const char* e = std::getenv("FOCAL_BUILTIN_PRESETS"); e && *e) return utf8_to_path(e);
+    return std::nullopt;
+}
+
 int cmd_import(int argc, char** argv) {
     Args args(argc, argv, {"no-thumbs"});
     if (args.positional().size() != 1) {

@@ -192,6 +192,13 @@ final class DevelopModel {
         if render { requestRender(measureEdit: true) }
     }
 
+    /// プリセットの調整を重ねる（切り取り・回転・傾きはそのまま）。1 回の Undo になる
+    func applyPreset(_ id: String, using presets: PresetStore) throws {
+        guard session != nil, stage == .ready, !cropMode else { return }
+        let merged = try presets.applying(id: id, to: settings)
+        update { $0 = merged }
+    }
+
     // MARK: ジオメトリ（5.6 章、9.2 章）
 
     func toggleCropMode() { cropMode ? commitCrop() : enterCrop() }

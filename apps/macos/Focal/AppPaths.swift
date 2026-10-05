@@ -48,6 +48,21 @@ enum AppPaths {
         return base.appendingPathComponent(bundleID).appendingPathComponent(databaseName)
     }
 
+    /// 利用者の現像プリセット（1 つが 1 つの JSON ファイル）。FOCAL_PRESETS で変えられる（UI テスト用）
+    static var presetsDirectory: URL {
+        if let p = env["FOCAL_PRESETS"] { return URL(fileURLWithPath: p) }
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent(bundleID).appendingPathComponent("Presets", isDirectory: true)
+    }
+
+    /// アプリに同梱した現像プリセット（Focal 標準。読み取り専用）。FOCAL_BUILTIN_PRESETS で変えられる（UI テスト用）
+    static var builtInPresetsDirectory: URL? {
+        if let p = env["FOCAL_BUILTIN_PRESETS"] { return URL(fileURLWithPath: p) }
+        return Bundle.main.resourceURL?.appendingPathComponent("Presets", isDirectory: true)
+    }
+
+    static let importPresetKey = "import.presetID"
+
     static func isPackage(_ catalog: URL) -> Bool { catalog.pathExtension.lowercased() == catalogExtension }
 
     /// カタログ（パッケージか .sqlite）の SQLite ファイル

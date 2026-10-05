@@ -100,6 +100,9 @@ struct ContentView: View {
                 AlbumNameSheet(model: model, prompt: prompt)
             }
         }
+        .sheet(isPresented: Binding(get: { model.presets.showNamePrompt }, set: { model.presets.showNamePrompt = $0 })) {
+            PresetNameSheet(presets: model.presets)
+        }
         .sheet(isPresented: $model.showImport) {
             ImportSheet(model: model, importer: model.cardImport) {
                 if model.cardImport.phase == .running { model.cardImport.cancel() }

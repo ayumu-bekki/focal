@@ -1,5 +1,7 @@
 #include "catalog/catalog.h"
 
+#include "edit/preset.h"
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -1734,6 +1736,17 @@ void Catalog::save_edit(int64_t photo_id, int process_version, std::optional<std
             " settings = excluded.settings, updated_at = excluded.updated_at");
         st.bind(1, photo_id).bind(2, static_cast<int64_t>(process_version)).bind(3, *json).run();
     });
+}
+
+void Catalog::apply_preset(std::span<const int64_t> photo_ids, const Settings& preset) {
+    for (const int64_t id : photo_ids) {
+        const auto json = edit_json(id);
+        const Settings merged = focal::apply_preset(json ? settings_from_json(*json) : Settings{}, preset);
+        if (settings_need_no_row(merged))
+            save_edit(id, merged.process_version, std::nullopt);
+        else
+            save_edit(id, merged.process_version, settings_to_json(merged));
+    }
 }
 
 void Catalog::flush() {

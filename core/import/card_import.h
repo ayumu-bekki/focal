@@ -58,6 +58,7 @@ struct CardImportOptions {
     bool dry_run = false;             // コピーも登録もせず、何がどうなるかだけ数える
     std::optional<int64_t> album_id;  // 取り込んだ写真を足す手で集めるアルバム
     std::vector<int64_t> tag_ids;     // 取り込んだ写真に付けるタグ
+    std::optional<Settings> preset;   // 取り込んだ写真に重ねる現像のプリセット（調整だけ。なければ何もしない、v3.20）
     const ThumbnailCache* thumbnails = nullptr;  // 登録のときにサムネイルも作る
     const std::atomic<bool>* cancel = nullptr;
     std::function<void(const CardImportProgress&)> progress;

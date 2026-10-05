@@ -13,6 +13,8 @@
 #include <string_view>
 #include <vector>
 
+#include "edit/settings.h"
+
 namespace focal {
 
 class ThumbnailCache;
@@ -276,6 +278,10 @@ public:
     std::optional<std::string> edit_json(int64_t photo_id);
     // 書き込みスレッドに積む（完了を待たない）。json が nullopt なら行を消す（編集なし = すべて既定値、6.1 章）
     void save_edit(int64_t photo_id, int process_version, std::optional<std::string> json);
+    // 写真の編集に、プリセットの調整を重ねる（v3.20、6.3 章）。切り取り・回転・傾き補正は各写真のまま。編集がなければ作り、
+    // 重ねた結果がすべて既定値なら行を消す。書き込みスレッドに積む（完了を待たない）。
+    // 現像ビューアで開いている写真には使わない（セッションが後で上書きするので、セッションの設定を変える）
+    void apply_preset(std::span<const int64_t> photo_ids, const Settings& preset);
     // それまでに積んだ書き込みがすべて終わるまで待つ
     void flush();
 

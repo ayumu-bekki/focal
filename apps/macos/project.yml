@@ -54,6 +54,9 @@ targets:
       - path: build/Licenses       # scripts/build-core.sh が作る（同梱ライブラリのライセンス文）
         type: folder
         buildPhase: resources
+      - path: Presets              # Focal 標準の現像プリセット（*.focalpreset。README.md を参照）
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: FocalCore
     postCompileScripts:

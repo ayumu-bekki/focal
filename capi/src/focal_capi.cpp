@@ -12,6 +12,7 @@
 #include "catalog/catalog.h"
 #include "catalog/photo_delete.h"
 #include "edit/editor.h"
+#include "edit/preset.h"
 #include "export/exporter.h"
 #include "import/card_import.h"
 #include "imaging/crop_tool.h"
@@ -28,6 +29,12 @@ using namespace focal;
 
 struct fc_catalog {
     std::unique_ptr<Catalog> catalog;
+};
+
+struct fc_presets {
+    PresetStore store;
+    fc_presets(std::filesystem::path user, std::optional<std::filesystem::path> builtin)
+        : store(std::move(user), std::move(builtin)) {}
 };
 
 struct fc_task {
@@ -140,6 +147,11 @@ struct RootDetailsBox : fc_root_details {
 
 struct StringBox : fc_string {
     std::string text;
+};
+
+struct PresetArray : fc_preset_array {
+    std::vector<PresetInfo> src;
+    std::vector<fc_preset_info> v;
 };
 
 struct ImportSourceArray : fc_import_source_array {
@@ -506,6 +518,66 @@ fc_status fc_catalog_smart_query(fc_catalog* catalog, int64_t album_id, fc_strin
     });
 }
 
+fc_status fc_presets_open(const char* user_dir, const char* builtin_dir, fc_presets** out) {
+    return guard([&] {
+        require(user_dir && out, "user_dir and out must not be NULL");
+        *out = nullptr;
+        std::optional<std::filesystem::path> builtin;
+        if (builtin_dir && *builtin_dir) builtin = utf8_to_path(builtin_dir);
+        *out = new fc_presets(utf8_to_path(user_dir), std::move(builtin));
+    });
+}
+
+void fc_presets_close(fc_presets* presets) { delete presets; }
+
+fc_status fc_presets_list(fc_presets* presets, fc_preset_array** out) {
+    return guard([&] {
+        require(presets && out, "presets and out must not be NULL");
+        *out = nullptr;
+        auto a = std::make_unique<PresetArray>();
+        a->src = presets->store.list();
+        for (const auto& p : a->src) a->v.push_back({p.id.c_str(), p.name.c_str(), p.builtin ? 1 : 0});
+        a->count = a->v.size();
+        a->items = a->v.data();
+        *out = a.release();
+    });
+}
+
+void fc_preset_array_free(fc_preset_array* array) { delete static_cast<PresetArray*>(array); }
+
+fc_status fc_presets_save(fc_presets* presets, const char* name, const fc_settings* settings, fc_string** out_id) {
+    return guard([&] {
+        require(presets && name && settings && out_id, "invalid arguments");
+        *out_id = nullptr;
+        auto b = std::make_unique<StringBox>();
+        b->text = presets->store.save(name, to_settings(*settings));
+        b->value = b->text.c_str();
+        *out_id = b.release();
+    });
+}
+
+fc_status fc_presets_delete(fc_presets* presets, const char* id) {
+    return guard([&] {
+        require(presets && id, "presets and id must not be NULL");
+        presets->store.remove(id);
+    });
+}
+
+fc_status fc_presets_apply(fc_presets* presets, const char* id, const fc_settings* base, fc_settings* out) {
+    return guard([&] {
+        require(presets && id && base && out, "invalid arguments");
+        *out = to_c(apply_preset(to_settings(*base), presets->store.load(id)));
+    });
+}
+
+fc_status fc_catalog_apply_preset(fc_catalog* catalog, fc_presets* presets, const char* id, const int64_t* photo_ids,
+                                  size_t count) {
+    return guard([&] {
+        require(catalog && presets && id && (photo_ids || count == 0), "invalid arguments");
+        catalog->catalog->apply_preset({photo_ids, count}, presets->store.load(id));
+    });
+}
+
 void fc_string_free(fc_string* string) { delete static_cast<StringBox*>(string); }
 
 fc_status fc_catalog_move_album(fc_catalog* catalog, int64_t album_id, int64_t parent_id) {
@@ -739,6 +811,10 @@ fc_status fc_card_import_start(fc_catalog* catalog, const fc_card_import_options
         opt.dry_run = options->dry_run != 0;
         opt.album_id = optional_id(options->album_id);
         opt.tag_ids.assign(options->tag_ids, options->tag_ids + options->tag_count);
+        if (options->preset_id && *options->preset_id) {
+            require(options->presets, "presets must not be NULL when preset_id is given");
+            opt.preset = options->presets->store.load(options->preset_id);  // 見つからなければ、取り込みを始める前に失敗する
+        }
         std::optional<std::string> cache_dir;
         if (options->thumbnail_cache_dir) cache_dir = options->thumbnail_cache_dir;
 

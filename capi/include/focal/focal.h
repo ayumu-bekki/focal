@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 14
+#define FC_API_VERSION 15
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -47,6 +47,7 @@ const char* fc_last_error(void);
 /* ---- カタログ ---------------------------------------------------------- */
 
 typedef struct fc_catalog fc_catalog;
+typedef struct fc_presets fc_presets;
 
 /* カタログを開く（なければ作る。古いスキーマなら移行する） */
 fc_status fc_catalog_open(const char* path, fc_catalog** out);
@@ -403,6 +404,8 @@ typedef struct fc_card_import_options {
     const int64_t* tag_ids;          /* 取り込んだ写真に付けるタグ */
     size_t tag_count;
     const char* thumbnail_cache_dir; /* NULL でなければ登録のときにサムネイルも作る */
+    fc_presets* presets;             /* preset_id を引くプリセットの置き場。preset_id が NULL なら使わない */
+    const char* preset_id;           /* 取り込んだ写真に重ねる現像のプリセット（調整だけ）。NULL か空なら「なし」 */
 } fc_card_import_options;
 
 typedef enum fc_import_phase {
@@ -527,6 +530,36 @@ typedef struct fc_settings {
 
 /* 既定値で初期化する */
 void fc_settings_init(fc_settings* settings);
+
+/* ---- 現像のプリセット（6.3 章）。調整だけを持ち、切り取り・回転・傾き補正は含めない ----
+   1 つのプリセットは 1 つの JSON ファイル。user_dir は利用者が作ったもの（読み書き）、builtin_dir はアプリに同梱したもの
+   （読み取り専用。NULL でもよい）。id は "builtin:…" または "user:…" */
+typedef struct fc_preset_info {
+    const char* id;
+    const char* name;
+    int32_t builtin;
+} fc_preset_info;
+
+typedef struct fc_preset_array {
+    size_t count;
+    const fc_preset_info* items;
+} fc_preset_array;
+
+fc_status fc_presets_open(const char* user_dir, const char* builtin_dir, fc_presets** out);
+void fc_presets_close(fc_presets* presets);
+/* 同梱のものが先、それぞれ名前順 */
+fc_status fc_presets_list(fc_presets* presets, fc_preset_array** out);
+void fc_preset_array_free(fc_preset_array* array);
+/* 同じ名前があれば上書き。保存するのは調整だけ（settings の切り取りなどは無視する）。out_id は fc_string_free で解放 */
+fc_status fc_presets_save(fc_presets* presets, const char* name, const fc_settings* settings, fc_string** out_id);
+/* 利用者のプリセットだけ消せる */
+fc_status fc_presets_delete(fc_presets* presets, const char* id);
+/* base にプリセットの調整を重ねた設定を返す（切り取り・回転・傾きは base のまま）。現像中の写真に使う */
+fc_status fc_presets_apply(fc_presets* presets, const char* id, const fc_settings* base, fc_settings* out);
+/* 写真のカタログ上の編集にプリセットを重ねる（書き込みは core のスレッドで、完了を待たない）。
+   現像ビューアで開いている写真には使わない（fc_presets_apply で求めた設定を fc_session_set_settings する） */
+fc_status fc_catalog_apply_preset(fc_catalog* catalog, fc_presets* presets, const char* id, const int64_t* photo_ids,
+                                  size_t count);
 
 typedef struct fc_editor fc_editor;
 typedef struct fc_session fc_session;

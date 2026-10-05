@@ -94,6 +94,8 @@ final class LibraryModel {
     /// カードの取り込みのシート（v3.19）
     var showImport = false
     let cardImport = CardImportModel()
+    /// 現像のプリセット（v3.20）
+    let presets = PresetModel()
 
     private(set) var importProgress: (done: Int, total: Int)? = nil
     private(set) var lastError: String? = nil
@@ -118,6 +120,7 @@ final class LibraryModel {
         try develop.setThumbnailCache(cacheURL) { [weak self] id in self?.thumbnailUpdated(id) }
         try develop.editor.setPreviewCache(previewCacheURL, limitBytes: previewCacheLimit)
         cardImport.configure(model: self)
+        presets.configure(model: self)
         reloadPhotos()
         observeVolumes()
         observeMenuTracking()
@@ -312,7 +315,7 @@ final class LibraryModel {
         reloadedThumbnails = (reloadedThumbnails.generation + 1, [id])
     }
 
-    private func afterPhotoChange(_ ids: [Int64]) {
+    func afterPhotoChange(_ ids: [Int64]) {
         pageCache.removeAll()
         // 絞り込みの条件に関わる変更なら並びを作り直す
         if albums.contains(where: { $0.kind == .smart }) { reloadSidebar() }  // スマートアルバムの枚数
@@ -665,7 +668,8 @@ final class LibraryModel {
         }
     }
 
-    private func report(_ error: Error) { lastError = String(describing: error) }
+    func report(_ error: Error) { lastError = String(describing: error) }
+    func reportMessage(_ message: String) { lastError = message }
     func clearError() { lastError = nil }
 
     // MARK: ツリーの組み立て

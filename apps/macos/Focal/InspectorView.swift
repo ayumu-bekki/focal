@@ -14,7 +14,7 @@ struct InspectorView: View {
         VStack(spacing: 0) {
             // ヒストグラムは上に固定（スクロールしても隠れない）
             if developing {
-                HistogramHeader(develop: model.develop)
+                HistogramHeader(develop: model.develop, presets: model.presets)
                 Divider()
             }
             form

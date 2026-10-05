@@ -6,6 +6,7 @@ add_library(focal_core STATIC
     util/omp_threads.cpp
     util/volume.cpp
     edit/settings.cpp
+    edit/preset.cpp
     edit/undo_stack.cpp
     edit/editor.cpp
     imaging/raw_decoder.cpp

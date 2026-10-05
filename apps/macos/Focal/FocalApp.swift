@@ -325,6 +325,12 @@ struct LibraryCommands: Commands {
                 Button("New Album with Selected Photos…") { model?.albumPrompt = .create(addSelection: true) }
             }
             .disabled(model == nil)
+            Menu("Apply Preset") {
+                if let presets = model?.presets {
+                    PresetMenuItems(presets: presets, canSave: model?.mode == .viewer && model?.develop.stage == .ready)
+                }
+            }
+            .disabled(model == nil)
             Button("Use as Album Cover") { model?.setCurrentAlbumCover() }
                 .disabled(!(model?.canSetAlbumCover ?? false))
             // 写真をディスクから削除する。⌥⌃ を押しながらメニューを開いたときだけ有効（キーは ⌥⌃⇧ Delete）

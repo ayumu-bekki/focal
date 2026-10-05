@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 
 #include "args.h"
 
@@ -25,9 +26,13 @@ int cmd_colorgrid(int argc, char** argv);
 int cmd_sources(int argc, char** argv);
 int cmd_import_card(int argc, char** argv);
 int cmd_album(int argc, char** argv);
+int cmd_preset(int argc, char** argv);
 
 // --catalog / --cache、または環境変数 FOCAL_CATALOG / FOCAL_CACHE。なければ既定の場所
 std::filesystem::path catalog_path(const Args& args);
 std::filesystem::path cache_path(const Args& args);
+// --presets / FOCAL_PRESETS（利用者のプリセット）、--builtin-presets / FOCAL_BUILTIN_PRESETS（同梱。なければなし）
+std::filesystem::path presets_path(const Args& args);
+std::optional<std::filesystem::path> builtin_presets_path(const Args& args);
 
 } // namespace focal::cli

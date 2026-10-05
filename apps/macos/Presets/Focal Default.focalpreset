@@ -1,0 +1,19 @@
+{
+  "focalPreset": 1,
+  "name": "Focal Default",
+  "settings": {
+    "schema": 1,
+    "processVersion": 1,
+    "wb": {
+      "mode": "asShot"
+    },
+    "exposure": 0.0,
+    "contrast": 30.0,
+    "highlights": 0.0,
+    "shadows": 10.0,
+    "vibrance": 20.0,
+    "clarity": 10.0,
+    "sharpness": 10.0,
+    "noiseReduction": 10.0
+  }
+}

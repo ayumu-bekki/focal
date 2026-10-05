@@ -410,7 +410,11 @@ public final class Catalog: @unchecked Sendable {
                             opt.dest_root = dest
                             opt.thumbnail_cache_dir = cache
                             opt.tag_ids = tags.baseAddress
-                            return fc_card_import_start(handle, &opt, cardProgress, cardDone, user, &task)
+                            return withOptionalCString(options.presetID) { presetID in
+                                opt.presets = options.presets?.handle
+                                opt.preset_id = presetID
+                                return fc_card_import_start(handle, &opt, cardProgress, cardDone, user, &task)
+                            }
                         }
                     }
                 }

@@ -851,6 +851,58 @@ int main(void) {
         CHECK(fc_export_start(cat, ids2, 2, &eo, NULL, on_export_done, &ex, &task) == FC_ERR_INVALID_ARGUMENT);
     }
 
+    /* 現像のプリセット（6.3 章）: 保存・一覧・重ね・カタログへの適用。切り取りは含めない */
+    {
+        char pdir[1100], bdir[1100];
+        snprintf(pdir, sizeof pdir, "%s/presets", tmp);
+        snprintf(bdir, sizeof bdir, "%s/builtin-presets", tmp);
+        fc_presets* presets = NULL;
+        CHECK(fc_presets_open(NULL, NULL, &presets) == FC_ERR_INVALID_ARGUMENT);
+        REQUIRE_OK(fc_presets_open(pdir, bdir, &presets));
+        fc_preset_array* list = NULL;
+        REQUIRE_OK(fc_presets_list(presets, &list));
+        CHECK(list->count == 0);
+        fc_preset_array_free(list);
+
+        fc_settings ps;
+        fc_settings_init(&ps);
+        ps.exposure = 0.8;
+        ps.clarity = 25;
+        ps.rotate90 = 1;
+        ps.crop_w = 0.5;
+        fc_string* id = NULL;
+        REQUIRE_OK(fc_presets_save(presets, "Landscape", &ps, &id));
+        CHECK(strncmp(id->value, "user:", 5) == 0);
+        REQUIRE_OK(fc_presets_list(presets, &list));
+        CHECK(list->count == 1);
+        CHECK(strcmp(list->items[0].name, "Landscape") == 0);
+        CHECK(list->items[0].builtin == 0);
+        fc_preset_array_free(list);
+
+        fc_settings base, out;
+        fc_settings_init(&base);
+        base.rotate90 = 3;
+        base.contrast = 40;
+        REQUIRE_OK(fc_presets_apply(presets, id->value, &base, &out));
+        CHECK(out.exposure == 0.8);
+        CHECK(out.clarity == 25);
+        CHECK(out.contrast == 0.0);   /* 調整はプリセットの値 */
+        CHECK(out.rotate90 == 3);     /* 切り取りなどは base のまま */
+        CHECK(out.crop_w == 1.0);
+        CHECK(fc_presets_apply(presets, "user:none", &base, &out) == FC_ERR_NOT_FOUND);
+
+        int64_t one[1] = {canon_id};
+        REQUIRE_OK(fc_catalog_apply_preset(cat, presets, id->value, one, 1));
+        REQUIRE_OK(fc_catalog_flush(cat));
+        CHECK(fc_catalog_apply_preset(cat, presets, "user:none", one, 1) == FC_ERR_NOT_FOUND);
+
+        CHECK(fc_presets_delete(presets, "builtin:x") == FC_ERR_INVALID_ARGUMENT);
+        REQUIRE_OK(fc_presets_delete(presets, id->value));
+        fc_string_free(id);
+        fc_presets_close(presets);
+        fc_presets_close(NULL);
+    }
+
     fc_catalog_close(cat);
     fc_catalog_close(NULL);
     fc_root_array_free(NULL);

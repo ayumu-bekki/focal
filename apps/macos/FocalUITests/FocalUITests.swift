@@ -1049,6 +1049,77 @@ final class FocalUITests: XCTestCase {
         saveScreenshot(app, name: "import-recent")
     }
 
+    /// 現像プリセット: 取り込みシートで選ぶと取り込んだ写真に重なり、現像画面のメニューから適用・保存できる
+    @MainActor
+    func testPresets() throws {
+        let env = ProcessInfo.processInfo.environment
+        try XCTSkipIf(env["FOCAL_PRESET_CARD"] == nil || env["FOCAL_PRESETS"] == nil, "scripts/ui-test.sh から実行する")
+        let app = XCUIApplication()
+        app.launchEnvironment["FOCAL_CATALOG"] = env["FOCAL_PRESET_CATALOG"]
+        app.launchEnvironment["FOCAL_CACHE"] = env["FOCAL_CACHE"]
+        app.launchEnvironment["FOCAL_IMPORT_SOURCE"] = env["FOCAL_PRESET_CARD"]
+        app.launchEnvironment["FOCAL_IMPORT_DEST"] = env["FOCAL_PRESET_DEST"]
+        app.launchEnvironment["FOCAL_PRESETS"] = env["FOCAL_PRESETS"]
+        app.launchEnvironment["FOCAL_BUILTIN_PRESETS"] = env["FOCAL_BUILTIN_PRESETS"]
+        app.launchEnvironment["FOCAL_WINDOW_SIZE"] = "1440x900"
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        app.launch()
+        XCTAssertTrue(app.windows["library"].waitForExistence(timeout: 10))
+
+        // 取り込みシート: 既定は「なし」。Focal 標準を選んで取り込む
+        app.typeKey("i", modifierFlags: [.command, .shift])
+        let start = app.buttons["importStart"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        let picker = app.popUpButtons["importPreset"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        picker.click()
+        let standard = picker.menuItems["Focal Standard"]
+        XCTAssertTrue(standard.waitForExistence(timeout: 3))
+        saveScreenshot(app, name: "import-preset-menu")
+        standard.click()
+        XCTAssertTrue(waitUntil { (picker.value as? String ?? "") == "Focal Standard" })
+        start.click()
+        XCTAssertTrue(app.staticTexts["importResult"].waitForExistence(timeout: 30))
+        app.buttons["importShow"].click()
+        XCTAssertTrue(waitValue(app.staticTexts["photoCount"], "1 / 1"))
+
+        // 現像画面: 露出が Focal 標準の +1.5 EV（スライダーの位置 0.65）になっている
+        let grid = app.descendants(matching: .any)["photoGrid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 5))
+        grid.click()
+        app.typeText("v")
+        let slider = app.sliders["exposureSlider"]
+        XCTAssertTrue(slider.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitUntil { abs(slider.normalizedSliderPosition - 0.65) < 0.02 }, "position \(slider.normalizedSliderPosition)")
+
+        // 調整を変えて、自分のプリセットとして保存する。メニューに出る
+        slider.adjust(toNormalizedSliderPosition: 0.4)
+        let presets = app.menuButtons["presetsMenu"]
+        presets.click()
+        let save = presets.menuItems.matching(NSPredicate(format: "title BEGINSWITH '現像の調整' OR title BEGINSWITH 'いまの調整' OR title BEGINSWITH 'Save Settings'")).firstMatch
+        XCTAssertTrue(save.waitForExistence(timeout: 3))
+        save.click()
+        let name = app.textFields["presetName"]
+        XCTAssertTrue(name.waitForExistence(timeout: 3))
+        name.click()
+        name.typeText("My Look")
+        saveScreenshot(app, name: "preset-name-sheet")
+        app.buttons["presetNameOK"].click()
+        XCTAssertTrue(waitGone(name))
+        // 保存のファイルができている
+        let dir = env["FOCAL_PRESETS"]!
+        XCTAssertTrue(waitUntil { ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []).contains("My Look.focalpreset") })
+
+        // Focal 標準を適用すると +1.5 EV に戻る（1 回の Undo で、保存前の位置に戻る）
+        presets.click()
+        let apply = presets.menuItems["Focal Standard"]
+        XCTAssertTrue(apply.waitForExistence(timeout: 3))
+        XCTAssertTrue(presets.menuItems["My Look"].exists)
+        saveScreenshot(app, name: "preset-menu")
+        apply.click()
+        XCTAssertTrue(waitUntil { abs(slider.normalizedSliderPosition - 0.65) < 0.02 }, "position \(slider.normalizedSliderPosition)")
+    }
+
     /// n: 0 新規アルバム、1 新規スマートアルバム、2 新規フォルダ（メニュー項目の識別子は取れないので名前で選ぶ）
     private func chooseNewAlbumItem(_ app: XCUIApplication, _ n: Int) {
         openNewAlbumMenu(app)

@@ -25,10 +25,13 @@ void usage() {
                  "  unroot <root id>                              ルートをカタログから外す（ファイルは消さない）\n"
                  "  sources [--path dir]                          DCIM があるボリューム（SD カード）を探す。--path ならその中身の概算\n"
                  "  import-card <card|DCIM> --dest dir [--album ID] [--tags a/b,c] [--no-verify] [--dry-run] [--no-thumbs]\n"
+                 "                  [--preset ID]                 取り込んだ写真に現像のプリセットを重ねる（preset ls の ID）\n"
                  "                                                カードから <dest>/YYYY/YYYY-MM-DD/ へコピーして登録する\n"
                  "  album list | create <name> | folder <name> | smart <name> --query JSON | query <id> [--query JSON]\n"
                  "        | rename <id> <name> | move <id> | delete <id> | add <album> <photo>... | remove <album> <photo>...\n"
                  "        （create / folder / smart / move は --parent ID でフォルダの中へ）\n"
+                 "  preset ls | save <name> --from <photo id> | apply <preset id> <photo id>... | delete <preset id>\n"
+                 "        （--presets dir / --builtin-presets dir、または FOCAL_PRESETS / FOCAL_BUILTIN_PRESETS。調整だけを保存し、切り取りは含めない）\n"
                  "  ls [--rating N] [--flag pick|reject|none|not-rejected] [--folder ID] [--flat] [--album ID] [--smart ID]\n"
                  "     [--tag a/b] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--available] [--limit N] [--offset N]\n"
                  "  rate <0-5> <id>...    flag <pick|reject|none> <id>...\n"
@@ -71,6 +74,7 @@ int main(int argc, char** argv) {
         if (!std::strcmp(cmd, "sources")) return focal::cli::cmd_sources(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "import-card")) return focal::cli::cmd_import_card(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "album")) return focal::cli::cmd_album(argc - 2, argv + 2);
+        if (!std::strcmp(cmd, "preset")) return focal::cli::cmd_preset(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "relocate")) return focal::cli::cmd_relocate(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "merge-roots")) return focal::cli::cmd_merge_roots(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "unroot")) return focal::cli::cmd_unroot(argc - 2, argv + 2);

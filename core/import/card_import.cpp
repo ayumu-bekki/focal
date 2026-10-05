@@ -461,6 +461,7 @@ CardImportResult import_from_card(Catalog& catalog, const CardImportOptions& opt
     if (!result.photo_ids.empty()) {
         if (opt.album_id) catalog.add_to_album(*opt.album_id, result.photo_ids);
         for (int64_t tag : opt.tag_ids) catalog.add_tag(result.photo_ids, tag);
+        if (opt.preset) catalog.apply_preset(result.photo_ids, *opt.preset);
     }
     return result;
 }

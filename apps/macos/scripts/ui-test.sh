@@ -27,6 +27,13 @@ COLOR_ASPECT=$(sips -g pixelWidth -g pixelHeight "$WORK/ref/nikon_z7.jpg" | awk 
 mkdir -p "$WORK/card/DCIM/100TEST" "$WORK/import-dest" "$WORK/delete-dest" "$WORK/trash"
 cp -c "$ROOT/tests/data/canon_eos_m50.CR3" "$WORK/card/DCIM/100TEST/IMG_9001.CR3"
 
+# 現像プリセットのテスト用: カード、読み込み先、同梱（Focal 標準）と利用者のプリセットのフォルダ
+mkdir -p "$WORK/preset-card/DCIM/100TEST" "$WORK/preset-dest" "$WORK/builtin-presets" "$WORK/presets"
+cp -c "$ROOT/tests/data/canon_eos_m50.CR3" "$WORK/preset-card/DCIM/100TEST/IMG_9101.CR3"
+cat > "$WORK/builtin-presets/Focal Standard.focalpreset" <<'JSON'
+{"focalPreset": 1, "name": "Focal Standard", "settings": {"schema": 1, "processVersion": 1, "exposure": 1.5, "contrast": 10}}
+JSON
+
 # 読み込み先を外したときの移行のテスト用: 3 つのルート（a・b・c）を持つカタログ
 for r in a b c; do
   mkdir -p "$WORK/multi/$r"
@@ -55,6 +62,11 @@ TEST_RUNNER_FOCAL_IMPORT_CATALOG="$WORK/import-catalog.sqlite" \
 TEST_RUNNER_FOCAL_DELETE_CATALOG="$WORK/delete-catalog.sqlite" \
 TEST_RUNNER_FOCAL_MULTI_CATALOG="$WORK/multi-catalog.sqlite" \
 TEST_RUNNER_FOCAL_NESTED_CATALOG="$WORK/nested-catalog.sqlite" \
+TEST_RUNNER_FOCAL_PRESET_CARD="$WORK/preset-card" \
+TEST_RUNNER_FOCAL_PRESET_DEST="$WORK/preset-dest" \
+TEST_RUNNER_FOCAL_PRESET_CATALOG="$WORK/preset-catalog.sqlite" \
+TEST_RUNNER_FOCAL_PRESETS="$WORK/presets" \
+TEST_RUNNER_FOCAL_BUILTIN_PRESETS="$WORK/builtin-presets" \
 TEST_RUNNER_FOCAL_MULTI_DIR="$WORK/multi" \
 TEST_RUNNER_FOCAL_DELETE_DEST="$WORK/delete-dest" \
 TEST_RUNNER_FOCAL_DELETE_TRASH="$WORK/trash" \

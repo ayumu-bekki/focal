@@ -206,6 +206,16 @@
         }
       }
     },
+    "A preset with this name already exists. It will be replaced." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同じ名前のプリセットがあります。上書きします。"
+          }
+        }
+      }
+    },
     "A smart album only shows photos that match. You cannot add photos to it." : {
       "localizations" : {
         "ja" : {
@@ -412,6 +422,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "外観"
+          }
+        }
+      }
+    },
+    "Apply Preset" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プリセットを適用"
           }
         }
       }
@@ -930,6 +950,16 @@
         }
       }
     },
+    "Delete Preset" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プリセットを削除"
+          }
+        }
+      }
+    },
     "Delete the album “%@”?" : {
       "localizations" : {
         "ja" : {
@@ -966,6 +996,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ディテール"
+          }
+        }
+      }
+    },
+    "Develop Preset" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現像プリセット"
           }
         }
       }
@@ -1894,6 +1934,16 @@
         }
       }
     },
+    "My Presets" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自分のプリセット"
+          }
+        }
+      }
+    },
     "Name" : {
       "localizations" : {
         "ja" : {
@@ -2115,6 +2165,16 @@
         }
       }
     },
+    "No Presets" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プリセットはありません"
+          }
+        }
+      }
+    },
     "No Rating" : {
       "localizations" : {
         "ja" : {
@@ -2181,6 +2241,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "OK"
+          }
+        }
+      }
+    },
+    "Only the adjustments are saved. Crop, rotation and straightening are not included." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存するのは現像の調整だけです。切り取り・回転・傾き補正は含みません。"
           }
         }
       }
@@ -2331,6 +2401,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ピック"
+          }
+        }
+      }
+    },
+    "Presets" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プリセット"
           }
         }
       }
@@ -2661,6 +2741,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "保存"
+          }
+        }
+      }
+    },
+    "Save Settings as Preset" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "いまの調整をプリセットとして保存"
+          }
+        }
+      }
+    },
+    "Save Settings as Preset…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "いまの調整をプリセットとして保存…"
           }
         }
       }

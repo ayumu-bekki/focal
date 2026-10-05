@@ -24,6 +24,16 @@ final class CardImportModel {
     var destination: URL
     var verify = true
     var albumID: Int64?
+    /// 取り込んだ写真に重ねる現像のプリセット（nil は「なし」）。選んだものを覚える（「なし」も覚える）。
+    /// まだ選んだことがなければ、同梱の「Focal Default」（あれば）
+    var presetID: String? {
+        didSet {
+            guard persistPreset, presetID != oldValue else { return }
+            UserDefaults.standard.set(presetID ?? "", forKey: AppPaths.importPresetKey)
+        }
+    }
+    private var persistPreset = false
+    static let defaultPresetID = "builtin:Focal Default"
     /// "旅行/北海道, 2026" のようにカンマで区切る
     var tagsText = ""
 
@@ -47,6 +57,15 @@ final class CardImportModel {
         destination = env["FOCAL_IMPORT_DEST"].map { URL(fileURLWithPath: $0) }
             ?? AppPaths.savedImportDestination ?? AppPaths.fallbackImportDestination
         chosenFolder = env["FOCAL_IMPORT_SOURCE"].map { URL(fileURLWithPath: $0) }
+        if env["FOCAL_IMPORT_DEST"] == nil {
+            // UI テスト（FOCAL_IMPORT_DEST 指定）では、記録を読み書きせず「なし」から始める
+            if let saved = UserDefaults.standard.string(forKey: AppPaths.importPresetKey) {
+                presetID = saved.isEmpty ? nil : saved
+            } else {
+                presetID = Self.defaultPresetID
+            }
+            persistPreset = true
+        }
     }
 
     func configure(model: LibraryModel) {
@@ -66,6 +85,13 @@ final class CardImportModel {
             phase = .settings
             result = nil
             failure = nil
+        }
+        // 前回のプリセットが消えていたら「なし」に戻す
+        if let id = presetID, model?.presets.list.contains(where: { $0.id == id }) != true {
+            let keep = persistPreset
+            persistPreset = false  // 一時的に見つからないだけかもしれないので、記録は変えない
+            presetID = nil
+            persistPreset = keep
         }
         if let preferred { selectedSourceID = preferred.id }
         else if selectedSourceID == nil || !sources.contains(where: { $0.id == selectedSourceID }) {
@@ -187,6 +213,10 @@ final class CardImportModel {
         var options = CardImportOptions(source: source, destination: destination)
         options.verify = verify
         options.albumID = albumID
+        if let presetID, let store = model.presets.store {
+            options.presetID = presetID
+            options.presets = store
+        }
         options.thumbnailCache = AppPaths.thumbnailCache
         do {
             options.tagIDs = try tagsText.split(separator: ",")

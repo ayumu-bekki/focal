@@ -9,6 +9,7 @@
 #include "catalog/catalog.h"
 #include "catalog/smart_query.h"
 #include "commands.h"
+#include "edit/preset.h"
 #include "import/card_import.h"
 #include "thumbs/thumbnail.h"
 #include "util/error.h"
@@ -100,6 +101,8 @@ int cmd_import_card(int argc, char** argv) {
         while (std::getline(ss, tag, ','))
             if (!tag.empty()) opt.tag_ids.push_back(catalog->ensure_tag(tag));
     }
+    if (auto id = args.get("preset"))
+        opt.preset = PresetStore(presets_path(args), builtin_presets_path(args)).load(*id);
     opt.progress = [](const CardImportProgress& p) {
         const char* phase = p.phase == CardImportProgress::Phase::Reading   ? "reading"
                             : p.phase == CardImportProgress::Phase::Copying ? "copying"
@@ -118,6 +121,48 @@ int cmd_import_card(int argc, char** argv) {
     for (const auto& e : r.errors) std::fprintf(stderr, "error: %s\n", e.c_str());
     if (r.cancelled) std::fprintf(stderr, "cancelled\n");
     return r.failed ? 1 : 0;
+}
+
+int cmd_preset(int argc, char** argv) {
+    Args args(argc, argv, {});
+    const auto& p = args.positional();
+    if (p.empty()) {
+        std::fprintf(stderr, "usage: focal preset ls | save <name> --from <photo id> | apply <preset id> <photo id>... | delete <preset id>\n");
+        return 2;
+    }
+    PresetStore store(presets_path(args), builtin_presets_path(args));
+    const std::string& sub = p[0];
+    if (sub == "ls") {
+        for (const auto& info : store.list())
+            std::printf("%-40s %s%s\n", info.id.c_str(), info.name.c_str(), info.builtin ? "  (Focal)" : "");
+        return 0;
+    }
+    if (sub == "save") {
+        if (p.size() != 2 || !args.has("from"))
+            throw Error(Error::Code::InvalidArgument, "preset save <name> --from <photo id>");
+        auto catalog = Catalog::open(catalog_path(args));
+        const auto json = catalog->edit_json(std::stoll(*args.get("from")));
+        const Settings s = json ? settings_from_json(*json) : Settings{};
+        std::printf("%s\n", store.save(p[1], s).c_str());  // 切り取りなど（geometry）は保存されない
+        return 0;
+    }
+    if (sub == "apply") {
+        if (p.size() < 3) throw Error(Error::Code::InvalidArgument, "preset apply <preset id> <photo id>...");
+        auto catalog = Catalog::open(catalog_path(args));
+        std::vector<int64_t> ids;
+        for (size_t i = 2; i < p.size(); ++i) ids.push_back(std::stoll(p[i]));
+        catalog->apply_preset(ids, store.load(p[1]));
+        catalog->flush();
+        std::printf("applied to %zu photos\n", ids.size());
+        return 0;
+    }
+    if (sub == "delete") {
+        if (p.size() != 2) throw Error(Error::Code::InvalidArgument, "preset delete <preset id>");
+        store.remove(p[1]);
+        return 0;
+    }
+    std::fprintf(stderr, "unknown preset command: %s\n", sub.c_str());
+    return 2;
 }
 
 int cmd_album(int argc, char** argv) {

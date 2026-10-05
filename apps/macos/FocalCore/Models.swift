@@ -270,6 +270,9 @@ public struct CardImportOptions: Sendable {
     public var albumID: Int64?
     public var tagIDs: [Int64] = []
     public var thumbnailCache: URL?
+    /// 取り込んだ写真に重ねる現像のプリセット（presets から引く。nil なら「なし」）
+    public var presetID: String?
+    public var presets: PresetStore?
 
     public init(source: URL, destination: URL) {
         self.source = source

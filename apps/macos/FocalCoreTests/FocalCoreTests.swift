@@ -233,4 +233,39 @@ final class FocalCoreTests: XCTestCase {
 
         XCTAssertNoThrow(try Catalog.importSources())
     }
+
+    func testPresets() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("focal-presets-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let store = try PresetStore(userDirectory: tmp.appendingPathComponent("user"),
+                                    builtInDirectory: tmp.appendingPathComponent("builtin"))
+        XCTAssertTrue(try store.list().isEmpty)
+
+        var look = DevelopSettings()
+        look.exposure = 0.8
+        look.clarity = 25
+        look.rotate90 = 1
+        look.cropW = 0.5
+        let id = try store.save(name: "風景", from: look)
+        let list = try store.list()
+        XCTAssertEqual(list.map(\.name), ["風景"])
+        XCTAssertFalse(list[0].isBuiltIn)
+
+        // 重ねると、調整はプリセットの値、切り取り・回転は写真のまま
+        var photo = DevelopSettings()
+        photo.contrast = 40
+        photo.rotate90 = 3
+        photo.cropW = 0.8
+        let merged = try store.applying(id: id, to: photo)
+        XCTAssertEqual(merged.exposure, 0.8)
+        XCTAssertEqual(merged.clarity, 25)
+        XCTAssertEqual(merged.contrast, 0)
+        XCTAssertEqual(merged.rotate90, 3)
+        XCTAssertEqual(merged.cropW, 0.8)
+
+        XCTAssertThrowsError(try store.applying(id: "user:none", to: photo))
+        XCTAssertThrowsError(try store.delete(id: "builtin:x"))
+        try store.delete(id: id)
+        XCTAssertTrue(try store.list().isEmpty)
+    }
 }

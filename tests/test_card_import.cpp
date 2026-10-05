@@ -8,6 +8,7 @@
 
 #include "catalog/catalog.h"
 #include "imaging/raw_decoder.h"
+#include "edit/preset.h"
 #include "import/card_import.h"
 #include "test_util.h"
 #include "util/error.h"
@@ -335,4 +336,41 @@ TEST_CASE("カード取り込み: 登録はコピーしたファイルだけ。�
     // ルートの外・RAW でないものは Error
     CHECK_THROWS_AS(c->register_files(root_id, std::vector<fs::path>{card.dcim / "DSC00001.ARW"}), Error);
     CHECK_THROWS_AS(c->register_files(root_id, std::vector<fs::path>{card.dcim / "DSC00001.JPG"}), Error);
+}
+
+TEST_CASE("カード取り込み: 現像のプリセットを、取り込んだ写真だけに重ねる（v3.20）", "[import][data][preset]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Card card;
+    TempDir lib, db;
+    auto c = Catalog::open(db / "c.sqlite");
+    CardImportOptions opt;
+    opt.source = card.dir.path();
+    opt.dest_root = lib / "Photos";
+    Settings preset;
+    preset.exposure = 0.5;
+    preset.clarity = 20;
+    preset.geometry.crop = {0, 0, 0.5, 0.5};  // 渡されても、プリセットの調整には含まれない（呼び出し側が落とす想定だが、重ねるのは調整だけ）
+    opt.preset = preset_adjustments(preset);
+    const CardImportResult r = import_from_card(*c, opt);
+    REQUIRE(r.photo_ids.size() == 2);
+    c->flush();
+    for (int64_t id : r.photo_ids) {
+        const auto json = c->edit_json(id);
+        REQUIRE(json);
+        const Settings s = settings_from_json(*json);
+        CHECK(s.exposure == 0.5);
+        CHECK(s.clarity == 20);
+        CHECK(s.geometry == GeometrySettings{});
+    }
+
+    // 「なし」（プリセットなし）の取り込みでは、編集の行を作らない
+    Card card2;
+    TempDir lib2;
+    auto c2 = Catalog::open(db / "c2.sqlite");
+    CardImportOptions none;
+    none.source = card2.dir.path();
+    none.dest_root = lib2 / "Photos";
+    const CardImportResult r2 = import_from_card(*c2, none);
+    c2->flush();
+    for (int64_t id : r2.photo_ids) CHECK_FALSE(c2->edit_json(id));
 }

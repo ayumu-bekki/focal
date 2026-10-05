@@ -92,6 +92,20 @@ struct ImportSheet: View {
                     ForEach(model.albums.filter(\.acceptsPhotos)) { Text($0.name).tag(Int64?.some($0.id)) }
                 }
                 .accessibilityIdentifier("importAlbum")
+                Picker("Develop Preset", selection: $importer.presetID) {
+                    Text("None").tag(String?.none)
+                    if !model.presets.builtIn.isEmpty {
+                        Section("Focal") {
+                            ForEach(model.presets.builtIn) { Text($0.name).tag(String?.some($0.id)) }
+                        }
+                    }
+                    if !model.presets.user.isEmpty {
+                        Section("My Presets") {
+                            ForEach(model.presets.user) { Text($0.name).tag(String?.some($0.id)) }
+                        }
+                    }
+                }
+                .accessibilityIdentifier("importPreset")
                 TextField("Tags", text: $importer.tagsText, prompt: Text("Trip/Hokkaido, 2026"))
                     .accessibilityIdentifier("importTags")
                 Toggle("Verify copies", isOn: $importer.verify)
