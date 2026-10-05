@@ -824,6 +824,13 @@ final class FocalUITests: XCTestCase {
         sub.click()
         sleep(1)
         saveScreenshot(app, name: "sidebar-sub-selected")
+        // 副題に現在地（ルート › サブフォルダ・枚数）が出る。フォルダは絞り込みのチップには出さない
+        func subtitle(_ part: String) -> Bool {
+            app.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", part)).firstMatch.exists
+        }
+        XCTAssertTrue(waitUntil { subtitle("nested › sub") }, "副題に現在地")
+        XCTAssertTrue(subtitle("1 枚") || subtitle("1 photos"), "副題に枚数")
+        XCTAssertFalse(any("filterSummary").exists, "フォルダだけの選択ではチップを出さない")
         // 親フォルダの行（AX には出ないので、sub の 32pt 上の位置を押す）
         sub.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: -32)).click()
         sleep(1)

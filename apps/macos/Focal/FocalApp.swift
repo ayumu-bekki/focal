@@ -25,7 +25,7 @@ struct FocalApp: App {
                 if let model = state.model {
                     ContentView(model: model)
                         .id(ObjectIdentifier(model))  // カタログを切り替えたら作り直す（キー操作の監視なども）
-                        .navigationSubtitle(state.catalogName)
+                        .navigationSubtitle(model.windowSubtitle(catalogName: state.catalogName))
                 } else {
                     WelcomeView(state: state)
                 }

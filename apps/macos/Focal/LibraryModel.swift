@@ -750,13 +750,38 @@ final class LibraryModel {
 
     // MARK: 絞り込み（9.5 章）
 
-    /// 絞り込みの条件があるか（サイドバーで選んだ集まりは含めない）
+    /// 絞り込みの条件があるか（サイドバーで選んだ集まり・フォルダは含めない。どこを見ているかは、ウィンドウの副題に出す）
     var isFiltering: Bool {
-        filter.minRating > 0 || filter.flag != .any || filter.folderID != nil || filter.tagID != nil
+        filter.minRating > 0 || filter.flag != .any || filter.tagID != nil
             || filter.dateFrom != nil || filter.dateTo != nil
     }
 
-    /// 絞り込みの条件の要約（ツールバーに出す）。条件がなければ nil
+    /// ウィンドウの副題: カタログの名前・いま見ている集まり（フォルダは「ルート › サブフォルダ」）・枚数
+    func windowSubtitle(catalogName: String) -> String {
+        let place: String
+        switch source {
+        case .all: place = String(localized: "All Photos")
+        case .recentImport: place = String(localized: "Recent Import")
+        case .album(let id): place = albums.first { $0.id == id }?.name ?? ""
+        case .folder(let id): place = Self.folderPath(id, in: rootEntries.map(\.node)).joined(separator: " › ")
+        }
+        let count = String(localized: "\(photoIDs.count) photos")
+        return [catalogName, place, count].filter { !$0.isEmpty }.joined(separator: "・")
+    }
+
+    /// ルートからのフォルダ名の並び。見つからなければ空
+    static func folderPath(_ id: Int64, in nodes: [FolderNode]) -> [String] {
+        for n in nodes {
+            if n.id == id { return [n.name] }
+            if let children = n.children {
+                let sub = folderPath(id, in: children)
+                if !sub.isEmpty { return [n.name] + sub }
+            }
+        }
+        return []
+    }
+
+    /// 絞り込みの条件の要約（ツールバーに出す。フォルダは含めない）。条件がなければ nil
     var filterSummary: String? {
         var parts: [String] = []
         if filter.minRating > 0 { parts.append(String(localized: "≥ \(String(repeating: "★", count: filter.minRating))")) }
@@ -767,7 +792,6 @@ final class LibraryModel {
         case .unflagged: parts.append(String(localized: "Unflagged"))
         case .notRejected: parts.append(String(localized: "Not rejected"))
         }
-        if let id = filter.folderID, let name = Self.find(id, in: folderTree)?.name { parts.append(name) }
         if let id = filter.tagID, let name = Self.find(id, in: tagTree)?.name { parts.append("#" + name) }
         if filter.dateFrom != nil || filter.dateTo != nil {
             parts.append("\(filter.dateFrom ?? "")〜\(filter.dateTo ?? "")")
@@ -779,7 +803,6 @@ final class LibraryModel {
         var f = filter
         f.minRating = 0
         f.flag = .any
-        f.folderID = nil
         f.tagID = nil
         f.dateFrom = nil
         f.dateTo = nil

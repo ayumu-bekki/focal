@@ -1470,7 +1470,7 @@
         }
       }
     },
-    "Import Destination" : {
+    "Import destination" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -1480,7 +1480,7 @@
         }
       }
     },
-    "Import destination" : {
+    "Import Destination" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -2814,6 +2814,9 @@
           }
         }
       }
+    },
+    "selected" : {
+
     },
     "Set as Import Destination" : {
       "localizations" : {
