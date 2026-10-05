@@ -501,7 +501,9 @@ TEST_CASE("ルートの詳しい情報: 枚数・サブフォルダ・ファイ�
     CHECK(d.total_bytes > 0);
     CHECK(d.free_bytes >= 0);
     CHECK(d.free_bytes <= d.total_bytes);
-    CHECK(d.kind != 0);  // 内蔵・外付け・ネットワークのどれか（この環境でボリュームを判別できるとき）
+#ifndef _WIN32
+    CHECK(d.kind != 0);  // 内蔵・外付け・ネットワークのどれか（Windows は固定ドライブの内蔵・外付けを判別しないので Unknown になる）
+#endif
 
     // ファイルがなくなると、枚数は変わらず「ファイルなし」に数える
     fs::remove(lib.root / "2019" / "C.CR3");

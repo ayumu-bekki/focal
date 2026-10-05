@@ -39,7 +39,7 @@ jobs:
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
           if [[ ! "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-([0-9A-Za-z.-]+))?$ ]]; then
-            echo "::error::タグ $TAG は v1.2.3 または v1.2.3-beta の形ではありません"; exit 1
+            echo "::error::タグ ${TAG} は v1.2.3 または v1.2.3-beta の形ではありません"; exit 1
           fi
           NUMBER="${BASH_REMATCH[1]}"
           SUFFIX="${BASH_REMATCH[3]}"
@@ -60,7 +60,7 @@ jobs:
             echo "prerelease=$([[ -n "$SUFFIX" ]] && echo true || echo false)"
             echo "asset=Focal-${NUMBER}${SUFFIX:+-$SUFFIX}.dmg"
           } >> "$GITHUB_OUTPUT"
-          echo "== Focal $NUMBER ${CHANNEL}（タグ $TAG）"
+          echo "== Focal ${NUMBER} ${CHANNEL} (tag ${TAG})"
 
       - name: Check the secrets
         env:
@@ -75,7 +75,7 @@ jobs:
             [[ -n "${!v}" ]] || missing="$missing $v"
           done
           if [[ -n "$missing" ]]; then
-            echo "::error::署名・公証の Secrets がありません:$missing（docs/release.md）。署名なしの DMG はリリースしません"; exit 1
+            echo "::error::署名・公証の Secrets がありません:${missing} (docs/release.md)。署名なしの DMG はリリースしません"; exit 1
           fi
 
       - name: Tools
