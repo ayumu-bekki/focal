@@ -63,7 +63,7 @@ struct SidebarView: View {
                                 .accessibilityIdentifier("newAlbumItem")
                             Button("New Smart Album…") { model.albumPrompt = .smart(editing: nil) }
                                 .accessibilityIdentifier("newSmartAlbumItem")
-                            Button("New Folder…") { model.albumPrompt = .createFolder() }
+                            Button("New Album Folder…") { model.albumPrompt = .createFolder() }
                                 .accessibilityIdentifier("newFolderItem")
                         } label: {
                             Image(systemName: "plus")

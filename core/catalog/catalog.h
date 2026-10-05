@@ -138,6 +138,7 @@ struct ScanStats {
     int renamed = 0;    // 大文字小文字だけが違う名前に変わった（同じ写真として扱う）
     int inherited = 0;  // コピー（同じ内容のファイルが別の場所に残っている）として、元の現像・★・フラグ・タグを引き継いだ写真の数（v3.19）
     int relinked = 0;   // ほかのフォルダから移動してきた（ファイル名・サイズ・撮影日時が同じ）写真をつなぎ直した（v3.19）
+    int restored_data = 0;  // カタログから外したときに保管した情報（現像・★・フラグ・タグ・アルバム）を、同じ写真に戻した数（v3.23）
     int unsupported = 0;
     int folders_added = 0;
     int thumbnails = 0;
@@ -198,10 +199,38 @@ public:
     // マウントされているボリュームを見て、ルートの path をいまのマウントポイントに合わせる（v3.19）。
     // 変えたルートの数を返す。ボリュームが外れているルートは変えない（roots() で online = false になる）
     int refresh_volumes();
-    // ルートをカタログから外す（v3.19）。そのルートの写真・フォルダの情報と、★・フラグ・タグ・アルバムへの所属・編集も消える。
+    // ルートをカタログから外す（v3.19）。そのルートの写真・フォルダの行は消えるが、★・フラグ・タグ・アルバムへの所属・編集は
+    // **保管**され（detached_data、v3.23）、同じ写真（quick_hash + file_size）を登録し直すと戻る。保管した情報は optimize() で消える。
     // ディスク上のファイルには触れない。サムネイルのキャッシュは残る
-    // v3.19: 外す前に、自動でバックアップを作る（backup("remove-root")）
+    // 外す前に、自動でバックアップを作る（backup("remove-root")）
     void remove_root(int64_t root_id);
+
+    // カタログから外したときに保管して、まだ写真につながっていない情報（v3.23）
+    struct DetachedSummary {
+        int64_t items = 0;  // 保管している写真の数
+        int64_t edits = 0;  // うち、現像の設定がある数
+    };
+    DetachedSummary detached_summary();
+    // カタログの情報（v3.23。「カタログ情報」の画面用）
+    struct CatalogInfo {
+        int64_t file_bytes = 0;  // カタログのファイルの大きさ（WAL を含む）
+        int schema_version = 0;
+        int64_t roots = 0, folders = 0;
+        int64_t photos = 0, photos_raw = 0, photos_missing = 0;
+        int64_t edited_photos = 0;  // 現像の設定がある写真
+        int64_t albums = 0, tags = 0;
+        int64_t detached_items = 0, detached_edits = 0;  // 外したフォルダの保管情報
+        int64_t backup_files = 0, backup_bytes = 0;      // カタログの隣のバックアップ（*.bak）
+    };
+    CatalogInfo info();
+    struct OptimizeResult {
+        int64_t removed_items = 0;  // 消した保管情報の数
+        int64_t bytes_before = 0;   // カタログのファイルの大きさ（WAL を含む）
+        int64_t bytes_after = 0;
+    };
+    // カタログの最適化（v3.23）: 保管している情報（写真につながっていないもの）を消し、ファイルを詰める（VACUUM）。
+    // 元に戻せないので、先にバックアップを作る（backup("optimize")）
+    OptimizeResult optimize();
     // ルートの詳しい情報。ボリュームの容量は、応答しない共有で待ち続けないよう時間切れ（1.5 秒）で諦める（-1）
     RootDetails root_details(int64_t root_id);
     // ルートの表示名を変える（空なら消す）

@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 17
+#define FC_API_VERSION 19
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -118,6 +118,37 @@ fc_status fc_catalog_relocate_root(fc_catalog* catalog, int64_t root_id, const c
 fc_status fc_catalog_nested_root_count(fc_catalog* catalog, int32_t* out_count);
 /* 重なっているルートをすべて統合する（変更の前にバックアップを作る）。統合した数を返す */
 fc_status fc_catalog_merge_nested_roots(fc_catalog* catalog, int32_t* out_merged);
+
+/* ---- カタログから外した写真の情報の保管と、カタログの最適化（v3.23） ----
+   fc_catalog_remove_root は、そのルートの写真の現像・★・フラグ・タグ・アルバムの所属を保管する（同じ写真を登録し直すと戻る）。
+   保管した情報は fc_catalog_optimize で消える */
+typedef struct fc_detached_summary {
+    int64_t items; /* 保管している写真の数 */
+    int64_t edits; /* うち、現像の設定がある数 */
+} fc_detached_summary;
+fc_status fc_catalog_detached_summary(fc_catalog* catalog, fc_detached_summary* out);
+
+/* カタログの情報（「カタログ情報」の画面用） */
+typedef struct fc_catalog_info {
+    int64_t file_bytes; /* カタログのファイルの大きさ（WAL を含む） */
+    int32_t schema_version;
+    int64_t roots, folders;
+    int64_t photos, photos_raw, photos_missing;
+    int64_t edited_photos;
+    int64_t albums, tags;
+    int64_t detached_items, detached_edits; /* 外したフォルダの保管情報 */
+    int64_t backup_files, backup_bytes;     /* カタログの隣のバックアップ（*.bak） */
+} fc_catalog_info;
+fc_status fc_catalog_get_info(fc_catalog* catalog, fc_catalog_info* out);
+
+typedef struct fc_optimize_result {
+    int64_t removed_items; /* 消した保管情報の数 */
+    int64_t bytes_before;  /* カタログのファイルの大きさ（WAL を含む） */
+    int64_t bytes_after;
+} fc_optimize_result;
+/* 保管した情報を消して、ファイルを詰める（VACUUM）。元に戻せないので、先にバックアップを作る。時間がかかることがあるので、
+   メインスレッドで呼ばないこと */
+fc_status fc_catalog_optimize(fc_catalog* catalog, fc_optimize_result* out);
 
 fc_status fc_catalog_root_details(fc_catalog* catalog, int64_t root_id, fc_root_details** out);
 void fc_root_details_free(fc_root_details* details);
@@ -328,6 +359,7 @@ typedef struct fc_scan_stats {
     int32_t unsupported;
     int32_t relinked; /* 別のフォルダから移動してきた写真をつなぎ直した（v3.19） */
     int32_t inherited; /* コピーとして、元の現像・★・フラグ・タグを引き継いだ写真の数（v3.19） */
+    int32_t restored_data; /* カタログから外したときに保管した情報を、同じ写真に戻した数（v3.23） */
     int32_t folders_added;
     int32_t thumbnails;
     int32_t thumbnail_failures;

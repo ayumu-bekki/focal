@@ -15,6 +15,8 @@ int cmd_import(int argc, char** argv);
 int cmd_roots(int argc, char** argv);
 int cmd_unroot(int argc, char** argv);
 int cmd_relocate(int argc, char** argv);
+int cmd_optimize(int argc, char** argv);
+int cmd_catalog_info(int argc, char** argv);
 int cmd_merge_roots(int argc, char** argv);
 int cmd_ls(int argc, char** argv);
 int cmd_rate(int argc, char** argv);

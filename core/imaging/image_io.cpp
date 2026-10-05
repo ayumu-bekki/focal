@@ -526,14 +526,14 @@ namespace {
 
 std::vector<uint8_t> read_whole_file(const std::filesystem::path& path) {
     std::unique_ptr<FILE, FileCloser> f(open_file(path, "rb"));
-    if (!f) throw Error(Error::Code::Io, "cannot open: " + path.string());
+    if (!f) throw Error(Error::Code::Io, "cannot open: " + path_to_utf8(path));
     std::fseek(f.get(), 0, SEEK_END);
     const long size = std::ftell(f.get());
-    if (size < 0) throw Error(Error::Code::Io, "cannot read: " + path.string());
+    if (size < 0) throw Error(Error::Code::Io, "cannot read: " + path_to_utf8(path));
     std::fseek(f.get(), 0, SEEK_SET);
     std::vector<uint8_t> bytes(static_cast<size_t>(size));
     if (!bytes.empty() && std::fread(bytes.data(), 1, bytes.size(), f.get()) != bytes.size())
-        throw Error(Error::Code::Io, "cannot read: " + path.string());
+        throw Error(Error::Code::Io, "cannot read: " + path_to_utf8(path));
     return bytes;
 }
 
@@ -547,7 +547,7 @@ int flip_from_exif_orientation(int orientation) {
 
 ImageHeader read_jpeg_header(const std::filesystem::path& path) {
     std::unique_ptr<FILE, FileCloser> file(open_file(path, "rb"));
-    if (!file) throw Error(Error::Code::Io, "cannot open: " + path.string());
+    if (!file) throw Error(Error::Code::Io, "cannot open: " + path_to_utf8(path));
     jpeg_decompress_struct cinfo{};
     jpeg_error_mgr jerr{};
     cinfo.err = jpeg_std_error(&jerr);
@@ -592,7 +592,7 @@ ImageU8 decode_jpeg_file(const std::filesystem::path& path, int min_long_edge) {
 
 ImageHeader read_tiff_header(const std::filesystem::path& path) {
     std::unique_ptr<TIFF, TiffCloser> tif(open_tiff(path, "r"));
-    if (!tif) throw Error(Error::Code::Decode, "cannot open TIFF: " + path.string());
+    if (!tif) throw Error(Error::Code::Decode, "cannot open TIFF: " + path_to_utf8(path));
     TIFF* t = tif.get();
     ImageHeader h;
     uint32_t w = 0, hh = 0;
@@ -632,17 +632,17 @@ ImageHeader read_tiff_header(const std::filesystem::path& path) {
 
 ImageU8 decode_tiff_file(const std::filesystem::path& path) {
     std::unique_ptr<TIFF, TiffCloser> tif(open_tiff(path, "r"));
-    if (!tif) throw Error(Error::Code::Decode, "cannot open TIFF: " + path.string());
+    if (!tif) throw Error(Error::Code::Decode, "cannot open TIFF: " + path_to_utf8(path));
     TIFF* t = tif.get();
     uint32_t w = 0, h = 0;
     TIFFGetField(t, TIFFTAG_IMAGEWIDTH, &w);
     TIFFGetField(t, TIFFTAG_IMAGELENGTH, &h);
     if (w == 0 || h == 0 || static_cast<uint64_t>(w) * h > (1ull << 31))
-        throw Error(Error::Code::Unsupported, "unsupported TIFF size: " + path.string());
+        throw Error(Error::Code::Unsupported, "unsupported TIFF size: " + path_to_utf8(path));
     // libtiff に RGBA 8-bit へ変換させる（パレット・グレー・16-bit・アルファ付きも読める）。向きは自分で扱う
     std::vector<uint32_t> rgba(static_cast<size_t>(w) * h);
     if (!TIFFReadRGBAImageOriented(t, w, h, rgba.data(), ORIENTATION_TOPLEFT, 0))
-        throw Error(Error::Code::Decode, "TIFF decode failed: " + path.string());
+        throw Error(Error::Code::Decode, "TIFF decode failed: " + path_to_utf8(path));
     ImageU8 img(static_cast<int>(w), static_cast<int>(h));
     uint8_t* dst = img.data.data();
     for (size_t i = 0; i < rgba.size(); ++i) {
@@ -662,10 +662,10 @@ struct PngReader {
     std::unique_ptr<FILE, FileCloser> file;
 
     explicit PngReader(const std::filesystem::path& path) : file(open_file(path, "rb")) {
-        if (!file) throw Error(Error::Code::Io, "cannot open: " + path.string());
+        if (!file) throw Error(Error::Code::Io, "cannot open: " + path_to_utf8(path));
         uint8_t sig[8];
         if (std::fread(sig, 1, 8, file.get()) != 8 || png_sig_cmp(sig, 0, 8) != 0)
-            throw Error(Error::Code::Decode, "not a PNG file: " + path.string());
+            throw Error(Error::Code::Decode, "not a PNG file: " + path_to_utf8(path));
         png = png_create_read_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
         if (png) info = png_create_info_struct(png);
         if (!png || !info) throw Error(Error::Code::Internal, "cannot initialize libpng");
@@ -713,7 +713,7 @@ ImageU8 decode_png_file(const std::filesystem::path& path) {
     const int w = static_cast<int>(png_get_image_width(r.png, r.info));
     const int h = static_cast<int>(png_get_image_height(r.png, r.info));
     if (w <= 0 || h <= 0 || static_cast<uint64_t>(w) * h > (1ull << 31))
-        throw Error(Error::Code::Unsupported, "unsupported PNG size: " + path.string());
+        throw Error(Error::Code::Unsupported, "unsupported PNG size: " + path_to_utf8(path));
     const int color = png_get_color_type(r.png, r.info);
     const int depth = png_get_bit_depth(r.png, r.info);
     if (color == PNG_COLOR_TYPE_PALETTE) png_set_palette_to_rgb(r.png);
@@ -724,7 +724,7 @@ ImageU8 decode_png_file(const std::filesystem::path& path) {
     png_set_strip_alpha(r.png);
     png_read_update_info(r.png, r.info);
     if (png_get_rowbytes(r.png, r.info) != static_cast<size_t>(w) * 3)
-        throw Error(Error::Code::Unsupported, "unsupported PNG format: " + path.string());
+        throw Error(Error::Code::Unsupported, "unsupported PNG format: " + path_to_utf8(path));
     ImageU8 img(w, h);
     std::vector<png_bytep> rows(static_cast<size_t>(h));
     for (int y = 0; y < h; ++y) rows[static_cast<size_t>(y)] = img.row(y);

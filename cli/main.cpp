@@ -25,7 +25,9 @@ void usage() {
                  "  roots                                         登録したフォルダの一覧（ボリューム名・オフライン表示つき）\n"
                  "  relocate <root id> <dir>                      ルートの場所を付け替える（現像・★・タグはそのまま）\n"
                  "  merge-roots [--dry-run]                       重なったルートを統合する（先にバックアップを作る）\n"
-                 "  unroot <root id>                              ルートをカタログから外す（ファイルは消さない）\n"
+                 "  unroot <root id>                              ルートをカタログから外す（ファイルは消さない。現像・★・タグは保管される）\n"
+                 "  catalog-info                                  カタログの情報（大きさ・写真の数・保管した情報・バックアップ）\n"
+                 "  optimize [--dry-run]                          カタログの最適化: 保管した情報（外したルートの現像・★・タグ）を消してファイルを詰める\n"
                  "  sources [--path dir]                          DCIM があるボリューム（SD カード）を探す。--path ならその中身の概算\n"
                  "  import-card <card|DCIM> --dest dir [--album ID] [--tags a/b,c] [--no-verify] [--dry-run] [--no-thumbs]\n"
                  "                  [--preset ID]                 取り込んだ写真に現像のプリセットを重ねる（preset ls の ID）\n"
@@ -83,6 +85,8 @@ int main(int argc, char** argv) {
         if (!std::strcmp(cmd, "preset")) return focal::cli::cmd_preset(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "relocate")) return focal::cli::cmd_relocate(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "merge-roots")) return focal::cli::cmd_merge_roots(argc - 2, argv + 2);
+        if (!std::strcmp(cmd, "catalog-info")) return focal::cli::cmd_catalog_info(argc - 2, argv + 2);
+        if (!std::strcmp(cmd, "optimize")) return focal::cli::cmd_optimize(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "unroot")) return focal::cli::cmd_unroot(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "roots")) return focal::cli::cmd_roots(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "ls")) return focal::cli::cmd_ls(argc - 2, argv + 2);

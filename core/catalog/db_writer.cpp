@@ -33,6 +33,19 @@ std::future<void> DbWriter::post(std::function<void(Database&)> job) {
     return f;
 }
 
+void DbWriter::call_outside_transaction(std::function<void(Database&)> job) {
+    Job j;
+    j.fn = std::move(job);
+    j.bare = true;
+    auto f = j.done.get_future();
+    {
+        std::lock_guard lock(mutex_);
+        queue_.push_back(std::move(j));
+    }
+    cv_.notify_one();
+    f.get();
+}
+
 void DbWriter::loop() {
     for (;;) {
         std::vector<Job> batch;
@@ -41,9 +54,22 @@ void DbWriter::loop() {
             cv_.wait(lock, [this] { return stopping_ || !queue_.empty(); });
             if (queue_.empty()) return;  // stopping_ かつキューが空
             while (!queue_.empty() && batch.size() < kBatch) {
+                // 単独で実行するジョブは、前のジョブをコミットしてから（バッチの先頭になってから）、1 件だけ実行する
+                if (queue_.front().bare && !batch.empty()) break;
+                const bool bare = queue_.front().bare;
                 batch.push_back(std::move(queue_.front()));
                 queue_.pop_front();
+                if (bare) break;
             }
+        }
+        if (batch.size() == 1 && batch[0].bare) {
+            try {
+                batch[0].fn(*db_);
+                batch[0].done.set_value();
+            } catch (...) {
+                batch[0].done.set_exception(std::current_exception());
+            }
+            continue;
         }
 
         std::vector<std::exception_ptr> errors(batch.size());

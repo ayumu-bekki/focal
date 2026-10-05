@@ -1278,11 +1278,127 @@ final class FocalUITests: XCTestCase {
         XCTAssertEqual(notDevelopable, 2, "PNG と JPEG")
     }
 
-    /// n: 0 新規アルバム、1 新規スマートアルバム、2 新規フォルダ（メニュー項目の識別子は取れないので名前で選ぶ）
+    /// カタログ情報（ファイル ▸ カタログ情報…）: 中身の数が出る。ルートを外すと情報は保管され、最適化のボタンで消える
+    @MainActor
+    func testCatalogInfoAndOptimize() throws {
+        let env = ProcessInfo.processInfo.environment
+        try XCTSkipIf(env["FOCAL_DETACH_CATALOG"] == nil, "scripts/ui-test.sh から実行する")
+        let app = XCUIApplication()
+        app.launchEnvironment["FOCAL_CATALOG"] = env["FOCAL_DETACH_CATALOG"]
+        app.launchEnvironment["FOCAL_CACHE"] = env["FOCAL_CACHE"]
+        app.launchEnvironment["FOCAL_IMPORT_DEST"] = NSTemporaryDirectory() + "focal-ui-dest-\(UUID().uuidString)"
+        app.launchEnvironment["FOCAL_WINDOW_SIZE"] = "1440x900"
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        app.launch()
+        XCTAssertTrue(app.windows["library"].waitForExistence(timeout: 10))
+        func any(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+        func text(_ part: String) -> Bool {
+            app.staticTexts.matching(NSPredicate(format: "value CONTAINS %@ OR label CONTAINS %@", part, part)).firstMatch.exists
+        }
+        // シートの中の識別子は、外側の識別子（catalogInfoSheet）にまとめられるので、ボタンは名前で探す
+        func sheetButton(_ titles: [String]) -> XCUIElement {
+            app.sheets.buttons.matching(NSPredicate(format: "label IN %@ OR title IN %@", titles, titles)).firstMatch
+        }
+        func closeInfo() {
+            let done = sheetButton(["完了", "Done"])
+            XCTAssertTrue(done.waitForExistence(timeout: 3))
+            done.click()
+            XCTAssertTrue(waitGone(any("catalogInfoSheet")))
+        }
+        func openInfo() {
+            app.menuBars.menuBarItems.matching(NSPredicate(format: "title == 'ファイル' OR title == 'File'")).firstMatch.click()
+            let item = app.menuBars.menuItems.matching(NSPredicate(format: "title BEGINSWITH 'カタログ情報' OR title BEGINSWITH 'Catalog Information'")).firstMatch
+            XCTAssertTrue(item.waitForExistence(timeout: 3))
+            item.click()
+            XCTAssertTrue(any("catalogInfoSheet").waitForExistence(timeout: 5))
+        }
+
+        // 1 枚、保管している情報はない
+        XCTAssertTrue(waitValue(app.staticTexts["photoCount"], "1 / 1"))
+        openInfo()
+        XCTAssertTrue(waitUntil { text("1 枚") || text("1 photos") }, "写真の数")
+        XCTAssertTrue(waitUntil { text("なし") || text("None") }, "保管している情報はない")
+        saveScreenshot(app, name: "catalog-info")
+        closeInfo()
+
+        // ルートを外す（右クリック ▸ 情報を見る… ▸ カタログから外す…）
+        let folder = any("folder-detach")
+        XCTAssertTrue(folder.waitForExistence(timeout: 5))
+        folder.rightClick()
+        let info = app.menuItems.matching(NSPredicate(format: "title == '情報を見る…' OR title == 'Get Info…'")).firstMatch
+        XCTAssertTrue(info.waitForExistence(timeout: 3))
+        info.click()
+        let remove = app.popovers.firstMatch.buttons.matching(NSPredicate(format: "label BEGINSWITH 'カタログから外す' OR label BEGINSWITH 'Remove from Catalog'")).firstMatch
+        XCTAssertTrue(remove.waitForExistence(timeout: 3))
+        remove.click()
+        let confirm = app.sheets.buttons.element(boundBy: 0)
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        confirm.click()
+        XCTAssertTrue(waitGone(any("folder-detach")))
+
+        // 保管している情報が 1 枚分ある → 最適化で消える
+        openInfo()
+        XCTAssertTrue(waitUntil { text("1 枚（うち") || text("1 photos (1 with edits)") || text("1 photos (0 with edits)") }, "保管している情報")
+        saveScreenshot(app, name: "catalog-info-saved")
+        let optimize = sheetButton(["最適化…", "Optimize…"])
+        XCTAssertTrue(optimize.waitForExistence(timeout: 3))
+        optimize.click()
+        let go = sheetButton(["削除して最適化", "Delete and Optimize"])
+        XCTAssertTrue(go.waitForExistence(timeout: 3))
+        go.click()
+        XCTAssertTrue(waitUntil(timeout: 30) { text("削除しました") || text("Removed the saved information") }, "最適化の結果")
+        XCTAssertTrue(waitUntil { text("なし") || text("None") }, "最適化したあとは保管している情報がない")
+        saveScreenshot(app, name: "catalog-info-optimized")
+        closeInfo()
+    }
+
+    /// ファイルメニューの並び: カタログ / 登録したフォルダ / アルバム / 取り込みと書き出し が区切りでグループになっている
+    @MainActor
+    func testFileMenuGroups() throws {
+        try requireCatalog()
+        let app = launch()
+        XCTAssertTrue(app.descendants(matching: .any)["photoGrid"].waitForExistence(timeout: 10))
+        let barItem = app.menuBars.menuBarItems.matching(NSPredicate(format: "title == 'ファイル' OR title == 'File'")).firstMatch
+        barItem.click()
+        let menu = barItem.menus.firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 3))
+        saveScreenshot(app, name: "file-menu")
+        // 項目と区切りの並び（"-" は区切り）。標準の項目（閉じる・プリントなど）は含めず、Focal の項目だけを順に見る
+        let ours: [[String]] = [
+            ["新規カタログ…", "New Catalog…"], ["カタログを開く…", "Open Catalog…"], ["カタログ情報…", "Catalog Information…"],
+            ["フォルダを追加…", "Add Folder…"], ["すべてのフォルダを再スキャン", "Rescan All Folders"],
+            ["新規アルバム…", "New Album…"], ["新規スマートアルバム…", "New Smart Album…"],
+            ["新規アルバムフォルダ…", "New Album Folder…"],
+            ["カードから取り込む…", "Import from Card…"], ["書き出し…", "Export…"],
+        ]
+        let items = menu.menuItems.allElementsBoundByIndex
+        let titles = items.map { $0.title }
+        var positions: [Int] = []
+        for names in ours {
+            guard let i = titles.firstIndex(where: { names.contains($0) }) else {
+                XCTFail("メニューにない: \(names[0])  (\(titles))")
+                return
+            }
+            positions.append(i)
+        }
+        XCTAssertEqual(positions, positions.sorted(), "並びが決めた順")
+        // グループの区切り: 隣り合う項目の間に区切り（title が空）が入るのはグループの境目だけ
+        func separated(_ a: Int, _ b: Int) -> Bool { (positions[a] + 1..<positions[b]).contains { titles[$0].isEmpty } }
+        XCTAssertFalse(separated(0, 1) || separated(1, 2), "カタログの 3 項目は同じグループ")
+        XCTAssertTrue(separated(2, 3), "カタログとフォルダの間に区切り")
+        XCTAssertFalse(separated(3, 4), "フォルダを追加と再スキャンは同じグループ")
+        XCTAssertTrue(separated(4, 5), "フォルダとアルバムの間に区切り")
+        XCTAssertFalse(separated(5, 6) || separated(6, 7), "アルバムの 3 項目は同じグループ")
+        XCTAssertTrue(separated(7, 8), "アルバムと取り込み・書き出しの間に区切り")
+        XCTAssertFalse(separated(8, 9), "取り込みと書き出しは同じグループ")
+        app.typeKey(.escape, modifierFlags: [])
+    }
+
+    /// n: 0 新規アルバム、1 新規スマートアルバム、2 新規アルバムフォルダ（メニュー項目の識別子は取れないので名前で選ぶ）
     private func chooseNewAlbumItem(_ app: XCUIApplication, _ n: Int) {
         openNewAlbumMenu(app)
         let titles = [["新規アルバム…", "New Album…"], ["新規スマートアルバム…", "New Smart Album…"],
-                      ["新規フォルダ…", "New Folder…"]][n]
+                      ["新規アルバムフォルダ…", "New Album Folder…"]][n]
         // メニューバーにも同じ名前の項目があるので、開いているポップアップの（押せる）項目だけを選ぶ
         let query = app.menuItems.matching(NSPredicate(format: "title == %@ OR title == %@", titles[0], titles[1]))
         let deadline = Date().addingTimeInterval(3)

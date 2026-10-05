@@ -206,8 +206,58 @@ public struct PhotoFilter: Hashable, Sendable {
     }
 }
 
+/// カタログから外したときに保管して、まだ写真につながっていない情報（v3.23）
+public struct DetachedSummary: Sendable, Equatable {
+    public let items: Int
+    public let edits: Int
+
+    public init(items: Int, edits: Int) {
+        self.items = items
+        self.edits = edits
+    }
+}
+
+/// カタログの情報（「カタログ情報」の画面用、v3.23）
+public struct CatalogInfo: Sendable, Equatable {
+    public let fileBytes: Int64
+    public let schemaVersion: Int
+    public let roots: Int, folders: Int
+    public let photos: Int, rawPhotos: Int, missingPhotos: Int
+    public let editedPhotos: Int
+    public let albums: Int, tags: Int
+    /// 外したフォルダの保管情報（写真の数・うち現像の設定がある数）
+    public let detachedItems: Int, detachedEdits: Int
+    /// カタログの隣のバックアップ（*.bak）
+    public let backupFiles: Int, backupBytes: Int64
+
+    init(_ c: fc_catalog_info) {
+        fileBytes = c.file_bytes
+        schemaVersion = Int(c.schema_version)
+        roots = Int(c.roots)
+        folders = Int(c.folders)
+        photos = Int(c.photos)
+        rawPhotos = Int(c.photos_raw)
+        missingPhotos = Int(c.photos_missing)
+        editedPhotos = Int(c.edited_photos)
+        albums = Int(c.albums)
+        tags = Int(c.tags)
+        detachedItems = Int(c.detached_items)
+        detachedEdits = Int(c.detached_edits)
+        backupFiles = Int(c.backup_files)
+        backupBytes = c.backup_bytes
+    }
+}
+
+public struct OptimizeResult: Sendable {
+    public let removedItems: Int
+    public let bytesBefore: Int64
+    public let bytesAfter: Int64
+}
+
 public struct ScanStats: Sendable {
     public var added = 0, updated = 0, unchanged = 0, missing = 0, restored = 0, renamed = 0, relinked = 0, inherited = 0
+    /// カタログから外したときに保管した情報を、同じ写真に戻した数（v3.23）
+    public var restoredData = 0
     public var unsupported = 0, foldersAdded = 0, thumbnails = 0, thumbnailFailures = 0
 
     init(_ s: fc_scan_stats) {
@@ -219,6 +269,7 @@ public struct ScanStats: Sendable {
         renamed = Int(s.renamed)
         relinked = Int(s.relinked)
         inherited = Int(s.inherited)
+        restoredData = Int(s.restored_data)
         unsupported = Int(s.unsupported)
         foldersAdded = Int(s.folders_added)
         thumbnails = Int(s.thumbnails)

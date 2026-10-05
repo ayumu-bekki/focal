@@ -132,9 +132,9 @@ struct ContentView: View {
             }
         } message: {
             if model.rootToRemoveEdited > 0 {
-                Text("\(model.rootToRemoveEdited) photos have edits, ratings, flags or tags. They are deleted from this catalog, along with the album memberships. The files on disk are not deleted. A backup of the catalog is made first, so you can restore it.")
+                Text("\(model.rootToRemoveEdited) photos have edits, ratings, flags or tags. They are kept in this catalog and come back when you add the same photos again. Optimize Catalog deletes them for good. The files on disk are not deleted.")
             } else {
-                Text("The photos’ ratings, flags, tags, album memberships and edits in this catalog are deleted. The files on disk are not deleted. A backup of the catalog is made first.")
+                Text("The photos are removed from this catalog. The files on disk are not deleted.")
             }
         }
         .confirmationDialog(
@@ -155,6 +155,9 @@ struct ContentView: View {
             Button("Later", role: .cancel) { model.nestedRootsToMerge = 0 }
         } message: {
             Text("\(model.nestedRootsToMerge) folders in the catalog are inside another folder of the catalog, so the same photos may be registered twice. Merging combines them into one, keeping edits, ratings, flags and tags. A backup of the catalog is made first.")
+        }
+        .sheet(isPresented: $model.showCatalogInfo) {
+            CatalogInfoView(model: model)
         }
         .alert("Folders", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
             Button("OK") { model.notice = nil }

@@ -853,6 +853,20 @@ int main(void) {
         CHECK(fc_export_start(cat, ids2, 2, &eo, NULL, on_export_done, &ex, &task) == FC_ERR_INVALID_ARGUMENT);
     }
 
+    /* v3.23: カタログから外した情報の保管と最適化 */
+    {
+        fc_detached_summary d;
+        REQUIRE_OK(fc_catalog_detached_summary(cat, &d));
+        CHECK(d.items >= 0);
+        fc_optimize_result opt;
+        REQUIRE_OK(fc_catalog_optimize(cat, &opt));
+        CHECK(opt.bytes_before > 0);
+        CHECK(opt.bytes_after > 0);
+        REQUIRE_OK(fc_catalog_detached_summary(cat, &d));
+        CHECK(d.items == 0);
+        CHECK(fc_catalog_optimize(NULL, &opt) == FC_ERR_INVALID_ARGUMENT);
+    }
+
     /* 現像のプリセット（6.3 章）: 保存・一覧・重ね・カタログへの適用。切り取りは含めない */
     {
         char pdir[1100], bdir[1100];

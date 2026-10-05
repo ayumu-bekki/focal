@@ -523,6 +523,62 @@ struct FreshPhoto {
     int64_t size;
 };
 
+// カタログから外したときに保管した情報（detached_data）を、同じ写真（quick_hash + file_size）に戻す（v3.23）。
+// 同じ内容の候補が複数あれば、同じファイル名のものを先に、次に新しく保管したものを使う。戻した分は保管から消す。
+// 戻した写真の id を返す（コピーの引き継ぎの対象から外す）
+std::set<int64_t> restore_from_detached(db::DbWriter& writer, const std::vector<FreshPhoto>& fresh) {
+    std::set<int64_t> restored;
+    if (fresh.empty()) return restored;
+    writer.call([&](Database& db) {
+        auto find = db.prepare(
+            "SELECT d.id, d.rating, d.flag, d.edit_version, d.edit_json, d.tag_ids, d.album_ids FROM detached_data d"
+            " WHERE d.quick_hash = ?1 AND d.file_size = ?2"
+            " ORDER BY (d.file_name = (SELECT file_name FROM photos WHERE id = ?3) COLLATE NOCASE) DESC, d.detached_at DESC, d.id DESC"
+            " LIMIT 1");
+        auto split = [](const std::optional<std::string>& csv) {
+            std::vector<int64_t> ids;
+            if (!csv) return ids;
+            size_t start = 0;
+            while (start < csv->size()) {
+                const size_t comma = csv->find(',', start);
+                const size_t end = comma == std::string::npos ? csv->size() : comma;
+                if (end > start) ids.push_back(std::stoll(csv->substr(start, end - start)));
+                if (comma == std::string::npos) break;
+                start = comma + 1;
+            }
+            return ids;
+        };
+        for (const auto& f : fresh) {
+            find.reset();
+            find.bind(1, f.hash).bind(2, f.size).bind(3, f.id);
+            if (!find.step()) continue;
+            const int64_t detached_id = find.column_int64(0);
+            const int rating = find.column_int(1), flag = find.column_int(2);
+            const std::optional<std::string> edit_json = find.column_opt_text(4);
+            const int edit_version = find.column_int(3);
+            const auto tags = split(find.column_opt_text(5));
+            const auto albums = split(find.column_opt_text(6));
+            find.reset();
+            db.prepare("UPDATE photos SET rating = ?, flag = ? WHERE id = ?").bind(1, rating).bind(2, flag).bind(3, f.id).run();
+            if (edit_json)
+                db.prepare("INSERT OR IGNORE INTO edits (photo_id, process_version, settings, updated_at)"
+                           " VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))")
+                    .bind(1, f.id).bind(2, edit_version).bind(3, *edit_json).run();
+            // タグ・アルバムは、いまもあるものだけ（なくなっていれば飛ばす）
+            for (int64_t t : tags)
+                db.prepare("INSERT OR IGNORE INTO photo_tags (photo_id, tag_id) SELECT ?1, id FROM tags WHERE id = ?2")
+                    .bind(1, f.id).bind(2, t).run();
+            for (int64_t a : albums)
+                db.prepare("INSERT OR IGNORE INTO album_photos (album_id, photo_id, added_at)"
+                           " SELECT id, ?1, strftime('%Y-%m-%dT%H:%M:%SZ', 'now') FROM albums WHERE id = ?2 AND kind = 0")
+                    .bind(1, f.id).bind(2, a).run();
+            db.prepare("DELETE FROM detached_data WHERE id = ?").bind(1, detached_id).run();
+            restored.insert(f.id);
+        }
+    });
+    return restored;
+}
+
 int inherit_from_copies(db::DbWriter& writer, const std::vector<FreshPhoto>& fresh) {
     int inherited = 0;
     for (const auto& f : fresh) {
@@ -625,7 +681,13 @@ void process_works(db::DbWriter& writer, const std::vector<Work>& work, const Sc
         });
         stats.added -= relinked;
         stats.relinked += relinked;
-        stats.inherited += inherit_from_copies(writer, fresh);
+        // 外したときに保管した情報を戻す。戻したものは、コピーの引き継ぎの対象から外す
+        const auto restored = restore_from_detached(writer, fresh);
+        stats.restored_data += static_cast<int>(restored.size());
+        std::vector<FreshPhoto> remaining;
+        for (const auto& f : fresh)
+            if (!restored.count(f.id)) remaining.push_back(f);
+        stats.inherited += inherit_from_copies(writer, remaining);
         if (opt.progress) opt.progress(end, total);
     }
 }
@@ -1031,14 +1093,113 @@ int Catalog::refresh_volumes() {
 }
 
 void Catalog::remove_root(int64_t root_id) {
-    backup("remove-root");  // 外すと、そのルートの写真の現像・★・フラグ・タグが消える。戻せるよう、先にバックアップを作る
+    backup("remove-root");  // 念のため、先にバックアップを作る（情報は保管するが、万一のため）
     writer_->call([&](Database& db) {
         auto find = db.prepare("SELECT 1 FROM roots WHERE id = ?");
         find.bind(1, root_id);
         if (!find.step()) throw Error(Error::Code::NotFound, "unknown root id " + std::to_string(root_id));
+        // 写真の情報（現像・★・フラグ・タグ・アルバムの所属）を、行を消す前に保管する（v3.23）。
+        // 写真を見分けるための内容のハッシュがない行と、何も情報のない行は保管しない
+        db.prepare(
+              "INSERT INTO detached_data (quick_hash, file_size, file_name, source_path, capture_time, rating, flag,"
+              " edit_version, edit_json, tag_ids, album_ids)"
+              " SELECT p.quick_hash, p.file_size, p.file_name,"
+              " r.path || CASE WHEN f.rel_path = '' THEN '' ELSE '/' || f.rel_path END || '/' || p.file_name,"
+              " p.capture_time, p.rating, p.flag, e.process_version, e.settings,"
+              " (SELECT group_concat(tag_id, ',') FROM photo_tags WHERE photo_id = p.id),"
+              " (SELECT group_concat(album_id, ',') FROM album_photos WHERE photo_id = p.id)"
+              " FROM photos p JOIN folders f ON f.id = p.folder_id JOIN roots r ON r.id = f.root_id"
+              " LEFT JOIN edits e ON e.photo_id = p.id"
+              " WHERE r.id = ?1 AND p.quick_hash IS NOT NULL AND p.quick_hash <> ''"
+              " AND (e.photo_id IS NOT NULL OR p.rating <> 0 OR p.flag <> 0"
+              " OR EXISTS (SELECT 1 FROM photo_tags WHERE photo_id = p.id)"
+              " OR EXISTS (SELECT 1 FROM album_photos WHERE photo_id = p.id))")
+            .bind(1, root_id)
+            .run();
         auto st = db.prepare("DELETE FROM roots WHERE id = ?");  // folders → photos → edits・タグ・アルバム所属は ON DELETE CASCADE
         st.bind(1, root_id).run();
     });
+}
+
+Catalog::DetachedSummary Catalog::detached_summary() {
+    std::lock_guard lock(reader_mutex_);
+    DetachedSummary d;
+    auto st = reader_->prepare("SELECT COUNT(*), COALESCE(SUM(edit_json IS NOT NULL), 0) FROM detached_data");
+    if (st.step()) {
+        d.items = st.column_int64(0);
+        d.edits = st.column_int64(1);
+    }
+    return d;
+}
+
+Catalog::CatalogInfo Catalog::info() {
+    CatalogInfo i;
+    {
+        std::error_code ec;
+        for (const char* suffix : {"", "-wal"}) {
+            const auto size = fs::file_size(fs::path(path_.native() + fs::path::string_type(suffix, suffix + std::strlen(suffix))), ec);
+            if (!ec) i.file_bytes += static_cast<int64_t>(size);
+            ec.clear();
+        }
+        // カタログの隣のバックアップ（<名前>.v〜.bak、<名前>.before-〜.bak）
+        const std::string base = path_to_utf8(path_.filename()) + ".";
+        for (fs::directory_iterator it(path_.parent_path(), ec), end; !ec && it != end; it.increment(ec)) {
+            const std::string name = path_to_utf8(it->path().filename());
+            if (name.rfind(base, 0) != 0 || it->path().extension() != ".bak") continue;
+            std::error_code e2;
+            const auto size = fs::file_size(it->path(), e2);
+            if (e2) continue;
+            ++i.backup_files;
+            i.backup_bytes += static_cast<int64_t>(size);
+        }
+    }
+    std::lock_guard lock(reader_mutex_);
+    auto one = [&](const char* sql) {
+        auto st = reader_->prepare(sql);
+        return st.step() ? st.column_int64(0) : int64_t(0);
+    };
+    i.schema_version = static_cast<int>(one("PRAGMA user_version"));
+    i.roots = one("SELECT COUNT(*) FROM roots");
+    i.folders = one("SELECT COUNT(*) FROM folders");
+    i.photos = one("SELECT COUNT(*) FROM photos");
+    i.photos_raw = one("SELECT COUNT(*) FROM photos WHERE kind = 0");
+    i.photos_missing = one("SELECT COUNT(*) FROM photos WHERE status = 1");
+    i.edited_photos = one("SELECT COUNT(*) FROM edits");
+    i.albums = one("SELECT COUNT(*) FROM albums WHERE kind = 0");
+    i.tags = one("SELECT COUNT(*) FROM tags");
+    i.detached_items = one("SELECT COUNT(*) FROM detached_data");
+    i.detached_edits = one("SELECT COUNT(*) FROM detached_data WHERE edit_json IS NOT NULL");
+    return i;
+}
+
+Catalog::OptimizeResult Catalog::optimize() {
+    auto file_bytes = [&] {
+        int64_t total = 0;
+        std::error_code ec;
+        for (const char* suffix : {"", "-wal"}) {
+            const auto size = fs::file_size(fs::path(path_.native() + fs::path::string_type(suffix, suffix + std::strlen(suffix))), ec);
+            if (!ec) total += static_cast<int64_t>(size);
+            ec.clear();
+        }
+        return total;
+    };
+    OptimizeResult r;
+    r.bytes_before = file_bytes();
+    backup("optimize");  // 消したものは戻せないので、先にバックアップを作る
+    r.removed_items = writer_->call([&](Database& db) {
+        auto count = db.prepare("SELECT COUNT(*) FROM detached_data");
+        count.step();
+        const int64_t n = count.column_int64(0);
+        db.prepare("DELETE FROM detached_data").run();
+        return n;
+    });
+    // ファイルを詰める。VACUUM と WAL の書き戻しは、トランザクションの外で行う
+    writer_->call_outside_transaction([](Database& db) {
+        db.exec("VACUUM;");
+        db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+    });
+    r.bytes_after = file_bytes();
+    return r;
 }
 
 void Catalog::remove_photos(std::span<const int64_t> ids) {

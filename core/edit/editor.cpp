@@ -422,7 +422,7 @@ void Editor::run_preview(const std::shared_ptr<EditSession>& s, int long_edge) {
         const auto path = catalog_.photo_disk_path(s->photo_id());
         if (!path) throw Error(Error::Code::NotFound, "file not found");
         // RAW 以外の写真（v3.22）は LibRaw を使わず、画像そのものを縮小してプレビューにする
-        const auto kind = photo_kind_for_name(path->filename().string());
+        const auto kind = photo_kind_for_name(path_to_utf8(path->filename()));
         const bool is_raw = !kind || *kind == PhotoKind::Raw;
         std::unique_ptr<LibRaw> raw;
         RawMetadata meta;

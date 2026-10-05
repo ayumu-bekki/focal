@@ -101,6 +101,28 @@ public final class Catalog: @unchecked Sendable {
         return Int(n)
     }
 
+    /// カタログの情報（大きさ・写真の数・保管した情報・バックアップ。v3.23）
+    public func info() throws -> CatalogInfo {
+        var i = fc_catalog_info()
+        try check(fc_catalog_get_info(handle, &i))
+        return CatalogInfo(i)
+    }
+
+    /// カタログから外したときに保管して、まだ写真につながっていない情報の数（v3.23）
+    public func detachedSummary() throws -> DetachedSummary {
+        var d = fc_detached_summary()
+        try check(fc_catalog_detached_summary(handle, &d))
+        return DetachedSummary(items: Int(d.items), edits: Int(d.edits))
+    }
+
+    /// カタログの最適化: 保管した情報を消して、ファイルを詰める。元に戻せないので、先にバックアップを作る。
+    /// 時間がかかることがあるので、メインスレッド以外で呼ぶこと
+    public func optimize() throws -> OptimizeResult {
+        var r = fc_optimize_result()
+        try check(fc_catalog_optimize(handle, &r))
+        return OptimizeResult(removedItems: Int(r.removed_items), bytesBefore: r.bytes_before, bytesAfter: r.bytes_after)
+    }
+
     public func setRootLabel(_ label: String, rootID: Int64) throws {
         try label.withCString { try check(fc_catalog_set_root_label(handle, rootID, $0)) }
     }

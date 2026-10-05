@@ -360,3 +360,153 @@ TEST_CASE("カード取り込み: JPEG だけの 1 枚も登録し、RAW と同�
     // もう一度取り込むと、取り込み済み
     CHECK(import_from_card(*c, opt).skipped_duplicates == 2);
 }
+
+// ---- v3.23: カタログから外しても情報を保管し、同じ写真を登録し直すと戻る。最適化で消える --------------------------------
+
+namespace {
+
+void make_distinct_jpeg(const fs::path& p, int seed) {
+    fs::create_directories(p.parent_path());
+    ImageU8 img(48, 32);
+    for (size_t i = 0; i < img.data.size(); ++i) img.data[i] = static_cast<uint8_t>((i * 31 + seed * 97) % 251);
+    write_jpeg(p, img, 90, {}, nullptr);
+}
+
+} // namespace
+
+TEST_CASE("カタログから外しても、現像・★・フラグ・タグ・アルバムは保管され、同じ写真を登録し直すと戻る", "[detached]") {
+    TempDir lib, db;
+    make_distinct_jpeg(lib / "a.jpg", 1);
+    make_distinct_jpeg(lib / "b.jpg", 2);
+    auto c = Catalog::open(db / "c.sqlite");
+    const int64_t root = c->add_root(lib.path());
+    c->scan_root(root);
+    const int64_t a = photo_named(*c, "a.jpg")->id;
+    const int64_t tag = c->ensure_tag("trip");
+    const int64_t album = c->create_album("Keep");
+    c->set_rating(std::vector<int64_t>{a}, 4);
+    c->set_flag(std::vector<int64_t>{a}, 1);
+    c->add_tag(std::vector<int64_t>{a}, tag);
+    c->add_to_album(album, std::vector<int64_t>{a});
+    c->save_edit(a, 1, std::string(R"({"schema":1,"processVersion":1,"exposure":0.7})"));
+    c->flush();
+
+    c->remove_root(root);
+    CHECK(c->count(PhotoFilter{}) == 0);
+    CHECK(c->roots().empty());
+    auto summary = c->detached_summary();
+    CHECK(summary.items == 1);  // b.jpg は何も情報がないので保管しない
+    CHECK(summary.edits == 1);
+
+    // 同じフォルダを登録し直すと、同じ写真（内容が同じ）に戻る
+    const int64_t root2 = c->add_root(lib.path());
+    const ScanStats st = c->scan_root(root2);
+    CHECK(st.added == 2);
+    CHECK(st.restored_data == 1);
+    const auto back = photo_named(*c, "a.jpg");
+    REQUIRE(back);
+    CHECK(back->rating == 4);
+    CHECK(back->flag == 1);
+    c->flush();
+    const auto json = c->edit_json(back->id);
+    REQUIRE(json);
+    CHECK(settings_from_json(*json).exposure == 0.7);
+    PhotoFilter f;
+    f.tag_id = tag;
+    CHECK(c->count(f) == 1);
+    f = PhotoFilter{};
+    f.album_id = album;
+    CHECK(c->count(f) == 1);
+    CHECK(photo_named(*c, "b.jpg")->rating == 0);
+    CHECK(c->detached_summary().items == 0);  // 戻した分は保管から消える
+
+    // もう一度外して登録し直す（何度でも）
+    c->remove_root(root2);
+    CHECK(c->detached_summary().items == 1);
+}
+
+TEST_CASE("カタログから外した写真は、別の場所・別の名前で登録し直しても、同じ内容なら情報が戻る", "[detached]") {
+    TempDir lib, other, db;
+    make_distinct_jpeg(lib / "old.jpg", 5);
+    auto c = Catalog::open(db / "c.sqlite");
+    const int64_t root = c->add_root(lib.path());
+    c->scan_root(root);
+    c->set_rating(std::vector<int64_t>{photo_named(*c, "old.jpg")->id}, 2);
+    c->flush();
+    c->remove_root(root);
+
+    fs::copy_file(lib / "old.jpg", other / "renamed.jpg");
+    c->scan_root(c->add_root(other.path()));
+    CHECK(photo_named(*c, "renamed.jpg")->rating == 2);
+    CHECK(c->detached_summary().items == 0);
+}
+
+TEST_CASE("カタログの最適化: 保管した情報を消してファイルを詰める。先にバックアップを作り、最適化のあとも使える", "[detached]") {
+    TempDir lib, db;
+    for (int i = 0; i < 6; ++i) make_distinct_jpeg(lib / ("p" + std::to_string(i) + ".jpg"), i);
+    auto c = Catalog::open(db / "c.sqlite");
+    const int64_t root = c->add_root(lib.path());
+    c->scan_root(root);
+    std::vector<int64_t> ids;
+    for (const auto& p : c->query(PhotoFilter{})) ids.push_back(p.id);
+    c->set_rating(ids, 3);
+    for (int64_t id : ids)
+        c->save_edit(id, 1, std::string(R"({"schema":1,"processVersion":1,"exposure":1.0,"contrast":10})"));
+    c->flush();
+    c->remove_root(root);
+    REQUIRE(c->detached_summary().items == 6);
+
+    const auto r = c->optimize();
+    CHECK(r.removed_items == 6);
+    CHECK(r.bytes_before > 0);
+    CHECK(r.bytes_after > 0);
+    CHECK(c->detached_summary().items == 0);
+    // 最適化の前のバックアップがある
+    bool backup_found = false;
+    for (const auto& e : fs::directory_iterator(db.path()))
+        if (e.path().filename().string().find("before-optimize") != std::string::npos) backup_found = true;
+    CHECK(backup_found);
+
+    // 最適化したあとは、保管されていないので戻らない。カタログはそのまま使える
+    const ScanStats st = c->scan_root(c->add_root(lib.path()));
+    CHECK(st.added == 6);
+    CHECK(st.restored_data == 0);
+    CHECK(c->count(PhotoFilter{}) == 6);
+    c->set_rating(std::vector<int64_t>{c->query(PhotoFilter{})[0].id}, 5);
+    c->flush();
+    CHECK(c->optimize().removed_items == 0);  // 何も保管がなくても動く
+}
+
+TEST_CASE("カタログ情報: 大きさ・数・保管情報・バックアップ", "[detached]") {
+    TempDir lib, db;
+    make_distinct_jpeg(lib / "a.jpg", 1);
+    make_fake_raw(lib / "b.CR3");
+    auto c = Catalog::open(db / "c.sqlite");
+    const int64_t root = c->add_root(lib.path());
+    c->scan_root(root);
+    c->set_rating(std::vector<int64_t>{photo_named(*c, "a.jpg")->id}, 2);
+    c->save_edit(photo_named(*c, "a.jpg")->id, 1, std::string(R"({"schema":1,"processVersion":1,"exposure":1})"));
+    c->create_album("A");
+    c->ensure_tag("t");
+    c->flush();
+
+    auto i = c->info();
+    CHECK(i.file_bytes > 0);
+    CHECK(i.schema_version == 6);
+    CHECK(i.roots == 1);
+    CHECK(i.folders == 1);
+    CHECK(i.photos == 2);
+    CHECK(i.photos_raw == 1);
+    CHECK(i.edited_photos == 1);
+    CHECK(i.albums == 1);
+    CHECK(i.tags == 1);
+    CHECK(i.detached_items == 0);
+
+    c->remove_root(root);  // 外す前のバックアップができる
+    i = c->info();
+    CHECK(i.photos == 0);
+    CHECK(i.detached_items == 1);
+    CHECK(i.detached_edits == 1);
+    CHECK(i.backup_files >= 1);
+    CHECK(i.backup_bytes > 0);
+}

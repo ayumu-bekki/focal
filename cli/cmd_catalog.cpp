@@ -136,11 +136,52 @@ int cmd_roots(int argc, char** argv) {
 int cmd_unroot(int argc, char** argv) {
     Args args(argc, argv);
     if (args.positional().size() != 1) {
-        std::fprintf(stderr, "usage: focal unroot <root id>   カタログからルートを外す（ファイルは消さない）\n");
+        std::fprintf(stderr, "usage: focal unroot <root id>   カタログからルートを外す（ファイルは消さない。現像・★・タグは保管され、同じ写真を登録し直すと戻る）\n");
         return 2;
     }
     auto catalog = Catalog::open(catalog_path(args));
     catalog->remove_root(std::stoll(args.positional()[0]));
+    return 0;
+}
+
+namespace {
+std::string size_text(int64_t n) {
+    char buf[32];
+    if (n >= (int64_t(1) << 30))
+        std::snprintf(buf, sizeof buf, "%.1f GB", static_cast<double>(n) / (1 << 30));
+    else
+        std::snprintf(buf, sizeof buf, "%.1f MB", static_cast<double>(n) / (1 << 20));
+    return buf;
+}
+} // namespace
+
+int cmd_optimize(int argc, char** argv) {
+    Args args(argc, argv, {"dry-run"});
+    auto catalog = Catalog::open(catalog_path(args));
+    const auto d = catalog->detached_summary();
+    std::printf("saved information from removed folders: %lld photos (%lld with edits)\n", static_cast<long long>(d.items),
+                static_cast<long long>(d.edits));
+    if (args.has("dry-run")) return 0;
+    const auto r = catalog->optimize();  // 先にバックアップを作る
+    std::printf("removed %lld; catalog %s -> %s\n", static_cast<long long>(r.removed_items), size_text(r.bytes_before).c_str(),
+                size_text(r.bytes_after).c_str());
+    return 0;
+}
+
+int cmd_catalog_info(int argc, char** argv) {
+    Args args(argc, argv);
+    auto catalog = Catalog::open(catalog_path(args));
+    const auto i = catalog->info();
+    std::printf("file          %s (%s, schema v%d)\n", path_to_utf8(catalog->path()).c_str(), size_text(i.file_bytes).c_str(),
+                i.schema_version);
+    std::printf("folders       %lld roots, %lld folders\n", static_cast<long long>(i.roots), static_cast<long long>(i.folders));
+    std::printf("photos        %lld (RAW %lld, other %lld; missing %lld; with edits %lld)\n",
+                static_cast<long long>(i.photos), static_cast<long long>(i.photos_raw), static_cast<long long>(i.photos - i.photos_raw),
+                static_cast<long long>(i.photos_missing), static_cast<long long>(i.edited_photos));
+    std::printf("albums / tags %lld / %lld\n", static_cast<long long>(i.albums), static_cast<long long>(i.tags));
+    std::printf("saved         %lld photos (%lld with edits) from removed folders\n", static_cast<long long>(i.detached_items),
+                static_cast<long long>(i.detached_edits));
+    std::printf("backups       %lld files, %s\n", static_cast<long long>(i.backup_files), size_text(i.backup_bytes).c_str());
     return 0;
 }
 

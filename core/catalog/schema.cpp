@@ -170,9 +170,31 @@ ALTER TABLE photos ADD COLUMN kind INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE photos ADD COLUMN companions TEXT;
 )SQL";
 
+// v3.23: ルートをカタログから外したときに保管する、写真の情報（現像・★・フラグ・タグ・アルバムの所属）。
+// 写真の行は消えるが、これは残り、同じ写真（quick_hash + file_size）をあとで登録し直すと戻る。
+// 「カタログの最適化」で消える。tag_ids・album_ids は id を ',' で区切る
+constexpr const char* kSchemaV6 = R"SQL(
+CREATE TABLE detached_data (
+    id           INTEGER PRIMARY KEY,
+    quick_hash   TEXT NOT NULL,
+    file_size    INTEGER NOT NULL,
+    file_name    TEXT NOT NULL,
+    source_path  TEXT NOT NULL,
+    capture_time TEXT,
+    rating       INTEGER NOT NULL DEFAULT 0,
+    flag         INTEGER NOT NULL DEFAULT 0,
+    edit_version INTEGER,
+    edit_json    TEXT,
+    tag_ids      TEXT,
+    album_ids    TEXT,
+    detached_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+CREATE INDEX idx_detached_hash ON detached_data(quick_hash, file_size);
+)SQL";
+
 const std::vector<Migration>& catalog_migrations() {
     static const std::vector<Migration> m = {{1, kSchemaV1}, {2, kSchemaV2}, {3, kSchemaV3}, {4, kSchemaV4},
-                                             {5, kSchemaV5}};
+                                             {5, kSchemaV5}, {6, kSchemaV6}};
     return m;
 }
 

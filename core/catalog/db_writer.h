@@ -31,6 +31,8 @@ public:
     DbWriter& operator=(const DbWriter&) = delete;
 
     std::future<void> post(std::function<void(Database&)> job);
+    // トランザクションの外で単独で実行する（VACUUM など、トランザクションの中では実行できないもの）。結果を待つ
+    void call_outside_transaction(std::function<void(Database&)> job);
 
     // 書き込みスレッドで fn を実行し、結果を待って返す
     template <class F>
@@ -51,6 +53,7 @@ private:
     struct Job {
         std::function<void(Database&)> fn;
         std::promise<void> done;
+        bool bare = false;  // トランザクションの外で単独で実行する
     };
 
     void loop();

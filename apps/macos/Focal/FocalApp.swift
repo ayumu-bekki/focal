@@ -261,22 +261,14 @@ struct LibraryCommands: Commands {
         CommandGroup(after: .help) {
             Button("Third-Party Licenses") { openWindow(id: "licenses") }
         }
+        // ファイルメニュー: カタログ / 登録したフォルダ / アルバム / 取り込みと書き出し の順に、区切りでグループにする
         CommandGroup(after: .newItem) {
             Button("New Catalog…") { state.chooseNewCatalog() }
             Button("Open Catalog…") { state.chooseExistingCatalog() }
                 .keyboardShortcut("o", modifiers: [.command, .option])
-            Button("New Album…") { model?.albumPrompt = .create(addSelection: false) }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
-                .disabled(model == nil)
-            Button("New Smart Album…") { model?.albumPrompt = .smart(editing: nil) }
-                .keyboardShortcut("n", modifiers: [.command, .option])
-                .disabled(model == nil)
-            Button("New Folder…") { model?.albumPrompt = .createFolder() }
+            Button("Catalog Information…") { model?.openCatalogInfo() }
                 .disabled(model == nil)
             Divider()
-            Button("Import from Card…") { model?.beginCardImport() }
-                .keyboardShortcut("i", modifiers: [.command, .shift])
-                .disabled(model == nil)
             Button("Add Folder…") { if let model { chooseFolderToAdd(model: model) } }
                 .keyboardShortcut("o")
                 .disabled(model == nil)
@@ -284,6 +276,18 @@ struct LibraryCommands: Commands {
                 .keyboardShortcut("r", modifiers: [.command, .shift])
                 .disabled(model == nil)
             Divider()
+            Button("New Album…") { model?.albumPrompt = .create(addSelection: false) }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(model == nil)
+            Button("New Smart Album…") { model?.albumPrompt = .smart(editing: nil) }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+                .disabled(model == nil)
+            Button("New Album Folder…") { model?.albumPrompt = .createFolder() }
+                .disabled(model == nil)
+            Divider()
+            Button("Import from Card…") { model?.beginCardImport() }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+                .disabled(model == nil)
             Button("Export…") { model?.beginExport() }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(model == nil)

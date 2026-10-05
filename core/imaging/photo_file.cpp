@@ -12,6 +12,7 @@
 #include "imaging/image_io.h"
 #include "thumbs/thumbnail.h"
 #include "util/error.h"
+#include "util/file.h"
 #include "util/matrix.h"
 
 namespace focal {
@@ -76,7 +77,7 @@ ImageHeader read_header(const fs::path& path, PhotoKind kind) {
     case PhotoKind::Jpeg: return read_jpeg_header(path);
     case PhotoKind::Tiff: return read_tiff_header(path);
     case PhotoKind::Png: return read_png_header(path);
-    default: throw Error(Error::Code::Unsupported, "not a standard image file: " + path.string());
+    default: throw Error(Error::Code::Unsupported, "not a standard image file: " + path_to_utf8(path));
     }
 }
 
@@ -87,7 +88,7 @@ ImageU8 read_pixels(const fs::path& path, PhotoKind kind, int min_long_edge, con
     case PhotoKind::Jpeg: img = decode_jpeg_file(path, min_long_edge); break;
     case PhotoKind::Tiff: img = decode_tiff_file(path); break;
     case PhotoKind::Png: img = decode_png_file(path); break;
-    default: throw Error(Error::Code::Unsupported, "not a standard image file: " + path.string());
+    default: throw Error(Error::Code::Unsupported, "not a standard image file: " + path_to_utf8(path));
     }
     convert_to_srgb(img, header.icc);
     return img;

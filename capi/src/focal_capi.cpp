@@ -374,6 +374,32 @@ fc_status fc_catalog_merge_nested_roots(fc_catalog* catalog, int32_t* out_merged
     });
 }
 
+fc_status fc_catalog_detached_summary(fc_catalog* catalog, fc_detached_summary* out) {
+    return guard([&] {
+        require(catalog && out, "catalog and out must not be NULL");
+        const auto d = catalog->catalog->detached_summary();
+        *out = {d.items, d.edits};
+    });
+}
+
+fc_status fc_catalog_get_info(fc_catalog* catalog, fc_catalog_info* out) {
+    return guard([&] {
+        require(catalog && out, "catalog and out must not be NULL");
+        const auto i = catalog->catalog->info();
+        *out = {i.file_bytes,     i.schema_version,  i.roots,          i.folders,       i.photos,
+                i.photos_raw,     i.photos_missing,  i.edited_photos,  i.albums,        i.tags,
+                i.detached_items, i.detached_edits,  i.backup_files,   i.backup_bytes};
+    });
+}
+
+fc_status fc_catalog_optimize(fc_catalog* catalog, fc_optimize_result* out) {
+    return guard([&] {
+        require(catalog && out, "catalog and out must not be NULL");
+        const auto r = catalog->catalog->optimize();
+        *out = {r.removed_items, r.bytes_before, r.bytes_after};
+    });
+}
+
 fc_status fc_catalog_root_details(fc_catalog* catalog, int64_t root_id, fc_root_details** out) {
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
@@ -746,7 +772,7 @@ fc_status fc_catalog_scan_async(fc_catalog* catalog, int64_t root_id, const char
                 if (progress) opt.progress = [progress, user](int d, int n) { progress(user, d, n); };
                 const ScanStats s = c->scan_root(root_id, opt);
                 stats = {s.added,         s.updated,    s.unchanged,    s.missing,   s.restored,
-                         s.renamed,       s.unsupported, s.relinked,    s.inherited, s.folders_added, s.thumbnails,
+                         s.renamed,       s.unsupported, s.relinked,    s.inherited, s.restored_data, s.folders_added, s.thumbnails,
                          s.thumbnail_failures};
             } catch (const Error& e) {
                 status = to_status(e.code());

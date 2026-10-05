@@ -42,6 +42,12 @@ sips -s format png "$WORK/mixed/MIX_1.JPG" --out "$WORK/mixed/MIX_2.png" >/dev/n
 cp -c "$WORK/mixed/MIX_1.JPG" "$WORK/mixed/MIX_3.jpg"
 "$ROOT/build/release/cli/focal" import "$WORK/mixed" --catalog "$WORK/mixed-catalog.sqlite" --cache "$WORK/thumbs" >/dev/null
 
+# カタログ情報・最適化のテスト用: ★のついた写真が 1 枚あるカタログ
+mkdir -p "$WORK/detach"
+cp -c "$ROOT/tests/data/canon_eos_m50.CR3" "$WORK/detach/IMG_D1.CR3"
+"$ROOT/build/release/cli/focal" import "$WORK/detach" --catalog "$WORK/detach-catalog.sqlite" --cache "$WORK/thumbs" >/dev/null
+"$ROOT/build/release/cli/focal" rate 3 1 --catalog "$WORK/detach-catalog.sqlite" >/dev/null
+
 # 読み込み先を外したときの移行のテスト用: 3 つのルート（a・b・c）を持つカタログ
 for r in a b c; do
   mkdir -p "$WORK/multi/$r"
@@ -71,6 +77,7 @@ TEST_RUNNER_FOCAL_DELETE_CATALOG="$WORK/delete-catalog.sqlite" \
 TEST_RUNNER_FOCAL_MULTI_CATALOG="$WORK/multi-catalog.sqlite" \
 TEST_RUNNER_FOCAL_NESTED_CATALOG="$WORK/nested-catalog.sqlite" \
 TEST_RUNNER_FOCAL_MIXED_CATALOG="$WORK/mixed-catalog.sqlite" \
+TEST_RUNNER_FOCAL_DETACH_CATALOG="$WORK/detach-catalog.sqlite" \
 TEST_RUNNER_FOCAL_PRESET_CARD="$WORK/preset-card" \
 TEST_RUNNER_FOCAL_PRESET_DEST="$WORK/preset-dest" \
 TEST_RUNNER_FOCAL_PRESET_CATALOG="$WORK/preset-catalog.sqlite" \

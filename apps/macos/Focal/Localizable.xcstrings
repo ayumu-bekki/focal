@@ -48,6 +48,16 @@
         }
       }
     },
+    "%lld files, %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld ファイル、%@"
+          }
+        }
+      }
+    },
     "%lld folders in the catalog are inside another folder of the catalog, so the same photos may be registered twice. Merging combines them into one, keeping edits, ratings, flags and tags. A backup of the catalog is made first." : {
       "localizations" : {
         "ja" : {
@@ -58,12 +68,42 @@
         }
       }
     },
+    "%lld folders, %lld subfolders" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダ %lld 個、サブフォルダ %lld 個"
+          }
+        }
+      }
+    },
     "%lld photos" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld 枚"
+          }
+        }
+      }
+    },
+    "%lld photos (%lld with edits)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚（うち現像の設定あり %lld 枚）"
+          }
+        }
+      }
+    },
+    "%lld photos (RAW %lld, other %lld)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚（RAW %lld、RAW 以外 %lld）"
           }
         }
       }
@@ -98,12 +138,12 @@
         }
       }
     },
-    "%lld photos have edits, ratings, flags or tags. They are deleted from this catalog, along with the album memberships. The files on disk are not deleted. A backup of the catalog is made first, so you can restore it." : {
+    "%lld photos have edits, ratings, flags or tags. They are kept in this catalog and come back when you add the same photos again. Optimize Catalog deletes them for good. The files on disk are not deleted." : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "現像・★・フラグ・タグが付いた写真が %lld 枚あります。これらは、アルバムへの所属とともに、このカタログから消えます。ディスク上のファイルは消えません。先にカタログのバックアップを作るので、戻せます。"
+            "value" : "%lld 枚に現像・★・フラグ・タグがあります。これらはこのカタログに保管され、同じ写真を登録し直すと戻ります。「カタログを最適化」で完全に削除されます。ディスク上のファイルは削除されません。"
           }
         }
       }
@@ -346,6 +386,16 @@
         }
       }
     },
+    "Albums / Tags" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アルバム / タグ"
+          }
+        }
+      }
+    },
     "all" : {
       "localizations" : {
         "ja" : {
@@ -472,6 +522,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "縦横比"
+          }
+        }
+      }
+    },
+    "Backups" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "バックアップ"
           }
         }
       }
@@ -603,6 +663,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "カタログ"
+          }
+        }
+      }
+    },
+    "Catalog Information" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カタログ情報"
+          }
+        }
+      }
+    },
+    "Catalog Information…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カタログ情報…"
           }
         }
       }
@@ -950,6 +1030,16 @@
         }
       }
     },
+    "Delete and Optimize" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "削除して最適化"
+          }
+        }
+      }
+    },
     "Delete Folder" : {
       "localizations" : {
         "ja" : {
@@ -996,6 +1086,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "アルバム“%@”を削除しますか？"
+          }
+        }
+      }
+    },
+    "Delete the saved information?" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保管している情報を削除しますか？"
           }
         }
       }
@@ -2014,6 +2114,16 @@
         }
       }
     },
+    "New Album Folder…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規アルバムフォルダ…"
+          }
+        }
+      }
+    },
     "New Album Here…" : {
       "localizations" : {
         "ja" : {
@@ -2095,6 +2205,7 @@
       }
     },
     "New Folder…" : {
+      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {
@@ -2341,6 +2452,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "既存のカタログを開く…"
+          }
+        }
+      }
+    },
+    "Optimize" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最適化"
+          }
+        }
+      }
+    },
+    "Optimize…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最適化…"
+          }
+        }
+      }
+    },
+    "Optimizing…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最適化しています…"
           }
         }
       }
@@ -2655,6 +2796,16 @@
         }
       }
     },
+    "Removed the saved information of %lld photos. Catalog size: %@ → %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚分の保管情報を削除しました。カタログの大きさ: %@ → %@"
+          }
+        }
+      }
+    },
     "Rename" : {
       "localizations" : {
         "ja" : {
@@ -2755,6 +2906,16 @@
         }
       }
     },
+    "Restored the saved edits of %lld photos" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚の保管していた編集を戻しました"
+          }
+        }
+      }
+    },
     "Rotate Left" : {
       "localizations" : {
         "ja" : {
@@ -2831,6 +2992,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "いまの調整をプリセットとして保存…"
+          }
+        }
+      }
+    },
+    "Saved information" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保管している情報"
           }
         }
       }
@@ -3108,12 +3279,22 @@
         }
       }
     },
-    "The photos’ ratings, flags, tags, album memberships and edits in this catalog are deleted. The files on disk are not deleted. A backup of the catalog is made first." : {
+    "The photos are removed from this catalog. The files on disk are not deleted." : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "このカタログにある、これらの写真の評価・フラグ・タグ・アルバムへの所属・編集が削除されます。ディスク上のファイルは削除されません。先にカタログのバックアップを作ります。"
+            "value" : "写真をこのカタログから外します。ディスク上のファイルは削除されません。"
+          }
+        }
+      }
+    },
+    "The saved edits, ratings, flags, tags and album memberships of %lld photos (%lld with edits) are deleted for good. A backup of the catalog is made first." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保管している %lld 枚（うち現像の設定あり %lld 枚）の現像・★・フラグ・タグ・アルバムの所属を完全に削除します。先にカタログのバックアップを作ります。"
           }
         }
       }
@@ -3369,6 +3550,16 @@
         }
       }
     },
+    "When you remove a folder from the catalog, its edits, ratings, flags, tags and album memberships are kept, and come back if you add the same photos again. Optimizing deletes this saved information for good and compacts the catalog file. A backup is made first." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダをカタログから外しても、その写真の現像・★・フラグ・タグ・アルバムの所属は保管され、同じ写真を登録し直すと戻ります。最適化は、この保管している情報を完全に削除し、カタログのファイルを詰めます。先にバックアップを作ります。"
+          }
+        }
+      }
+    },
     "White Balance" : {
       "localizations" : {
         "ja" : {
@@ -3385,6 +3576,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "白レベル"
+          }
+        }
+      }
+    },
+    "With Edits" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現像あり"
           }
         }
       }

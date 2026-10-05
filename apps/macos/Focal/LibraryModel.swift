@@ -355,6 +355,55 @@ final class LibraryModel {
         }
     }
 
+    // MARK: カタログ情報と最適化（v3.23）
+
+    /// 「カタログ情報」のシートを出すか
+    var showCatalogInfo = false
+    private(set) var catalogInfo: CatalogInfo?
+    private(set) var isOptimizing = false
+    /// 最適化の結果（シートに出す）
+    private(set) var optimizeMessage: String?
+
+    /// 情報を読んでから、シートを出す
+    func openCatalogInfo() {
+        optimizeMessage = nil
+        Task {
+            await refreshCatalogInfo()
+            showCatalogInfo = true
+        }
+    }
+
+    func refreshCatalogInfo() async {
+        let catalog = catalog
+        catalogInfo = await Task.detached { try? catalog.info() }.value
+    }
+
+    /// 保管した情報を消して、カタログのファイルを詰める（時間がかかるので別のスレッドで。先にバックアップを作る）
+    func optimizeCatalog() {
+        guard !isOptimizing else { return }
+        isOptimizing = true
+        optimizeMessage = nil
+        develop.saveNow()  // 開いている写真の編集を先に保存する
+        let catalog = catalog
+        Task {
+            let outcome: (OptimizeResult?, String?) = await Task.detached {
+                do {
+                    try catalog.flush()
+                    return (try catalog.optimize(), nil)
+                } catch { return (nil, String(describing: error)) }
+            }.value
+            isOptimizing = false
+            if let r = outcome.0 {
+                let before = ByteCountFormatter.string(fromByteCount: r.bytesBefore, countStyle: .file)
+                let after = ByteCountFormatter.string(fromByteCount: r.bytesAfter, countStyle: .file)
+                optimizeMessage = String(localized: "Removed the saved information of \(r.removedItems) photos. Catalog size: \(before) → \(after)")
+                await refreshCatalogInfo()
+            } else if let message = outcome.1 {
+                optimizeMessage = message
+            }
+        }
+    }
+
     // MARK: ルートの場所の付け替え（v3.19）
 
     /// 付け替えの確認を出す（ルートと新しい場所）
@@ -486,7 +535,14 @@ final class LibraryModel {
         do {
             // サムネイルは表示時に作る（取り込みを早く終わらせる）
             for try await ev in catalog.scan(rootID: rootID, thumbnailCache: nil) {
-                if case .progress(let done, let total) = ev { importProgress = (done, total) }
+                switch ev {
+                case .progress(let done, let total): importProgress = (done, total)
+                case .finished(let stats):
+                    // カタログから外したときに保管した情報（現像・★・タグなど）が、同じ写真に戻った（v3.23）
+                    if stats.restoredData > 0 {
+                        showToast(String(localized: "Restored the saved edits of \(stats.restoredData) photos"))
+                    }
+                }
             }
         } catch { report(error) }
         reloadSidebar()
