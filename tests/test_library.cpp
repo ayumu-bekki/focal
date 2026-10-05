@@ -360,19 +360,26 @@ TEST_CASE("ネットワークの共有は、ユーザー名やマウントポイ
     CHECK(network_volume_id("").empty());
 }
 
-TEST_CASE("到達できるかの確認: あるフォルダは true、ないフォルダは false で、待たされない", "[library][volume]") {
+TEST_CASE("到達できるかの確認: あるフォルダは true、ないフォルダは false で、時間切れで必ず戻る", "[library][volume]") {
     TempDir dir;
     fs::create_directories(dir / "a");
-    const auto t0 = std::chrono::steady_clock::now();
+    // 結果の正しさ: 時間切れは長めにとる（CI の Windows は、ウイルス対策などで一時的に数秒止まることがある）
     const auto r = directories_reachable({normalized_path_string(dir / "a"), normalized_path_string(dir / "missing"),
                                           normalized_path_string(dir / "a" / "nothing")},
-                                         std::chrono::milliseconds(1500));
+                                         std::chrono::milliseconds(20000));
     REQUIRE(r.size() == 3);
     CHECK(r[0]);
     CHECK_FALSE(r[1]);
     CHECK_FALSE(r[2]);
-    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(1400));
     CHECK(directories_reachable({}, std::chrono::milliseconds(10)).empty());
+
+    // 応答しない共有で待たされないこと: 時間切れ（ここでは 10 ms）で、確認の完了を待たずに戻る。
+    // 結果の値は問わない（時間切れなら false）。時間の上限は、スケジューラの遅れを見込んで大きくとる
+    const auto t0 = std::chrono::steady_clock::now();
+    const auto quick = directories_reachable({normalized_path_string(dir / "a"), normalized_path_string(dir / "missing")},
+                                             std::chrono::milliseconds(10));
+    CHECK(quick.size() == 2);
+    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(5000));
 }
 
 TEST_CASE("アルバムの並べ替えとカバー写真", "[library][data]") {

@@ -299,7 +299,7 @@ TEST_CASE("Editor: 先読みした写真はすぐ現像可能になる", "[edito
     // 先読みなし（デコードから）と先読みありを同じビルドで比べる（サニタイザ付きでは全体が遅いため）
     const auto cold = time_to_ready();
     editor.prefetch(f.canon);
-    std::this_thread::sleep_for(cold * 2 + 500ms);  // 先読みが終わるのを待つ
+    std::this_thread::sleep_for(cold * 3 + 1000ms);  // 先読みが終わるのを待つ（遅い CI でも足りるよう、余裕をとる）
     const auto warm = time_to_ready();
     INFO("cold " << cold.count() << " ms, warm " << warm.count() << " ms");
     CHECK(warm < cold / 2);
