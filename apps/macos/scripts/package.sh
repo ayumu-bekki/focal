@@ -34,7 +34,9 @@ if [[ "$IDENTITY" == "-" ]]; then
   SIGN_ARGS+=(ENABLE_HARDENED_RUNTIME=NO)
 else
   TEAM=$(sed -E 's/.*\(([A-Z0-9]+)\)$/\1/' <<<"$IDENTITY")
-  SIGN_ARGS+=(DEVELOPMENT_TEAM="$TEAM" OTHER_CODE_SIGN_FLAGS="--timestamp")
+  # CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO: Xcode が付けるデバッグ用の権限（com.apple.security.get-task-allow）を入れない。
+  # 付いていると、公証が「The executable requests the com.apple.security.get-task-allow entitlement」で却下する
+  SIGN_ARGS+=(DEVELOPMENT_TEAM="$TEAM" OTHER_CODE_SIGN_FLAGS="--timestamp" CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO)
 fi
 xcodebuild build -project Focal.xcodeproj -scheme Focal -configuration Release -destination 'platform=macOS' \
   -derivedDataPath "$DERIVED" "${SIGN_ARGS[@]}" 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)" | sort -u
