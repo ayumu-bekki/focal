@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Light Background Base Plate Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#f0f2f5" />
+    </linearGradient>
+
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#000000" flood-opacity="0.1" />
+    </filter>
+
+    <!-- Circle Fills: Translucent Gradients -->
+    <!-- Sphere 1: Cyan to Blue -->
+    <radialGradient id="fill1" cx="30%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.5" />
+      <stop offset="100%" stop-color="#4facfe" stop-opacity="0.15" />
+    </radialGradient>
+
+    <!-- Sphere 2: Emerald to Green -->
+    <radialGradient id="fill2" cx="70%" cy="70%" r="70%">
+      <stop offset="0%" stop-color="#38ef7d" stop-opacity="0.45" />
+      <stop offset="100%" stop-color="#11998e" stop-opacity="0.1" />
+    </radialGradient>
+
+    <!-- Sphere 3: Warm Orange to Amber -->
+    <radialGradient id="fill3" cx="30%" cy="70%" r="70%">
+      <stop offset="0%" stop-color="#ff7a00" stop-opacity="0.45" />
+      <stop offset="100%" stop-color="#ffb300" stop-opacity="0.08" />
+    </radialGradient>
+  </defs>
+
+  <!-- macOS App Squircle Canvas -->
+  <g filter="url(#shadow)">
+    <!-- Base Plate -->
+    <rect x="46" y="46" width="420" height="420" rx="94" ry="94" fill="url(#bgGrad)" />
+    <!-- Inner Rim Stroke (Soft Bevel) -->
+    <rect x="46" y="46" width="420" height="420" rx="94" ry="94" fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="1.5" />
+  </g>
+
+  <!-- Layered Translucent Spheres (Abstract Focus) -->
+  <!-- Outer spheres (Out of focus bokeh) -->
+  <circle cx="230" cy="230" r="120" fill="url(#fill1)" />
+  <circle cx="282" cy="282" r="115" fill="url(#fill2)" />
+  <circle cx="240" cy="286" r="96" fill="url(#fill3)" />
+</svg>

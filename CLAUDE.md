@@ -1,6 +1,6 @@
 # focal — 軽量 RAW 現像・管理アプリ
 
-設計書は `design.md`（v3.20）。ADR は `docs/adr/`。利用者向けの使い方は `docs/user-guide.md`（機能や操作を変えたら、ここも直す）。
+設計書は `design.md`（v3.20）。ADR は `docs/adr/`。利用者向けの使い方は `docs/user-guide.md`（機能や操作を変えたら、ここも直す。GitHub Pages の使い方ガイドの元でもある）。公開サイト（トップページ + ガイド）は `site/` と `docs/site.md`（`python3 site/build.py` で `_site/` を作る。`main` への push で `.github/workflows/pages.yml` が公開する）。
 
 ## 守ること
 

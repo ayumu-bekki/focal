@@ -88,7 +88,11 @@ TEST_CASE("バックアップ: 前回から指定の日数がたったかの判�
         db::Database db(dir / "c.sqlite", db::Database::Mode::ReadWrite);
         const std::time_t t = std::time(nullptr) - 10 * 86400;
         std::tm tm{};
+#ifdef _WIN32
+        gmtime_s(&tm, &t);
+#else
         gmtime_r(&t, &tm);
+#endif
         char buf[32];
         std::strftime(buf, sizeof buf, "%Y-%m-%dT%H:%M:%SZ", &tm);
         db.prepare("UPDATE meta SET value = ? WHERE key = 'last_backup_at'").bind(1, buf).run();

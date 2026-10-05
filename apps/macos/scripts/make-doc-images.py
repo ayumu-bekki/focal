@@ -27,21 +27,31 @@ IMAGES = {
     'delete-menu': ('delete-menu.png', 'png'),
 }
 
-out_dir = pathlib.Path(__file__).resolve().parents[3] / 'docs' / 'images'
+# 公開サイト（site/）のトップページ用（ダークの一覧と現像中）。docs/images ではなく site/assets に入れる
+SITE_IMAGES = {
+    'landing-grid': ('grid.jpg', 'jpeg'),
+    'landing-develop': ('develop.jpg', 'jpeg'),
+}
+
+root = pathlib.Path(__file__).resolve().parents[3]
+out_dir = root / 'docs' / 'images'
 out_dir.mkdir(parents=True, exist_ok=True)
 found = {}
 for d in map(pathlib.Path, sys.argv[1:]):
     for test in json.loads((d / 'manifest.json').read_text()):
         for a in test['attachments']:
             name = a['suggestedHumanReadableName'].split('_0_')[0]
-            if name in IMAGES and a['exportedFileName'].endswith('.png'):
+            if (name in IMAGES or name in SITE_IMAGES) and a['exportedFileName'].endswith('.png'):
                 found[name] = d / a['exportedFileName']
-for name, (file, fmt) in IMAGES.items():
-    if name not in found:
-        print('なし:', name)
-        continue
-    cmd = ['sips', '-Z', '1500', str(found[name]), '--out', str(out_dir / file)]
-    if fmt == 'jpeg':
-        cmd[1:1] = ['-s', 'format', 'jpeg', '-s', 'formatOptions', '82']
-    subprocess.run(cmd, check=True, capture_output=True)
-    print(file, (out_dir / file).stat().st_size // 1024, 'KB')
+site_dir = root / 'site' / 'assets'
+site_dir.mkdir(parents=True, exist_ok=True)
+for table, target in ((IMAGES, out_dir), (SITE_IMAGES, site_dir)):
+    for name, (file, fmt) in table.items():
+        if name not in found:
+            print('なし:', name)
+            continue
+        cmd = ['sips', '-Z', '1500', str(found[name]), '--out', str(target / file)]
+        if fmt == 'jpeg':
+            cmd[1:1] = ['-s', 'format', 'jpeg', '-s', 'formatOptions', '82']
+        subprocess.run(cmd, check=True, capture_output=True)
+        print(target.name + '/' + file, (target / file).stat().st_size // 1024, 'KB')

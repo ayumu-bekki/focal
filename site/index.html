@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focal — 軽量でシンプルな macOS 用の RAW 写真管理・現像アプリ</title>
+<meta name="description" content="Focal は、RAW 写真の管理と現像を 1 つでこなす、軽量な macOS アプリです。元の RAW ファイルには書き込まず、登録したフォルダの写真をそのまま参照します。">
+<meta property="og:title" content="Focal — RAW 写真管理・現像アプリ">
+<meta property="og:description" content="軽量でシンプルな macOS 用の RAW 写真管理・現像アプリ。元の RAW には書き込みません。">
+<meta property="og:image" content="assets/icon.png">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="assets/icon.png" alt="">Focal</a>
+    <nav>
+      <a href="#features">特長</a>
+      <a href="#capabilities">できること</a>
+      <a href="manual/">使い方ガイド</a>
+      <a href="https://github.com/ayumu-bekki/focal">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero wrap">
+    <img class="icon" src="assets/icon.png" alt="Focal のアイコン">
+    <h1>Focal</h1>
+    <p class="tagline">軽量でシンプルな macOS 用の RAW 写真管理・現像アプリ。<br>管理と現像を、1 つのアプリで。</p>
+    <div class="buttons">
+      <a class="btn primary" href="https://github.com/ayumu-bekki/focal/releases">ダウンロード</a>
+      <a class="btn" href="manual/">使い方ガイド</a>
+      <a class="btn" href="https://github.com/ayumu-bekki/focal">GitHub</a>
+    </div>
+    <p class="note">macOS 14（Sonoma）以降 ・ Apple シリコン（arm64）</p>
+  </section>
+
+  <section class="wrap shots" aria-label="スクリーンショット">
+    <figure class="shot">
+      <img src="assets/grid.jpg" alt="Focal の一覧画面。サイドバー、写真のグリッド、メタデータのパネル" width="1500" height="872">
+      <figcaption>一覧 — フォルダ・アルバム・タグで整理し、★やフラグで選ぶ</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="assets/develop.jpg" alt="Focal の現像画面。大きく表示した写真、ヒストグラムと現像のスライダー、フィルムストリップ" width="1500" height="872">
+      <figcaption>現像 — 露出・ホワイトバランス・色・ディテールを、プリセットでまとめて調整</figcaption>
+    </figure>
+  </section>
+
+  <section class="wrap block" id="features">
+    <h2>特長</h2>
+    <p class="lead">写真を元の場所に置いたまま、軽く、すばやく扱えることを大切にしています。</p>
+    <div class="cards">
+      <div class="card"><h3>元のファイルに書き込まない</h3><p>元の RAW ファイルには一切書き込みません。現像の内容・★・タグはカタログ（SQLite）に保存します。</p></div>
+      <div class="card"><h3>コピーしない参照方式</h3><p>登録したフォルダの写真はコピーせず、そのまま参照します。外付けドライブや NAS の接続・取り外しにも追従します。</p></div>
+      <div class="card"><h3>SD カードから取り込み</h3><p>日付フォルダ（年 / 日付）へコピーします。コピーの検証、取り込み済みのスキップ、空き容量の確認つき。</p></div>
+      <div class="card"><h3>非破壊の現像</h3><p>取り消し・やり直しができ、調整はいつでも戻せます。表示は Metal で GPU が描くので、スライダーに素早く追従します。</p></div>
+      <div class="card"><h3>現像プリセット</h3><p>調整だけを保存して、取り込み時や一覧から、複数の写真にまとめて重ねられます。</p></div>
+      <div class="card"><h3>カタログを守る</h3><p>終了時の自動バックアップ。そのまま開けるカタログとして保存するので、戻すのも「開く」だけです。</p></div>
+    </div>
+  </section>
+
+  <section class="wrap block" id="capabilities">
+    <h2>できること</h2>
+    <table>
+      <thead><tr><th>分類</th><th>機能</th></tr></thead>
+      <tbody>
+        <tr><td>ライブラリ</td><td>フォルダの登録と再スキャン、外付けドライブ・NAS の追従とオフライン表示、グリッド表示、★0〜5、ピック / リジェクト、階層タグ、アルバム（フォルダで入れ子）、スマートアルバム、絞り込み（★・フラグ・タグ・撮影日）</td></tr>
+        <tr><td>取り込み</td><td>SD カードなどから 年 / 日付 のフォルダへコピー（検証・取り込み済みのスキップ・空き容量の確認）。現像プリセットを重ねて取り込めます</td></tr>
+        <tr><td>現像</td><td>露出、コントラスト、ホワイトバランス（撮影時の設定 / カスタム）、ハイライト、シャドウ、白レベル、黒レベル、明るさ、彩度、自然な彩度、明瞭度、シャープネス、ノイズ低減（輝度・カラー）。プリセットの保存と適用</td></tr>
+        <tr><td>ジオメトリ</td><td>切り取り（縦横比の固定）、90° 回転、傾き補正（±45°）、水平線ツール</td></tr>
+        <tr><td>表示</td><td>フィット表示、100% 表示、ヒストグラム、フィルムストリップ。ライト / ダーク（既定はダーク）</td></tr>
+        <tr><td>RAW 以外の写真</td><td>JPEG・TIFF・PNG（macOS では HEIF も）を管理。RAW と同じ名前の JPEG は、その RAW と同じ 1 枚として扱います（現像は RAW だけ）</td></tr>
+        <tr><td>書き出し</td><td>sRGB の JPEG、16 ビットの TIFF（ICC プロファイル付き）、長辺の指定、複数枚の一括書き出し。撮影日時などの情報も書き込みます</td></tr>
+        <tr><td>削除</td><td>⌥⌃⇧ Delete だけで、確認のうえディスクから削除（ローカルはゴミ箱、NAS は完全削除）</td></tr>
+        <tr><td>カタログ</td><td>複数のカタログの切り替え、終了時の自動バックアップ、カタログ情報の表示と最適化</td></tr>
+      </tbody>
+    </table>
+    <p>対応する RAW の形式は <a href="https://www.libraw.org/">LibRaw</a> によります（CR3・NEF・ARW・RAF・DNG で確認しています）。日本語・英語の表示に対応しています。</p>
+  </section>
+
+  <section class="wrap block">
+    <h2>はじめる</h2>
+    <p>ダウンロードした <code>Focal 〈版〉.dmg</code> を開き、Focal を「アプリケーション」へドラッグします。起動したら、カタログを作って、写真のフォルダを追加するだけです。くわしくは <a href="manual/">使い方ガイド</a> を見てください。</p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Focal は <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License 2.0</a> のオープンソースソフトウェアです。 ・ <a href="https://github.com/ayumu-bekki/focal">ソースコード（GitHub）</a> ・ <a href="https://github.com/ayumu-bekki/focal/issues">不具合・要望</a></p>
+    <p>画面の写真は、動作確認用の公開サンプル（<a href="https://raw.pixls.us/">raw.pixls.us</a>、CC0）です。</p>
+  </div>
+</footer>
+</body>
+</html>

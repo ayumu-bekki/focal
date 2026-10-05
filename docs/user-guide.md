@@ -5,7 +5,7 @@ Focal は、RAW 写真の管理と現像を 1 つでこなす、軽量な Mac �
 - 動作環境: macOS 14（Sonoma）以降、Apple シリコンの Mac
 - 画面の表示言語: 日本語・英語（macOS の言語設定に従います）
 
-> このガイドは、アプリの版（design.md v3.19）に合わせています。機能の仕様の詳細は `design.md` を参照してください。
+> このガイドは、Focal 26.0.0 β に合わせています。機能の仕様の詳細は、[設計書（design.md）](https://github.com/ayumu-bekki/focal/blob/main/design.md) を参照してください。
 
 ## 目次
 

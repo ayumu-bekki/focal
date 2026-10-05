@@ -1,0 +1,50 @@
+# 公開サイト（GitHub Pages）: トップページ（site/）と使い方ガイド（docs/user-guide.md）を公開する。
+# main に、サイトの元になるファイルが変わったときだけ動く。手元での確認は `python3 site/build.py` → `python3 -m http.server -d _site`。
+# 初回だけ、リポジトリの Settings ▸ Pages ▸ Source を「GitHub Actions」にする（docs/site.md）。
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'docs/user-guide.md'
+      - 'docs/images/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build the site
+        run: |
+          pip install markdown
+          python3 site/build.py
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

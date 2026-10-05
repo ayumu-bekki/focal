@@ -32,3 +32,4 @@ __pycache__/
 
 # Claude Code の個人設定
 .claude/settings.local.json
+_site/

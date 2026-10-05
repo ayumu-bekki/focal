@@ -647,6 +647,31 @@ final class FocalUITests: XCTestCase {
         sleep(1)
     }
 
+    /// 公開サイト（site/）のトップページ用のスクリーンショット: 一覧と現像中（ダーク。アプリの既定の外観）。
+    /// 撮った画像は apps/macos/scripts/make-doc-images.py が site/assets/ へ入れる
+    @MainActor
+    func testLandingScreenshots() throws {
+        try requireCatalog()
+        let app = launch(extra: ["FOCAL_APPEARANCE": "dark"])
+        let grid = app.descendants(matching: .any)["photoGrid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 10))
+        sleep(3)
+        saveScreenshot(app, name: "landing-grid")
+        grid.click()
+        app.typeText("v")
+        XCTAssertTrue(app.descendants(matching: .any)["developView"].waitForExistence(timeout: 5))
+        sleep(4)
+        // 露出・シャドウを少し動かして、現像中らしい状態にする（編集はこのテスト用のカタログに残るだけ）
+        let slider = app.sliders["exposureSlider"]
+        XCTAssertTrue(slider.waitForExistence(timeout: 5))
+        slider.adjust(toNormalizedSliderPosition: 0.56)
+        let shadows = app.sliders["shadowsSlider"]
+        if shadows.exists { shadows.adjust(toNormalizedSliderPosition: 0.62) }
+        sleep(3)
+        saveScreenshot(app, name: "landing-develop")
+        app.typeKey(.escape, modifierFlags: [])
+    }
+
     /// 現像画面のフィルムストリップ: 取っ手のドラッグで高さが変わり、下へ引くと隠れ、ボタンで戻る
     @MainActor
     func testFilmstripResize() throws {
