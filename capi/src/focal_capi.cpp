@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdio>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
