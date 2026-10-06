@@ -130,3 +130,30 @@ TEST_CASE("シャープネス・ノイズ低減: 往復し、範囲に収め、�
     for (const char* k : {"sharpness", "noiseReduction", "colorNoiseReduction"}) CHECK_FALSE(doc.contains(k));
     CHECK(settings_need_no_row(s));
 }
+
+TEST_CASE("レンズ補正の設定: 既定値ではキーを書かず、往復で値が変わらない", "[settings][lens]") {
+    CHECK(settings_to_json(Settings{}).find("lens") == std::string::npos);
+    CHECK(settings_from_json("{}").lens == LensSettings{});
+
+    const Settings s = settings_from_json(R"({"lens": {"enabled": true, "id": "Nikon|Nikkor Z 24-70mm f/4 S",
+        "distortion": 80, "tca": 0, "vignetting": 150, "projection": "rectilinear"}})");
+    CHECK(s.lens.enabled);
+    CHECK(s.lens.id == "Nikon|Nikkor Z 24-70mm f/4 S");
+    CHECK(s.lens.distortion == 80);
+    CHECK(s.lens.tca == 0);
+    CHECK(s.lens.vignetting == 100);  // 範囲内に収める
+    CHECK(s.lens.projection == LensProjection::Rectilinear);
+    CHECK_FALSE(s.is_default());
+    CHECK_FALSE(settings_need_no_row(s));
+    CHECK(settings_from_json(settings_to_json(s)) == s);
+
+    // 型違い・未知の射影は既定値
+    const Settings bad = settings_from_json(R"({"lens": {"enabled": "yes", "projection": "cube", "distortion": "x"}})");
+    CHECK(bad.lens == LensSettings{});
+}
+
+TEST_CASE("レンズ補正の設定: 既知のキーだけなら DB に行が要らない", "[settings][lens]") {
+    Settings s = settings_from_json(R"({"lens": {"enabled": false}})");
+    CHECK(s.is_default());
+    CHECK(settings_need_no_row(s));
+}

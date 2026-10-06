@@ -91,6 +91,7 @@ std::vector<Entry> read_dir(const fs::path& dir) {
 Settings preset_adjustments(const Settings& settings) {
     Settings s = settings;
     s.geometry = GeometrySettings{};
+    s.lens = LensSettings{};  // レンズ補正は写真のレンズに結びつくので、プリセットには入れない（v3.27）
     s.process_version = Settings::kLatestProcessVersion;
     s.preserved_json.clear();
     return s;
@@ -99,6 +100,7 @@ Settings preset_adjustments(const Settings& settings) {
 Settings apply_preset(const Settings& base, const Settings& preset) {
     Settings s = preset;
     s.geometry = base.geometry;
+    s.lens = base.lens;
     s.process_version = base.process_version;
     s.preserved_json = base.preserved_json;
     return s;

@@ -29,6 +29,8 @@ Settings adjusted() {
     s.geometry.straighten = 2.5;
     s.geometry.crop = {0.1, 0.1, 0.5, 0.5};
     s.geometry.aspect = AspectMode::R3x2;
+    s.lens.enabled = true;
+    s.lens.id = "Nikon|Nikkor Z 24-70mm f/4 S";
     return s;
 }
 
@@ -37,6 +39,7 @@ Settings adjusted() {
 TEST_CASE("プリセット: 調整だけを持ち、切り取り・回転・傾きは含めない", "[preset]") {
     const Settings p = preset_adjustments(adjusted());
     CHECK(p.geometry == GeometrySettings{});
+    CHECK(p.lens == LensSettings{});  // レンズ補正は入れない
     CHECK(p.exposure == 0.7);
     CHECK(p.wb.mode == WhiteBalanceSettings::Mode::Custom);
 
@@ -45,12 +48,14 @@ TEST_CASE("プリセット: 調整だけを持ち、切り取り・回転・傾�
     photo.exposure = -1;
     photo.saturation = 50;  // プリセットは 0 → 0 に戻る（調整は丸ごとプリセットの値）
     photo.geometry.rotate90 = 3;
+    photo.lens.enabled = true;
     photo.geometry.crop = {0, 0, 0.8, 0.8};
     const Settings r = apply_preset(photo, p);
     CHECK(r.exposure == 0.7);
     CHECK(r.saturation == 0.0);
     CHECK(r.clarity == 30);
     CHECK(r.geometry == photo.geometry);
+    CHECK(r.lens == photo.lens);  // 写真のレンズ補正はそのまま
 }
 
 TEST_CASE("プリセット: 保存・一覧・読み込み・上書き・削除", "[preset]") {

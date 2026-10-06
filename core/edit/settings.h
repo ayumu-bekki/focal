@@ -32,6 +32,22 @@ struct GeometrySettings {
     bool operator==(const GeometrySettings&) const = default;
 };
 
+// レンズ補正の出力の射影（v3.27、Lensfun）。Keep はレンズ本来の射影のまま
+enum class LensProjection { Keep, Rectilinear, Fisheye, Equisolid, Stereographic, Orthographic, Panoramic, Equirectangular };
+
+// レンズ補正（v3.27、design.md 5.13 章）。enabled が false なら何もしない。
+// id が空なら写真のレンズ名から自動で選ぶ。それ以外は "メーカー|モデル"（Lensfun の DB のレンズ）
+struct LensSettings {
+    bool enabled = false;
+    std::string id;
+    double distortion = 100.0;   // 0..100 歪曲収差（射影の変換・自動拡大も含む）
+    double tca = 100.0;          // 0..100 倍率色収差
+    double vignetting = 100.0;   // 0..100 周辺減光
+    LensProjection projection = LensProjection::Keep;
+
+    bool operator==(const LensSettings&) const = default;
+};
+
 struct Settings {
     static constexpr int kSchema = 1;
     static constexpr int kLatestProcessVersion = 1;
@@ -53,6 +69,7 @@ struct Settings {
     double sharpness = 0.0;              // 0..150 シャープネス
     double noise_reduction = 0.0;        // 0..100 ノイズ低減（輝度）
     double color_noise_reduction = 0.0;  // 0..100 ノイズ低減（カラー）
+    LensSettings lens;
     GeometrySettings geometry;
 
     // 読み込んだ JSON の原文。未知のキーを保存時に保持するために使う（6.1 章）。
@@ -66,7 +83,7 @@ struct Settings {
                saturation == o.saturation && vibrance == o.vibrance && clarity == o.clarity &&
                sharpness == o.sharpness && noise_reduction == o.noise_reduction &&
                color_noise_reduction == o.color_noise_reduction &&
-               geometry == o.geometry;
+               lens == o.lens && geometry == o.geometry;
     }
 
     bool is_default() const { return *this == Settings{}; }
@@ -85,5 +102,7 @@ bool settings_need_no_row(const Settings& settings);
 
 const char* aspect_to_string(AspectMode a);
 bool aspect_from_string(std::string_view s, AspectMode& out);
+const char* lens_projection_to_string(LensProjection p);
+bool lens_projection_from_string(std::string_view s, LensProjection& out);
 
 } // namespace focal

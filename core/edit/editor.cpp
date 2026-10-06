@@ -97,6 +97,17 @@ SessionInfo EditSession::info() const {
     return i;
 }
 
+bool EditSession::metadata(RawMetadata& out) const {
+    std::lock_guard lock(mutex_);
+    if (raw_)
+        out = raw_->meta;
+    else if (have_meta_)
+        out = meta_;
+    else
+        return false;
+    return true;
+}
+
 bool EditSession::copy_preview(uint8_t* dst, size_t stride, size_t capacity) const {
     std::lock_guard lock(mutex_);
     const int w = preview_.width, h = preview_.height;
@@ -592,6 +603,18 @@ void Editor::render_loop() {
     }
 }
 
+// レンズ補正の補正マップ。同じ設定・同じ写真なら前回のものを使う（スライダーのドラッグ中に毎回作らない）。
+// 描画スレッドだけが呼ぶ
+std::shared_ptr<const LensMaps> Editor::lens_maps_for(const LensSettings& ls, const std::shared_ptr<const DecodedRaw>& raw) {
+    if (!ls.enabled) return nullptr;
+    if (lens_cache_raw_.lock() != raw || !(lens_cache_key_ == ls)) {
+        lens_cache_ = build_lens_maps(ls, raw->meta, raw->image.width, raw->image.height);
+        lens_cache_key_ = ls;
+        lens_cache_raw_ = raw;
+    }
+    return lens_cache_;
+}
+
 bool Editor::draw(const GpuSource& src, const GeometryPlan& plan, double scale, PointD origin,
                   const ColorPipeline& pipeline, const RenderRequest& rq, RenderResult& result, const CancelToken& cancel) {
     if (gpu_) {
@@ -638,6 +661,7 @@ void Editor::run_render(RenderJob& job) {
         const GeometryPlan plan(raw->image.width, raw->image.height, raw->flip, settings.geometry, !rq.ignore_crop);
         const double ow = plan.output_width(), oh = plan.output_height();
         const ColorPipeline pipeline(settings, raw->color);
+        const auto lens = lens_maps_for(settings.lens, raw);
 
         if (rq.mode == RenderRequest::Mode::Fit) {
             // プロキシの大きさが変わっていれば作り直す（5.2 章: ビューの大きさに合わせる）
@@ -656,7 +680,7 @@ void Editor::run_render(RenderJob& job) {
             result.height = std::clamp(static_cast<int>(std::lround(oh * scale)), 1, rq.max_height);
             result.scale = scale;
             if (!fits(rq, result.width, result.height)) throw Error(Error::Code::InvalidArgument, "buffer too small");
-            const GpuSource gsrc{nullptr, proxy, raw->image.width, raw->image.height};
+            const GpuSource gsrc{nullptr, proxy, raw->image.width, raw->image.height, lens};
             if (!draw(gsrc, plan, scale, {}, pipeline, rq, result, cancel)) {
                 job.cb(RenderStatus::Cancelled, result);
                 return;
@@ -673,7 +697,7 @@ void Editor::run_render(RenderJob& job) {
             if (!fits(rq, result.width, result.height)) throw Error(Error::Code::InvalidArgument, "buffer too small");
             // フル解像度は DecodedRaw の一部なので、所有者を共有する shared_ptr にする（GPU 側の使い回しの判定用）
             const GpuSource gsrc{std::shared_ptr<const ImageU16>(raw, &raw->image), nullptr, raw->image.width,
-                                 raw->image.height};
+                                 raw->image.height, lens};
             if (!draw(gsrc, plan, 1.0, {x0, y0}, pipeline, rq, result, cancel)) {
                 job.cb(RenderStatus::Cancelled, result);
                 return;

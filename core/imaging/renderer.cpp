@@ -99,6 +99,98 @@ void sample_row(const Image<T>& img, const Affine& out_to_src, int y, int w, Int
 }
 
 
+// 1 チャンネルだけのサンプリング（倍率色収差の補正で、R・G・B の座標が違うとき）
+template <class T>
+inline float sample_channel(const Image<T>& img, double x, double y, int c, Interpolation interp) {
+    const double fx = x - 0.5, fy = y - 0.5;
+    const int ix = static_cast<int>(std::floor(fx)), iy = static_cast<int>(std::floor(fy));
+    if (interp == Interpolation::Bilinear) {
+        const float tx = static_cast<float>(fx - ix), ty = static_cast<float>(fy - iy);
+        const int x0 = std::clamp(ix, 0, img.width - 1), x1 = std::clamp(ix + 1, 0, img.width - 1);
+        const int y0 = std::clamp(iy, 0, img.height - 1), y1 = std::clamp(iy + 1, 0, img.height - 1);
+        const T* r0 = img.row(y0);
+        const T* r1 = img.row(y1);
+        const float a = to_float(r0[x0 * 3 + c]), b = to_float(r0[x1 * 3 + c]);
+        const float d = to_float(r1[x0 * 3 + c]), e = to_float(r1[x1 * 3 + c]);
+        const float top = a + (b - a) * tx, bot = d + (e - d) * tx;
+        return top + (bot - top) * ty;
+    }
+    float wx[4], wy[4];
+    cubic_weights(static_cast<float>(fx - ix), wx);
+    cubic_weights(static_cast<float>(fy - iy), wy);
+    float acc = 0;
+    for (int j = 0; j < 4; ++j) {
+        const T* row = img.row(std::clamp(iy - 1 + j, 0, img.height - 1));
+        float racc = 0;
+        for (int i = 0; i < 4; ++i) racc += wx[i] * to_float(row[std::clamp(ix - 1 + i, 0, img.width - 1) * 3 + c]);
+        acc += wy[j] * racc;
+    }
+    return std::max(acc, 0.0f);
+}
+
+// 出力の 1 行を描くための写像。レンズ補正がなければ out_to_src だけ（出力 → ソース）。
+// あれば out_to_src は 出力 → センサー座標（補正前の画像）で、補正マップを引いてから kx, ky でソースの画素に直す
+struct RowSource {
+    Affine out_to_src;
+    const LensMaps* lens = nullptr;
+    double kx = 1, ky = 1;  // センサー座標 → ソース（フル解像度かプロキシ）
+};
+
+RowSource make_row_source(const SourceView& src, const GeometryPlan& plan, double scale, PointD origin) {
+    RowSource r;
+    if (!src.lens) {
+        r.out_to_src = output_to_source(src, plan, scale, origin);
+        return r;
+    }
+    r.out_to_src = plan.output_to_sensor(scale, origin);
+    r.lens = src.lens;
+    r.kx = static_cast<double>(src.width()) / src.sensor_w;
+    r.ky = static_cast<double>(src.height()) / src.sensor_h;
+    return r;
+}
+
+// レンズ補正ありの 1 行: センサー座標 P → 補正マップ → 元の座標 Q を R・G・B 別に引き、周辺減光のゲインを掛ける
+template <class T>
+void sample_row_lens(const Image<T>& img, const RowSource& rs, int y, int w, Interpolation interp, float* dst) {
+    const LensMaps& lens = *rs.lens;
+    PointD p = rs.out_to_src.apply({0.5, y + 0.5});
+    const double dx = rs.out_to_src.a, dy = rs.out_to_src.d;
+    for (int x = 0; x < w; ++x, p.x += dx, p.y += dy) {
+        float q[6], gain;
+        lens.lookup(p.x, p.y, q, gain);
+        float* o = dst + x * 3;
+        if (!lens.has_tca) {
+            const double gx = q[2] * rs.kx, gy = q[3] * rs.ky;
+            if (outside(img, gx, gy)) {
+                o[0] = o[1] = o[2] = 0.0f;
+                continue;
+            }
+            if (interp == Interpolation::Bilinear)
+                sample_bilinear(img, gx, gy, o);
+            else
+                sample_bicubic(img, gx, gy, o);
+        } else {
+            for (int c = 0; c < 3; ++c) {
+                const double cx = q[c * 2] * rs.kx, cy = q[c * 2 + 1] * rs.ky;
+                o[c] = outside(img, cx, cy) ? 0.0f : sample_channel(img, cx, cy, c, interp);
+            }
+        }
+        if (lens.has_gain) {
+            o[0] *= gain;
+            o[1] *= gain;
+            o[2] *= gain;
+        }
+    }
+}
+
+template <class T>
+void sample_row(const Image<T>& img, const RowSource& rs, int y, int w, Interpolation interp, float* dst) {
+    if (rs.lens)
+        sample_row_lens(img, rs, y, w, interp, dst);
+    else
+        sample_row(img, rs.out_to_src, y, w, interp, dst);
+}
+
 template <class RowFn>
 bool for_rows(int h, const CancelToken& cancel, RowFn fn) {
     ThreadPool::shared().parallel_for(h, kRowBlock, [&](int y0, int y1) {
@@ -136,7 +228,7 @@ bool render_neighborhood(const SourceView& src, const GeometryPlan& plan, double
     thread_local std::vector<float> tl_buf;
     const Scratch scratch(tl_buf, static_cast<size_t>(bw) * bh * 3);
     float* buf = scratch.v.data();
-    const Affine m = output_to_source(src, plan, scale, {origin.x - left, origin.y - top});
+    const RowSource m = make_row_source(src, plan, scale, {origin.x - left, origin.y - top});
     if (!for_rows(bh, cancel, [&](int y) {
             float* row = buf + static_cast<size_t>(y) * bw * 3;
             if (src.full)
@@ -194,7 +286,7 @@ bool render_linear(const SourceView& src, const GeometryPlan& plan, double scale
         return render_neighborhood(src, plan, scale, origin, w, h, pipeline, interp, cancel, [&](int y, const float* row) {
             std::copy_n(row, static_cast<size_t>(w) * 3, out + static_cast<size_t>(y) * w * 3);
         });
-    const Affine m = output_to_source(src, plan, scale, origin);
+    const RowSource m = make_row_source(src, plan, scale, origin);
     return for_rows(h, cancel, [&](int y) {
         float* row = out + static_cast<size_t>(y) * w * 3;
         if (src.full)
@@ -217,7 +309,7 @@ bool render_display(const SourceView& src, const GeometryPlan& plan, double scal
             else
                 transform.apply(row, dst, static_cast<size_t>(w));
         });
-    const Affine m = output_to_source(src, plan, scale, origin);
+    const RowSource m = make_row_source(src, plan, scale, origin);
     ThreadPool::shared().parallel_for(h, kRowBlock, [&](int y0, int y1) {
         if (cancel.cancelled()) return;
         std::vector<float> row(static_cast<size_t>(w) * 3);
@@ -244,7 +336,8 @@ ImageF render_for_export(const DecodedRaw& raw, const Settings& settings, int lo
     const int h = std::max(1, static_cast<int>(std::lround(plan.output_height())));
 
     ImageF full(w, h);
-    const SourceView src{&raw.image, nullptr, raw.image.width, raw.image.height};
+    const auto lens = build_lens_maps(settings.lens, raw.meta, raw.image.width, raw.image.height);
+    const SourceView src{&raw.image, nullptr, raw.image.width, raw.image.height, lens.get()};
     render_linear(src, plan, 1.0, {}, w, h, pipeline, Interpolation::Bicubic, full.data.data());
 
     int ow, oh;
@@ -261,7 +354,8 @@ ImageU8 render_preview(const DecodedRaw& raw, const ImageF& proxy, const Setting
     const int w = std::max(1, static_cast<int>(std::lround(plan.output_width() * scale)));
     const int h = std::max(1, static_cast<int>(std::lround(plan.output_height() * scale)));
     ImageU8 out(w, h);
-    const SourceView src{nullptr, &proxy, raw.image.width, raw.image.height};
+    const auto lens = build_lens_maps(settings.lens, raw.meta, raw.image.width, raw.image.height);
+    const SourceView src{nullptr, &proxy, raw.image.width, raw.image.height, lens.get()};
     render_display(src, plan, scale, {}, w, h, pipeline, transform, Interpolation::Bilinear, out.data.data(),
                    static_cast<size_t>(w) * 3);
     return out;

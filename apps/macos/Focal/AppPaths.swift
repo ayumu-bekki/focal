@@ -61,6 +61,18 @@ enum AppPaths {
         return Bundle.main.resourceURL?.appendingPathComponent("Presets", isDirectory: true)
     }
 
+    /// レンズ補正の DB（Lensfun）。アプリに同梱した DB（FOCAL_LENSFUN_DB で変えられる。UI テスト用）
+    static var bundledLensDirectory: URL? {
+        if let p = env["FOCAL_LENSFUN_DB"] { return URL(fileURLWithPath: p) }
+        return Bundle.main.resourceURL?.appendingPathComponent("LensfunDB", isDirectory: true)
+    }
+
+    /// 利用者が Lensfun の XML を足せるフォルダ（同梱の DB より後に読むので、同じレンズは上書きされる）
+    static var userLensDirectory: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent(bundleID).appendingPathComponent("Lensfun", isDirectory: true)
+    }
+
     static let importPresetKey = "import.presetID"
 
     static func isPackage(_ catalog: URL) -> Bool { catalog.pathExtension.lowercased() == catalogExtension }

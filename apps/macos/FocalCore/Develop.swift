@@ -25,6 +25,14 @@ public struct DevelopSettings: Equatable, Sendable {
     public var straighten: Double
     public var cropX, cropY, cropW, cropH: Double
     public var aspect: Int32
+    /// レンズ補正（v3.27）。lensID が空なら写真のレンズ名から自動で選ぶ
+    public var lensEnabled: Bool
+    public var lensID: String
+    public var lensDistortion: Double
+    public var lensTCA: Double
+    public var lensVignetting: Double
+    /// fc_lens_projection
+    public var lensProjection: Int32
 
     public init() {
         var c = fc_settings()
@@ -67,6 +75,15 @@ public struct DevelopSettings: Equatable, Sendable {
         cropW = c.crop_w
         cropH = c.crop_h
         aspect = c.aspect
+        lensEnabled = c.lens_enabled != 0
+        var idTuple = c.lens_id
+        lensID = withUnsafeBytes(of: &idTuple) { raw in
+            String(cString: raw.bindMemory(to: CChar.self).baseAddress!)
+        }
+        lensDistortion = c.lens_distortion
+        lensTCA = c.lens_tca
+        lensVignetting = c.lens_vignetting
+        lensProjection = c.lens_projection
     }
 
     var c: fc_settings {
@@ -95,6 +112,16 @@ public struct DevelopSettings: Equatable, Sendable {
         s.crop_w = cropW
         s.crop_h = cropH
         s.aspect = aspect
+        s.lens_enabled = lensEnabled ? 1 : 0
+        let bytes = Array(lensID.utf8.prefix(255))
+        withUnsafeMutableBytes(of: &s.lens_id) { raw in
+            raw.initializeMemory(as: UInt8.self, repeating: 0)
+            if !bytes.isEmpty { raw.baseAddress!.copyMemory(from: bytes, byteCount: bytes.count) }
+        }
+        s.lens_distortion = lensDistortion
+        s.lens_tca = lensTCA
+        s.lens_vignetting = lensVignetting
+        s.lens_projection = lensProjection
         return s
     }
 }
@@ -306,6 +333,26 @@ public final class Session: @unchecked Sendable {
                                asShotTemperature: i.as_shot_temperature, asShotTint: i.as_shot_tint,
                                previewWidth: Int(i.preview_width), previewHeight: Int(i.preview_height),
                                previewIsDisplayP3: i.preview_display_p3 != 0)
+        } ?? nil
+    }
+
+    /// 写真の EXIF のレンズ情報（"レンズ名\n焦点距離 f値"）。メタデータの読み込み前は空
+    public var lensExif: String {
+        withHandle { h in
+            var s: UnsafeMutablePointer<fc_string>?
+            guard fc_session_lens_exif(h, &s) == FC_OK, let s else { return "" }
+            defer { fc_string_free(s) }
+            return String(cString: s.pointee.value)
+        } ?? ""
+    }
+
+    /// 写真のレンズ名から自動で選ばれるレンズ
+    public var detectedLens: LensInfo? {
+        withHandle { h in
+            var a: UnsafeMutablePointer<fc_lens_array>?
+            guard fc_session_detect_lens(h, &a) == FC_OK, let a else { return nil }
+            defer { fc_lens_array_free(a) }
+            return LensInfo.list(a).first
         } ?? nil
     }
 

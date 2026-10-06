@@ -184,6 +184,58 @@ final class FocalUITests: XCTestCase {
         XCTAssertEqual(exposure(app).normalizedSliderPosition, 0.5, accuracy: 0.01)
     }
 
+    // MARK: レンズ補正（v3.27）
+
+    @MainActor
+    func testLensCorrection() throws {
+        try requireCatalog()
+        let app = launch(extra: ["FOCAL_FRAME_STATS": "1"])
+        let grid = app.descendants(matching: .any)["photoGrid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 10))
+        grid.click()
+        app.typeText("v")
+        XCTAssertTrue(waitReady(app), developStats(app))
+
+        // 区分は閉じている。開くと、スイッチ・レンズ名・スライダーが出る。使うまでスライダーは触れない
+        let group = app.buttons["lensGroup"]
+        XCTAssertTrue(group.waitForExistence(timeout: 5))
+        group.click()
+        let toggle = app.descendants(matching: .any)["lensToggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 3))
+        XCTAssertEqual(toggle.value as? Int, 0)
+        let distortion = app.sliders["lensDistortionSlider"]
+        XCTAssertTrue(distortion.exists)
+        XCTAssertFalse(distortion.isEnabled)
+        XCTAssertTrue(app.descendants(matching: .any)["lensName"].exists)
+        saveScreenshot(app, name: "lens-off")
+
+        toggle.click()
+        XCTAssertEqual(toggle.value as? Int, 1)
+        XCTAssertTrue(distortion.isEnabled)
+        XCTAssertEqual(distortion.normalizedSliderPosition, 1.0, accuracy: 0.01)
+        distortion.adjust(toNormalizedSliderPosition: 0.5)
+        XCTAssertEqual(distortion.normalizedSliderPosition, 0.5, accuracy: 0.03)
+        sleep(1)
+        saveScreenshot(app, name: "lens-on")
+
+        // レンズを選ぶ: 検索して結果から選ぶと手動になり、「自動」で戻る
+        app.buttons["lensChooseButton"].click()
+        let field = app.textFields["lensSearchField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 3))
+        field.click()
+        field.typeText("nikkor z 24-70")
+        let results = app.descendants(matching: .any)["lensResults"]
+        XCTAssertTrue(results.waitForExistence(timeout: 3))
+        saveScreenshot(app, name: "lens-picker")
+        app.buttons["lensAutoButton"].click()
+        XCTAssertTrue(waitGone(field))
+
+        // 後片付け: 見出しの「リセット」で既定に戻す
+        toggle.click()
+        XCTAssertEqual(toggle.value as? Int, 0)
+        distortion.doubleClick()
+    }
+
     // MARK: ジオメトリ（M4）
 
     @MainActor
@@ -1259,6 +1311,10 @@ final class FocalUITests: XCTestCase {
         saveScreenshot(app, name: "about-panel")
         let value = text.value as? String ?? ""
         XCTAssertTrue(value.contains("β") || value.contains("beta"), "版に種類が出る: \(value)")
+        // レンズ DB（Lensfun）の日付が併記される（v3.27）
+        // クレジットは文章のビュー（textView）になるので、要素の種類を問わず探す
+        let lens = app.descendants(matching: .any).matching(NSPredicate(format: "value CONTAINS 'Lensfun' OR label CONTAINS 'Lensfun'")).firstMatch
+        XCTAssertTrue(lens.waitForExistence(timeout: 3))
         app.typeKey("w", modifierFlags: .command)
     }
 

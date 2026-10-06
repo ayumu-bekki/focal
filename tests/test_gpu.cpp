@@ -4,10 +4,12 @@
 #include <catch2/generators/catch_generators.hpp>
 
 #include <cmath>
+#include <filesystem>
 #include <random>
 #include <vector>
 
 #include "gpu/metal_renderer.h"
+#include "imaging/lens_correction.h"
 #include "imaging/raw_decoder.h"
 #include "imaging/resample.h"
 
@@ -191,6 +193,65 @@ TEST_CASE("GPU: 周辺画素を使う処理（ノイズ低減・明瞭度・シ�
     uint64_t total = 0;
     for (auto v : hist[1]) total += v;
     CHECK(total == static_cast<uint64_t>(w) * h);
+}
+
+TEST_CASE("GPU: レンズ補正（歪曲・倍率色収差・周辺減光）も CPU 版と同じ", "[gpu][lens]") {
+    auto gpu = gpu::create_metal_renderer();
+    if (!gpu) {
+        REQUIRE_FALSE(gpu::metal_device_available());
+        SKIP("Metal が使えない");
+    }
+    const std::filesystem::path db = FOCAL_LENSFUN_DB_DIR;
+    if (!std::filesystem::is_directory(db)) SKIP("tools/fetch-lensfun-db.sh でレンズ DB を取得していない");
+    set_lens_database_dirs({db});
+
+    const bool full = GENERATE(false, true);
+    const bool neighborhood = GENERATE(false, true);
+    const int amount = GENERATE(100, 60);
+    const int sw = 1200, sh = 800;
+    RawMetadata meta;
+    meta.make = "Canon";
+    meta.model = "Canon EOS M50";
+    meta.lens = "EF-M15-45mm f/3.5-6.3 IS STM";
+    meta.focal_length = 15;
+    meta.aperture = 3.5f;
+
+    Settings s = edited();
+    s.geometry.rotate90 = 0;
+    s.lens.enabled = true;
+    s.lens.distortion = s.lens.tca = s.lens.vignetting = amount;
+    if (neighborhood) s.clarity = 50, s.sharpness = 60;
+    const auto maps = build_lens_maps(s.lens, meta, sw, sh);
+    REQUIRE(maps);
+    REQUIRE(maps->has_tca);
+    const ColorPipeline pipeline(s, srgb_camera());
+    const OutputTransform display(OutputSpace::DisplayP3, OutputDepth::U8);
+    const GeometryPlan plan(sw, sh, 0, s.geometry);
+    GpuSource src{nullptr, nullptr, sw, sh, maps};
+    double scale = 1.0;
+    PointD origin{};
+    int w, h;
+    if (full) {
+        src.full = std::make_shared<const ImageU16>(pattern<uint16_t>(sw, sh, 65535.0f));
+        origin = {131, 77};
+        w = 400, h = 300;
+    } else {
+        src.proxy = std::make_shared<const ImageF>(pattern<float>(600, 400, 1.0f));
+        scale = 0.5;
+        w = static_cast<int>(std::lround(plan.output_width() * scale));
+        h = static_cast<int>(std::lround(plan.output_height() * scale));
+    }
+    const size_t stride = static_cast<size_t>(w) * 4;
+    std::vector<uint8_t> cpu(stride * h), gpu_out(stride * h);
+    REQUIRE(render_display(src.view(), plan, scale, origin, w, h, pipeline, display, Interpolation::Bilinear,
+                           cpu.data(), stride, {}, PixelLayout::Bgrx8));
+    std::array<std::array<uint32_t, 256>, 3> hist{};
+    REQUIRE(gpu->render(src, plan, scale, origin, w, h, pipeline, display, gpu_out.data(), stride, PixelLayout::Bgrx8,
+                        hist, {}) == GpuStatus::Ok);
+    const Compare c = compare(cpu, gpu_out);
+    CAPTURE(full, neighborhood, amount, c.max_diff, c.mismatch);
+    CHECK(c.max_diff <= 2);
+    CHECK(c.mismatch < 0.05);
 }
 
 TEST_CASE("GPU: 実際の RAW でも CPU 版と同じ（フィットと 100%）", "[gpu][data]") {

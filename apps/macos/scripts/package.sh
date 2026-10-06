@@ -65,6 +65,10 @@ done < <(find "$APP" -type f -print0)
 [[ $bad == 0 ]] || { echo "開発環境に依存しているため中止"; exit 1; }
 echo "  OK"
 ls "$APP/Contents/Resources/Licenses" >/dev/null || { echo "ライセンス文がない"; exit 1; }
+for f in "Lensfun (LGPL-3.0).txt" "Lensfun database (CC BY-SA 3.0).txt" "GLib.txt"; do
+  [[ -f "$APP/Contents/Resources/Licenses/$f" ]] || { echo "ライセンス文がない: $f"; exit 1; }
+done
+ls "$APP/Contents/Resources/LensfunDB"/*.xml >/dev/null || { echo "レンズ DB が同梱されていない"; exit 1; }
 
 echo "== 署名の検証"
 codesign --verify --deep --strict --verbose=1 "$APP" 2>&1 | tail -1

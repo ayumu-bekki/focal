@@ -25,8 +25,10 @@ struct GpuSource {
     std::shared_ptr<const ImageF> proxy;
     int sensor_w = 0;
     int sensor_h = 0;
+    // レンズ補正の補正マップ（v3.27）。GPU 側は格子をテクスチャにして引く
+    std::shared_ptr<const LensMaps> lens;
 
-    SourceView view() const { return {full.get(), proxy.get(), sensor_w, sensor_h}; }
+    SourceView view() const { return {full.get(), proxy.get(), sensor_w, sensor_h, lens.get()}; }
 };
 
 enum class GpuStatus {

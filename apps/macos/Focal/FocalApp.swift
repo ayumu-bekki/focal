@@ -9,6 +9,7 @@ struct FocalApp: App {
     @State private var state = AppState()
 
     init() {
+        LensLibrary.configure(bundled: AppPaths.bundledLensDirectory, user: AppPaths.userLensDirectory)
         // UI テスト（FOCAL_WINDOW_SIZE 指定）では、前回の起動で保存された列とインスペクタの区分の開閉を使わない
         // （サイドバーや区分をたたんだ状態が残ると、以降のテストで要素が出ない）
         if ProcessInfo.processInfo.environment["FOCAL_WINDOW_SIZE"] != nil {
@@ -277,7 +278,12 @@ struct LibraryCommands: Commands {
         // 「Focal について」: 版に、β などのリリースの種類を添える（Info.plist の FocalReleaseChannel）
         CommandGroup(replacing: .appInfo) {
             Button("About Focal") {
-                NSApp.orderFrontStandardAboutPanel(options: [.applicationVersion: AppInfo.displayVersion])
+                var options: [NSApplication.AboutPanelOptionKey: Any] = [.applicationVersion: AppInfo.displayVersion]
+                if let credits = AppInfo.lensCredits {
+                    options[.credits] = NSAttributedString(
+                        string: credits, attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor])
+                }
+                NSApp.orderFrontStandardAboutPanel(options: options)
             }
         }
         CommandGroup(after: .help) {
@@ -449,5 +455,21 @@ enum AppInfo {
         let version = info["CFBundleShortVersionString"] as? String ?? ""
         let channel = (info["FocalReleaseChannel"] as? String ?? "").trimmingCharacters(in: .whitespaces)
         return channel.isEmpty ? version : "\(version) \(channel)"
+    }
+
+    /// 同梱のレンズ DB（Lensfun）のデータの日付（tools/fetch-lensfun-db.sh が取得した日付。DB_DATE.txt）。なければ nil
+    static var lensDatabaseDate: String? {
+        guard let dir = AppPaths.bundledLensDirectory,
+              let text = try? String(contentsOf: dir.appendingPathComponent("DB_DATE.txt"), encoding: .utf8)
+        else { return nil }
+        let date = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return date.isEmpty ? nil : date
+    }
+
+    /// 「Focal について」に出す、レンズ DB の出典（日付・ライセンス）。Lensfun を使えないビルドでは nil
+    static var lensCredits: String? {
+        guard LensLibrary.isSupported else { return nil }
+        let date = lensDatabaseDate ?? "-"
+        return String(localized: "Lensfun database \(date) (CC BY-SA 3.0)")
     }
 }

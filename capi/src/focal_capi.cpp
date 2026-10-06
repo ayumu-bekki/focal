@@ -16,6 +16,7 @@
 #include "export/exporter.h"
 #include "import/card_import.h"
 #include "imaging/crop_tool.h"
+#include "imaging/lens_correction.h"
 #include "thumbs/thumbnail.h"
 #include "thumbs/thumbnail_service.h"
 #include "util/error.h"
@@ -158,6 +159,22 @@ struct BackupArray : fc_backup_array {
     std::vector<fc_backup_item> v;
 };
 
+struct LensArray : fc_lens_array {
+    std::vector<LensCandidate> src;
+    std::vector<fc_lens_item> v;
+};
+
+fc_lens_array* make_lens_array(std::vector<LensCandidate> lenses) {
+    auto a = std::make_unique<LensArray>();
+    a->src = std::move(lenses);
+    for (const auto& l : a->src)
+        a->v.push_back({l.id.c_str(), l.maker.c_str(), l.model.c_str(), l.mounts.c_str(), l.crop_factor, l.min_focal,
+                        l.max_focal, l.has_distortion, l.has_tca, l.has_vignetting});
+    a->count = a->v.size();
+    a->items = a->v.data();
+    return a.release();
+}
+
 struct PresetArray : fc_preset_array {
     std::vector<PresetInfo> src;
     std::vector<fc_preset_info> v;
@@ -256,6 +273,12 @@ Settings to_settings(const fc_settings& c) {
     s.sharpness = c.sharpness;
     s.noise_reduction = c.noise_reduction;
     s.color_noise_reduction = c.color_noise_reduction;
+    s.lens.enabled = c.lens_enabled != 0;
+    s.lens.id.assign(c.lens_id, strnlen(c.lens_id, sizeof c.lens_id));
+    s.lens.distortion = c.lens_distortion;
+    s.lens.tca = c.lens_tca;
+    s.lens.vignetting = c.lens_vignetting;
+    s.lens.projection = static_cast<LensProjection>(std::clamp<int32_t>(c.lens_projection, 0, 7));
     s.geometry.rotate90 = c.rotate90;
     s.geometry.straighten = c.straighten;
     s.geometry.crop = {c.crop_x, c.crop_y, c.crop_w, c.crop_h};
@@ -282,6 +305,12 @@ fc_settings to_c(const Settings& s) {
     c.sharpness = s.sharpness;
     c.noise_reduction = s.noise_reduction;
     c.color_noise_reduction = s.color_noise_reduction;
+    c.lens_enabled = s.lens.enabled ? 1 : 0;
+    std::snprintf(c.lens_id, sizeof c.lens_id, "%s", s.lens.id.c_str());
+    c.lens_distortion = s.lens.distortion;
+    c.lens_tca = s.lens.tca;
+    c.lens_vignetting = s.lens.vignetting;
+    c.lens_projection = static_cast<int32_t>(s.lens.projection);
     c.rotate90 = s.geometry.rotate90;
     c.straighten = s.geometry.straighten;
     c.crop_x = s.geometry.crop.x;
@@ -642,6 +671,47 @@ fc_status fc_catalog_apply_preset(fc_catalog* catalog, fc_presets* presets, cons
         catalog->catalog->apply_preset({photo_ids, count}, presets->store.load(id));
     });
 }
+
+int32_t fc_lens_supported(void) { return LensDatabase::supported() ? 1 : 0; }
+
+fc_status fc_lens_configure(const char* bundled_dir, const char* user_dir) {
+    return guard([&] {
+        std::vector<std::filesystem::path> dirs;
+        if (bundled_dir && *bundled_dir) dirs.push_back(utf8_to_path(bundled_dir));
+        if (user_dir && *user_dir) dirs.push_back(utf8_to_path(user_dir));
+        set_lens_database_dirs(std::move(dirs));
+    });
+}
+
+fc_status fc_lens_counts(int32_t* out_cameras, int32_t* out_lenses) {
+    return guard([&] {
+        const auto db = shared_lens_database();
+        if (out_cameras) *out_cameras = static_cast<int32_t>(db->camera_count());
+        if (out_lenses) *out_lenses = static_cast<int32_t>(db->lens_count());
+    });
+}
+
+fc_status fc_lens_search(const char* query, const char* mount, int32_t limit, fc_lens_array** out) {
+    return guard([&] {
+        require(out, "out must not be NULL");
+        *out = nullptr;
+        const auto db = shared_lens_database();
+        *out = make_lens_array(db->search(query ? query : "", mount ? mount : "",
+                                          static_cast<size_t>(std::max<int32_t>(limit, 1))));
+    });
+}
+
+fc_status fc_lens_find(const char* id, fc_lens_array** out) {
+    return guard([&] {
+        require(id && out, "id and out must not be NULL");
+        *out = nullptr;
+        std::vector<LensCandidate> v;
+        if (auto c = shared_lens_database()->find_by_id(id)) v.push_back(*c);
+        *out = make_lens_array(std::move(v));
+    });
+}
+
+void fc_lens_array_free(fc_lens_array* array) { delete static_cast<LensArray*>(array); }
 
 void fc_string_free(fc_string* string) { delete static_cast<StringBox*>(string); }
 
@@ -1242,6 +1312,36 @@ fc_status fc_session_get_settings(fc_session* session, fc_settings* out) {
     return guard([&] {
         require(session && out, "session and out must not be NULL");
         *out = to_c(session->session->settings());
+    });
+}
+
+fc_status fc_session_lens_exif(fc_session* session, fc_string** out) {
+    return guard([&] {
+        require(session && out, "session and out must not be NULL");
+        *out = nullptr;
+        auto box = std::make_unique<StringBox>();
+        RawMetadata m;
+        if (session->session->metadata(m)) {
+            char buf[64];
+            std::snprintf(buf, sizeof buf, "%.4g mm  f/%.3g", m.focal_length, m.aperture);
+            box->text = m.lens.empty() ? m.make + " " + m.model : m.lens;
+            box->text += "\n";
+            box->text += buf;
+        }
+        box->value = box->text.c_str();
+        *out = box.release();
+    });
+}
+
+fc_status fc_session_detect_lens(fc_session* session, fc_lens_array** out) {
+    return guard([&] {
+        require(session && out, "session and out must not be NULL");
+        *out = nullptr;
+        RawMetadata m;
+        std::vector<LensCandidate> v;
+        if (session->session->metadata(m))
+            if (auto c = detect_lens(m)) v.push_back(*c);
+        *out = make_lens_array(std::move(v));
     });
 }
 

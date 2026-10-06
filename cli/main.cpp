@@ -15,6 +15,7 @@ void usage() {
                  "\n"
                  "commands:\n"
                  "  render  <in.RAW> <out.tif|out.jpg> [options]  RAW を現像して書き出す\n"
+                 "  lens    info | search <text> [--mount M] | detect <in.RAW>   レンズ補正の DB（--lens-db DIR / FOCAL_LENSFUN_DB）\n"
                  "  info    <in.RAW>                              メタデータと色情報を表示する\n"
                  "  compare <a.tif> <b.tif> [--max-diff N]        2 枚の画像の最大差を比較する\n"
                  "  bench   <in.RAW> [--proxy 2560] [--iters 30]   レンダリング時間を計測する\n"
@@ -54,6 +55,10 @@ void usage() {
                  "  --rotate N             90° 回転（0..3、時計回り）\n"
                  "  --straighten DEG       傾き補正（クロップは自動で縮める）\n"
                  "  --crop x,y,w,h         正規化クロップ矩形\n"
+                 "  --lens-correction      レンズ補正を有効にする（写真のレンズ名から自動で選ぶ。DB は --lens-db DIR / FOCAL_LENSFUN_DB）\n"
+                 "  --lens \"メーカー|モデル\"  レンズを指定する（`focal lens search` で探す）\n"
+                 "  --lens-distortion N  --lens-tca N  --lens-vignetting N   補正の量（0..100、既定 100）\n"
+                 "  --projection keep|rectilinear|fisheye|equisolid|stereographic|orthographic|panoramic|equirectangular\n"
                  "  --long-edge N          長辺を N px に縮小（Lanczos3）\n"
                  "  --proxy N              長辺 N px のプロキシからプレビュー経路で描く（バイリニア）\n"
                  "  --half                 half_size でデコードする\n"
@@ -74,6 +79,7 @@ int main(int argc, char** argv) {
 #endif
     try {
         if (!std::strcmp(cmd, "render")) return focal::cli::cmd_render(argc - 2, argv + 2);
+        if (!std::strcmp(cmd, "lens")) return focal::cli::cmd_lens(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "info")) return focal::cli::cmd_info(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "compare")) return focal::cli::cmd_compare(argc - 2, argv + 2);
         if (!std::strcmp(cmd, "bench")) return focal::cli::cmd_bench(argc - 2, argv + 2);

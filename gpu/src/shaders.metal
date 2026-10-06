@@ -17,6 +17,10 @@ struct Params {
     float saturation, vibrance;
     float om[9];             // リニア Rec.2020 → 出力原色のリニア値
     uint layout;             // 0: RGB、1: BGRX
+    // レンズ補正（lens_correction.h の LensMaps）。lens_on = 1 のとき a〜f は 出力 → センサー座標
+    uint lens_on, lens_tca, lens_gain, lens_nx, lens_ny;
+    float lens_w, lens_h;
+    float lens_kx, lens_ky;  // センサー座標 → ソースの画素
 };
 
 constant float kMinLog2 = -20.0f;
@@ -45,6 +49,40 @@ inline float3 sample_source(constant Params& p, device const ushort* s16, device
     const float3 e = fetch(s16, s32, p.src_full, uint(y1) * p.src_w + uint(x1));
     const float3 top = a + (b - a) * tx, bot = d + (e - d) * tx;
     return top + (bot - top) * ty;
+}
+
+// renderer.cpp の sample_row_lens と同じ。補正マップ（格子点ごとに 8 要素: R, G, B の座標、ゲイン）を双一次補間で引き、
+// R・G・B の座標でソースを引いて、周辺減光のゲインを掛ける
+inline float3 sample_source_lens(constant Params& p, device const ushort* s16, device const float* s32,
+                                 device const float* lens, float px, float py) {
+    const float u = clamp(px / p.lens_w * float(p.lens_nx - 1), 0.0f, float(p.lens_nx - 1));
+    const float v = clamp(py / p.lens_h * float(p.lens_ny - 1), 0.0f, float(p.lens_ny - 1));
+    const int i0 = min(int(u), int(p.lens_nx) - 2), j0 = min(int(v), int(p.lens_ny) - 2);
+    const float tx = u - float(i0), ty = v - float(j0);
+    device const float* n00 = lens + (uint(j0) * p.lens_nx + uint(i0)) * 8;
+    device const float* n10 = n00 + 8;
+    device const float* n01 = n00 + p.lens_nx * 8;
+    device const float* n11 = n01 + 8;
+    float q[7];
+    for (int k = 0; k < 7; ++k) {
+        const float top = n00[k] + (n10[k] - n00[k]) * tx;
+        const float bot = n01[k] + (n11[k] - n01[k]) * tx;
+        q[k] = top + (bot - top) * ty;
+    }
+    float3 c;
+    if (p.lens_tca == 0) {
+        c = sample_source(p, s16, s32, q[2] * p.lens_kx, q[3] * p.lens_ky);
+    } else {
+        c.x = sample_source(p, s16, s32, q[0] * p.lens_kx, q[1] * p.lens_ky).x;
+        c.y = sample_source(p, s16, s32, q[2] * p.lens_kx, q[3] * p.lens_ky).y;
+        c.z = sample_source(p, s16, s32, q[4] * p.lens_kx, q[5] * p.lens_ky).z;
+    }
+    return p.lens_gain != 0 ? c * q[6] : c;
+}
+
+inline float3 sample_pixel(constant Params& p, device const ushort* s16, device const float* s32,
+                           device const float* lens, float x, float y) {
+    return p.lens_on != 0 ? sample_source_lens(p, s16, s32, lens, x, y) : sample_source(p, s16, s32, x, y);
 }
 
 // tone_curve.cpp の ToneLut::apply と同じ
@@ -101,7 +139,7 @@ inline int trc_index(float v) {
 kernel void render_base(constant Params& p [[buffer(0)]], device const ushort* s16 [[buffer(1)]],
                         device const float* s32 [[buffer(2)]], device const float* lut [[buffer(3)]],
                         device const uchar* trc [[buffer(4)]], device uchar* out [[buffer(5)]],
-                        device atomic_uint* hist [[buffer(6)]], uint2 gid [[thread_position_in_grid]],
+                        device atomic_uint* hist [[buffer(6)]], device const float* lens [[buffer(7)]], uint2 gid [[thread_position_in_grid]],
                         uint lid [[thread_index_in_threadgroup]], uint2 tsize [[threads_per_threadgroup]]) {
     threadgroup atomic_uint local[768];
     const uint nthreads = tsize.x * tsize.y;
@@ -110,7 +148,7 @@ kernel void render_base(constant Params& p [[buffer(0)]], device const ushort* s
 
     const float ox = float(gid.x) + 0.5f, oy = float(gid.y) + 0.5f;
     const float sx = p.a * ox + p.b * oy + p.c, sy = p.d * ox + p.e * oy + p.f;
-    float3 c = process_tone(p, lut, sample_source(p, s16, s32, sx, sy));
+    float3 c = process_tone(p, lut, sample_pixel(p, s16, s32, lens, sx, sy));
     c = process_color(p, c);
     const uchar r = trc[trc_index(p.om[0] * c.x + p.om[1] * c.y + p.om[2] * c.z)];
     const uchar g = trc[trc_index(p.om[3] * c.x + p.om[4] * c.y + p.om[5] * c.z)];
@@ -170,10 +208,11 @@ inline void set_lum(device half* p, float old_sqrt, float new_sqrt, bool cap) {
 // (1)〜(5) だけ（余白込みの範囲）。出力は float RGB
 kernel void render_tone(constant Params& p [[buffer(0)]], device const ushort* s16 [[buffer(1)]],
                         device const float* s32 [[buffer(2)]], device const float* lut [[buffer(3)]],
-                        device half* wk [[buffer(4)]], uint2 gid [[thread_position_in_grid]]) {
+                        device half* wk [[buffer(4)]], device const float* lens [[buffer(5)]],
+                        uint2 gid [[thread_position_in_grid]]) {
     const float ox = float(gid.x) + 0.5f, oy = float(gid.y) + 0.5f;
     const float sx = p.a * ox + p.b * oy + p.c, sy = p.d * ox + p.e * oy + p.f;
-    const float3 c = process_tone(p, lut, sample_source(p, s16, s32, sx, sy));
+    const float3 c = process_tone(p, lut, sample_pixel(p, s16, s32, lens, sx, sy));
     const uint i = (gid.y * p.out_w + gid.x) * 3;
     wk[i] = half(c.x);
     wk[i + 1] = half(c.y);

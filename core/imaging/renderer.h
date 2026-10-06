@@ -3,6 +3,7 @@
 #include "edit/settings.h"
 #include "imaging/color_pipeline.h"
 #include "imaging/geometry.h"
+#include "imaging/lens_correction.h"
 #include "imaging/output_transform.h"
 #include "imaging/raw_decoder.h"
 #include "util/image.h"
@@ -25,12 +26,14 @@ struct SourceView {
     // ジオメトリの基準になるセンサー座標のサイズ（= フル解像度バッファのサイズ）
     int sensor_w = 0;
     int sensor_h = 0;
+    // レンズ補正（v3.27）。null なら補正なし。センサー座標の補正マップ
+    const LensMaps* lens = nullptr;
 
     int width() const { return full ? full->width : proxy->width; }
     int height() const { return full ? full->height : proxy->height; }
 };
 
-// 出力画素座標 → ソース（フル解像度かプロキシ）の画素座標
+// 出力画素座標 → ソース（フル解像度かプロキシ）の画素座標。レンズ補正は含まない（補正は非線形）
 Affine output_to_source(const SourceView& src, const GeometryPlan& plan, double scale, PointD origin);
 
 // 周辺画素を使う処理（5a）のために余分に描く範囲（CPU 版と GPU 版で共有する）。

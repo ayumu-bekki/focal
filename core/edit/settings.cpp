@@ -20,6 +20,20 @@ constexpr struct {
     {AspectMode::R5x4, "5:4"},
 };
 
+constexpr struct {
+    LensProjection projection;
+    const char* name;
+} kProjections[] = {
+    {LensProjection::Keep, "keep"},
+    {LensProjection::Rectilinear, "rectilinear"},
+    {LensProjection::Fisheye, "fisheye"},
+    {LensProjection::Equisolid, "equisolid"},
+    {LensProjection::Stereographic, "stereographic"},
+    {LensProjection::Orthographic, "orthographic"},
+    {LensProjection::Panoramic, "panoramic"},
+    {LensProjection::Equirectangular, "equirectangular"},
+};
+
 double get_number(const json& obj, const char* key, double def) {
     if (!obj.is_object()) return def;
     auto it = obj.find(key);
@@ -51,6 +65,21 @@ bool aspect_from_string(std::string_view s, AspectMode& out) {
     return false;
 }
 
+const char* lens_projection_to_string(LensProjection p) {
+    for (const auto& e : kProjections)
+        if (e.projection == p) return e.name;
+    return "keep";
+}
+
+bool lens_projection_from_string(std::string_view s, LensProjection& out) {
+    for (const auto& e : kProjections)
+        if (s == e.name) {
+            out = e.projection;
+            return true;
+        }
+    return false;
+}
+
 void Settings::clamp() {
     wb.temperature = std::clamp(wb.temperature, 2000.0, 50000.0);
     wb.tint = std::clamp(wb.tint, -150.0, 150.0);
@@ -63,6 +92,7 @@ void Settings::clamp() {
     sharpness = std::clamp(sharpness, 0.0, 150.0);
     noise_reduction = std::clamp(noise_reduction, 0.0, 100.0);
     color_noise_reduction = std::clamp(color_noise_reduction, 0.0, 100.0);
+    for (double* v : {&lens.distortion, &lens.tca, &lens.vignetting}) *v = std::clamp(*v, 0.0, 100.0);
     geometry.rotate90 = ((geometry.rotate90 % 4) + 4) % 4;
     geometry.straighten = std::clamp(geometry.straighten, -45.0, 45.0);
 
@@ -106,6 +136,16 @@ Settings settings_from_json(std::string_view text) {
     s.sharpness = get_number(doc, "sharpness", 0.0);
     s.noise_reduction = get_number(doc, "noiseReduction", 0.0);
     s.color_noise_reduction = get_number(doc, "colorNoiseReduction", 0.0);
+
+    // v3.27: lens（既定値のとき、キーそのものがない）
+    const json& lens = get_object(doc, "lens");
+    if (auto it = lens.find("enabled"); it != lens.end() && it->is_boolean()) s.lens.enabled = it->get<bool>();
+    if (auto it = lens.find("id"); it != lens.end() && it->is_string()) s.lens.id = it->get<std::string>();
+    s.lens.distortion = get_number(lens, "distortion", 100.0);
+    s.lens.tca = get_number(lens, "tca", 100.0);
+    s.lens.vignetting = get_number(lens, "vignetting", 100.0);
+    if (auto it = lens.find("projection"); it != lens.end() && it->is_string())
+        lens_projection_from_string(it->get<std::string>(), s.lens.projection);
 
     const json& geo = get_object(doc, "geometry");
     s.geometry.rotate90 = static_cast<int>(get_number(geo, "rotate90", 0));
@@ -166,6 +206,18 @@ std::string settings_to_json(const Settings& s) {
             doc.erase(key);
     }
 
+    if (s.lens == LensSettings{}) {
+        doc.erase("lens");  // 既定値なら書かない（古い版の JSON と同じ形を保つ）
+    } else {
+        json& lens = ensure_object(doc, "lens");
+        lens["enabled"] = s.lens.enabled;
+        lens["id"] = s.lens.id;
+        lens["distortion"] = s.lens.distortion;
+        lens["tca"] = s.lens.tca;
+        lens["vignetting"] = s.lens.vignetting;
+        lens["projection"] = lens_projection_to_string(s.lens.projection);
+    }
+
     json& geo = ensure_object(doc, "geometry");
     geo["rotate90"] = s.geometry.rotate90;
     geo["straighten"] = s.geometry.straighten;
@@ -197,6 +249,10 @@ bool settings_need_no_row(const Settings& s) {
         if (doc.contains("wb")) {
             strip(doc["wb"], {"mode", "temperature", "tint"});
             if (doc["wb"].empty()) doc.erase("wb");
+        }
+        if (doc.contains("lens")) {
+            strip(doc["lens"], {"enabled", "id", "distortion", "tca", "vignetting", "projection"});
+            if (doc["lens"].empty()) doc.erase("lens");
         }
         if (doc.contains("geometry")) {
             json& g = doc["geometry"];

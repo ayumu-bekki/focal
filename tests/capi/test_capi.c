@@ -285,6 +285,34 @@ int main(void) {
 
     CHECK(fc_api_version() == FC_API_VERSION);
 
+    /* レンズ DB（v3.27）。DB がなければ飛ばす */
+    {
+        REQUIRE_OK(fc_lens_configure(FOCAL_LENSFUN_DB_DIR, NULL));
+        int32_t cameras = 0, lenses = 0;
+        REQUIRE_OK(fc_lens_counts(&cameras, &lenses));
+        if (fc_lens_supported() && lenses > 0) {
+            CHECK(cameras > 500 && lenses > 1000);
+            fc_lens_array* found = NULL;
+            REQUIRE_OK(fc_lens_search("nikkor z 24-70", "Nikon Z", 10, &found));
+            CHECK(found->count >= 2 && found->count <= 10);
+            if (found->count > 0) {
+                CHECK(strstr(found->items[0].id, "|") != NULL);
+                CHECK(found->items[0].has_distortion == 1);
+                fc_lens_array* one = NULL;
+                REQUIRE_OK(fc_lens_find(found->items[0].id, &one));
+                CHECK(one->count == 1);
+                fc_lens_array_free(one);
+            }
+            fc_lens_array_free(found);
+            fc_lens_array* none = NULL;
+            REQUIRE_OK(fc_lens_find("No|Such", &none));
+            CHECK(none->count == 0);
+            fc_lens_array_free(none);
+        } else if (!fc_lens_supported()) {
+            CHECK(lenses == 0);
+        }
+    }
+
     char tmpl[] = "/tmp/focal-capi-XXXXXX";
     char* tmp = mkdtemp(tmpl);
     CHECK(tmp != NULL);
@@ -811,6 +839,41 @@ int main(void) {
         CHECK(st.exposure == 0.7);
         CHECK(fc_session_can_redo(ses) == 1);
         CHECK(fc_session_redo(ses) == 1);
+
+        /* レンズ補正（v3.27）: 設定の往復と、写真のレンズ情報 */
+        {
+            fc_settings ls;
+            REQUIRE_OK(fc_session_get_settings(ses, &ls));
+            CHECK(ls.lens_enabled == 0);
+            CHECK(ls.lens_id[0] == '\0');
+            CHECK(ls.lens_distortion == 100.0 && ls.lens_tca == 100.0 && ls.lens_vignetting == 100.0);
+            ls.lens_enabled = 1;
+            snprintf(ls.lens_id, sizeof ls.lens_id, "No|Such lens");
+            ls.lens_tca = 50;
+            ls.lens_projection = FC_LENS_PROJECTION_RECTILINEAR;
+            REQUIRE_OK(fc_session_set_settings(ses, &ls));
+            fc_settings back;
+            REQUIRE_OK(fc_session_get_settings(ses, &back));
+            CHECK(back.lens_enabled == 1);
+            CHECK(strcmp(back.lens_id, "No|Such lens") == 0);
+            CHECK(back.lens_tca == 50.0);
+            CHECK(back.lens_projection == FC_LENS_PROJECTION_RECTILINEAR);
+            ls.lens_enabled = 0;
+            ls.lens_id[0] = '\0';
+            ls.lens_tca = 100;
+            ls.lens_projection = FC_LENS_PROJECTION_KEEP;
+            REQUIRE_OK(fc_session_set_settings(ses, &ls));
+
+            fc_string* exif = NULL;
+            REQUIRE_OK(fc_session_lens_exif(ses, &exif));
+            CHECK(exif != NULL && strstr(exif->value, "FE 16-35mm") != NULL);
+            fc_string_free(exif);
+            fc_lens_array* detected = NULL;
+            REQUIRE_OK(fc_session_detect_lens(ses, &detected));
+            if (fc_lens_supported() && detected->count > 0) CHECK(strstr(detected->items[0].model, "16-35") != NULL);
+            if (!fc_lens_supported()) CHECK(detected->count == 0);
+            fc_lens_array_free(detected);
+        }
         fc_session_close(ses);
         free(buf);
         fc_editor_destroy(ed);

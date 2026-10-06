@@ -28,6 +28,10 @@
       "name": "metal-cpp",
       "platform": "osx"
     },
+    {
+      "name": "lensfun",
+      "platform": "osx"
+    },
     "catch2"
   ]
 }

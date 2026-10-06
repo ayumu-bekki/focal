@@ -41,6 +41,10 @@ struct GpuParams {
     float saturation, vibrance;
     float om[9];
     uint32_t layout;
+    // レンズ補正（v3.27）。lens_on = 0 なら a〜f は 出力 → ソース。1 なら 出力 → センサー座標で、補正マップを引く
+    uint32_t lens_on, lens_tca, lens_gain, lens_nx, lens_ny;
+    float lens_w, lens_h;  // センサーの大きさ
+    float lens_kx, lens_ky;  // センサー座標 → ソースの画素
 };
 
 // shaders.metal の Aux と同じ並び
@@ -102,8 +106,9 @@ public:
         const bool neighborhood = pipeline.needs_neighborhood();
         const NeighborhoodRegion region = neighborhood ? plan_neighborhood(view, plan, scale, origin, w, h, pipeline)
                                                        : NeighborhoodRegion{};
-        const Affine m = output_to_source(view, plan, scale,
-                                          neighborhood ? PointD{origin.x - region.left, origin.y - region.top} : origin);
+        const PointD morigin = neighborhood ? PointD{origin.x - region.left, origin.y - region.top} : origin;
+        // レンズ補正があるときは、出力 → センサー座標までをアフィンで渡し、補正マップを引く（renderer.cpp の make_row_source と同じ）
+        const Affine m = src.lens ? plan.output_to_sensor(scale, morigin) : output_to_source(view, plan, scale, morigin);
         GpuParams p{};
         p.a = static_cast<float>(m.a), p.b = static_cast<float>(m.b), p.c = static_cast<float>(m.c);
         p.d = static_cast<float>(m.d), p.e = static_cast<float>(m.e), p.f = static_cast<float>(m.f);
@@ -119,6 +124,22 @@ public:
         p.saturation = pipeline.saturation(), p.vibrance = pipeline.vibrance();
         std::copy_n(transform.fast_matrix(), 9, p.om);
         p.layout = layout == PixelLayout::Bgrx8 ? 1 : 0;
+        MTL::Buffer* lens_buf = dummy_.get();
+        if (src.lens) {
+            const LensMaps& lm = *src.lens;
+            p.lens_on = 1, p.lens_tca = lm.has_tca ? 1 : 0, p.lens_gain = lm.has_gain ? 1 : 0;
+            p.lens_nx = static_cast<uint32_t>(lm.nx), p.lens_ny = static_cast<uint32_t>(lm.ny);
+            p.lens_w = static_cast<float>(lm.sensor_w), p.lens_h = static_cast<float>(lm.sensor_h);
+            p.lens_kx = static_cast<float>(static_cast<double>(view.width()) / src.sensor_w);
+            p.lens_ky = static_cast<float>(static_cast<double>(view.height()) / src.sensor_h);
+            if (lens_held_ != src.lens || !lens_buf_) {
+                lens_buf_.reset(device_->newBuffer(lm.data.data(), lm.data.size() * sizeof(float),
+                                                   MTL::ResourceStorageModeShared));
+                lens_held_ = src.lens;
+            }
+            if (!lens_buf_) return GpuStatus::Failed;
+            lens_buf = lens_buf_.get();
+        }
 
         // 小さな表（トーン 16KB、TRC 64KB）は毎回書く。出力とヒストグラムの置き場は使い回す
         const auto& lut = pipeline.tone().table();
@@ -144,9 +165,10 @@ public:
             enc->setBuffer(trc_buf_.get(), 0, 4);
             enc->setBuffer(out_buf_.get(), 0, 5);
             enc->setBuffer(hist_buf_.get(), 0, 6);
+            enc->setBuffer(lens_buf, 0, 7);
             dispatch(enc, w, h);
         } else {
-            encode_neighborhood(enc, p, source, src.full != nullptr, region, scale, pipeline, w, h);
+            encode_neighborhood(enc, p, source, src.full != nullptr, region, scale, pipeline, w, h, lens_buf);
         }
         enc->endEncoding();
         const auto t0 = std::chrono::steady_clock::now();
@@ -171,6 +193,8 @@ public:
         std::lock_guard lock(mutex_);
         full_ = {};
         proxy_ = {};
+        lens_buf_.reset();
+        lens_held_.reset();
     }
 
 private:
@@ -215,7 +239,8 @@ private:
 
     // 5.4 章 (5a): ノイズ低減（輝度 → カラー）→ 明瞭度 → シャープネス → 仕上げ。CPU 版と同じ順番・同じ条件
     void encode_neighborhood(MTL::ComputeCommandEncoder* enc, GpuParams p, MTL::Buffer* source, bool full,
-                             const NeighborhoodRegion& region, double scale, const ColorPipeline& pipeline, int w, int h) {
+                             const NeighborhoodRegion& region, double scale, const ColorPipeline& pipeline, int w, int h,
+                             MTL::Buffer* lens_buf) {
         const int bw = region.bw, bh = region.bh;
         const size_t n = static_cast<size_t>(bw) * bh;
         MTL::Buffer* wk = plane(0, (n * 3 + 1) / 2);  // half × 3（plane は float の個数で確保する）
@@ -227,6 +252,7 @@ private:
         enc->setBuffer(full ? dummy_.get() : source, 0, 2);
         enc->setBuffer(tone_buf_.get(), 0, 3);
         enc->setBuffer(wk, 0, 4);
+        enc->setBuffer(lens_buf, 0, 5);
         dispatch(enc, bw, bh);
 
         AuxParams base;
@@ -394,6 +420,8 @@ private:
     std::map<std::string, Ref<MTL::ComputePipelineState>> pipelines_;
     Ref<MTL::Buffer> dummy_, tone_buf_, trc_buf_, out_buf_, hist_buf_, kernel_buf_;
     Cached full_, proxy_;  // 描画元（フル解像度、プロキシ）
+    Ref<MTL::Buffer> lens_buf_;  // レンズ補正の補正マップ（同じマップなら使い回す）
+    std::shared_ptr<const LensMaps> lens_held_;
     std::vector<Ref<MTL::Buffer>> planes_;  // 作業用の平面（使い回す）
     std::mutex mutex_;
 };

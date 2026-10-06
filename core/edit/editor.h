@@ -88,6 +88,8 @@ public:
 
     int64_t photo_id() const { return photo_id_; }
     SessionInfo info() const;
+    // 写真のメタデータ（カメラ・レンズ・焦点距離など）。メタデータの読み込み前なら false
+    bool metadata(RawMetadata& out) const;
     // 埋め込みプレビュー（sRGB、向き補正済み）を呼び出し側のバッファにコピーする（大きさは info() のとおり）
     bool copy_preview(uint8_t* dst, size_t stride, size_t capacity) const;
 
@@ -213,6 +215,7 @@ private:
     void finish_decode(const std::shared_ptr<EditSession>& s, std::shared_ptr<const DecodedRaw> raw);
     void run_render(RenderJob& job);
     // GPU（あれば）か CPU で描き、ヒストグラムも作る。打ち切られたら false
+    std::shared_ptr<const LensMaps> lens_maps_for(const LensSettings& ls, const std::shared_ptr<const DecodedRaw>& raw);
     bool draw(const GpuSource& src, const GeometryPlan& plan, double scale, PointD origin, const ColorPipeline& pipeline,
               const RenderRequest& rq, RenderResult& result, const CancelToken& cancel);
     void save(EditSession& s);
@@ -241,6 +244,10 @@ private:
     std::atomic<bool> decode_cancel_{false};
     std::optional<RenderJob> render_job_;
     std::atomic<uint64_t> render_generation_{0};
+    // 直近のレンズ補正マップ（描画スレッドだけが触る）
+    LensSettings lens_cache_key_;
+    std::weak_ptr<const DecodedRaw> lens_cache_raw_;
+    std::shared_ptr<const LensMaps> lens_cache_;
     std::vector<std::weak_ptr<EditSession>> sessions_;
     // 編集後のサムネイル（保存スレッドで作る）
     std::optional<ThumbnailCache> thumbnail_cache_;

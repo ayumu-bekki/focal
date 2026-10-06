@@ -379,6 +379,22 @@ final class DevelopModel {
         }
     }
 
+    func resetLens() {
+        update { s in
+            let d = DevelopSettings()
+            s.lensEnabled = d.lensEnabled
+            s.lensID = d.lensID
+            s.lensDistortion = d.lensDistortion
+            s.lensTCA = d.lensTCA
+            s.lensVignetting = d.lensVignetting
+            s.lensProjection = d.lensProjection
+        }
+    }
+
+    /// 写真の EXIF のレンズ情報と、自動で選ばれるレンズ（写真を開いたとき・レンズ補正の区分を開いたときに読む）
+    var lensExif: String { session?.lensExif ?? "" }
+    var detectedLens: LensInfo? { session?.detectedLens }
+
     func undo() {
         guard let session, session.undo() else { return }
         settings = session.settings

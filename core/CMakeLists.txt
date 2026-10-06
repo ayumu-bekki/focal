@@ -16,6 +16,8 @@ add_library(focal_core STATIC
     imaging/tone_curve.cpp
     imaging/color_pipeline.cpp
     imaging/geometry.cpp
+    imaging/lens_db.cpp
+    imaging/lens_correction.cpp
     imaging/crop_tool.cpp
     imaging/output_transform.cpp
     imaging/renderer.cpp
@@ -56,6 +58,11 @@ target_link_libraries(focal_core
 if(OpenMP_CXX_FOUND)
     target_link_libraries(focal_core PRIVATE OpenMP::OpenMP_CXX)
     target_compile_definitions(focal_core PRIVATE FOCAL_HAVE_OPENMP)
+endif()
+
+if(FOCAL_ENABLE_LENSFUN)
+    target_link_libraries(focal_core PUBLIC lensfun::lensfun)
+    target_compile_definitions(focal_core PUBLIC FOCAL_HAVE_LENSFUN)
 endif()
 
 # 画像処理のホットパスは最適化を強める（-ffast-math は再現性のため使わない）

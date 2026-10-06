@@ -23,6 +23,7 @@ Focal は開発中のソフトウェア（ベータ版）です。現像やカ�
 | RAW 以外の写真 | JPEG・TIFF・PNG（macOS では HEIF も）の管理に対応。RAW と同名の JPEG は同一写真の付属ファイルとして統合管理（現像は RAW のみ） |
 | カタログ | 複数のカタログの切り替え、終了時の自動バックアップ（そのまま開けるカタログとして保存）、カタログ情報の表示と最適化 |
 | ジオメトリ | 切り取り（縦横比の固定）、90° 回転、傾き補正（±45°）、水平線ツール |
+| レンズ補正 | 歪曲収差・倍率色収差・周辺減光の補正、魚眼 ↔ 通常などの射影の変換（[Lensfun](https://lensfun.github.io/) のレンズデータを使用。macOS）。レンズは写真から自動で選び、手動でも選べる。利用者がレンズデータを足せる |
 | 表示 | フィット表示、100% 表示、ヒストグラム、フィルムストリップ。表示は GPU（Metal）で描きます |
 | 編集 | 取り消し / やり直し |
 | 書き出し | sRGB の JPEG、16 ビットの TIFF（ICC プロファイル付き）、長辺の指定、複数枚の一括書き出し |
@@ -96,3 +97,9 @@ tests/data/fetch.sh
 [Apache License 2.0](LICENSE)
 
 依存ライブラリのライセンス文は配布物に含めています。
+
+### レンズ補正のライセンス表示
+
+- レンズ補正には [Lensfun](https://lensfun.github.io/) のライブラリ（LGPL-3.0）と、その依存の GLib・libintl（LGPL）を、**動的ライブラリとして**使っています。アプリの `Contents/Frameworks` にあり、差し替えられます（差し替えた後は再署名が必要です）。
+- 同梱するレンズのデータベースは Lensfun プロジェクトのデータで、[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) です。**未改変のまま**アプリの `Contents/Resources/LensfunDB` に入れています（取得: `tools/fetch-lensfun-db.sh`）。データの日付とライセンス文は、アプリの「ライセンス」に載せています。
+- 利用者が自分でレンズのデータを足すときは、Lensfun 形式の XML を `~/Library/Application Support/jp.bekki.focal/Lensfun/` に置きます。

@@ -1,4 +1,4 @@
-# 軽量 RAW 現像・管理アプリケーション 設計書 v3.26
+# 軽量 RAW 現像・管理アプリケーション 設計書 v3.27
 
 > このドキュメントは実装担当（Claude Code）への入力を兼ねる。
 > **「3. 設計判断（ADR）」は確定事項**であり、実装中に変更が必要と判断した場合は勝手に変えず、理由を添えて人間に確認すること。
@@ -14,6 +14,7 @@
 | v3.2 | 2026-10-01 | M1 の結果を反映。NFC 正規化と case folding に **utf8proc（MIT）** を追加（4.1 章）。埋め込みプレビューの選び方を修正（10 章）。quick_hash の定義を明確化（7.2 章） |
 | v3.3 | 2026-10-01 | M2 の結果を反映。グリッドを **NSCollectionView** に決定（9.1 章、10 万件の計測結果）。C API の画像バッファは呼び出し側確保で確定。単キー操作はウィンドウ単位のキー監視で受ける（9.2 章）。アプリの表示名は「Focal Box」、バンドル ID は jp.bekki.focal |
 | v3.4 | 2026-10-01 | M3 の結果を反映。写真を開くとグリッドのサムネイルを即座に仮表示（5.3 章）。表示用出力は BGRX 32-bit（5.4 章）。M3 の計測値（11.1 章）。画面の文言は日本語と英語（String Catalog）。**ADR-08 を変更**: Edit メニューを core の Undo スタックに直接つなぐ（9.3 章） |
+| v3.27 | 2026-10-06 | **レンズ補正（Lensfun）**（利用者の要望: 歪曲収差・倍率色収差・周辺減光・射影の変換）。**ADR-01・04・09・11 を変更**（利用者の承認済み）: LGPL-3.0 の Lensfun と GLib・libintl を動的リンクし、CC BY-SA 3.0 のレンズ DB を未改変で同梱する（ライセンス表示と差し替えの案内つき）。補正は補正マップ（格子）にして CPU と Metal で共有する。利用者が DB の XML を足せるフォルダ。設定は `lens`（6.1 章、既定では何もしない）、C API v22、CLI に `lens` と `render --lens-correction`（5.13 章） |
 | v3.26 | 2026-10-06 | **外観の既定をダークにした**（まだ外観を選んでいないときだけ。選択肢はこれまでどおり）（9.4 章） |
 | v3.25 | 2026-10-05 | **設定の「取り込み」（起動時の再スキャン・カード取り込みの読み込み先）をカタログごとにした**。カタログの中（`meta` の `pref.<名前>`）に保存するので、カタログごとに別の設定にでき、カタログと一緒に持ち運べる（`Catalog::preference` / `set_preference`、C API v21）。設定がないカタログは、前の版のアプリ全体の設定を初期値にする。**キャッシュの最大サイズの選択肢を 500 MB・1 GB・2 GB・5 GB・10 GB・20 GB（10 進）にした**（前の版で保存した値はいちばん近い選択肢に寄せる）。バックアップの設定は、アプリ全体のまま（7.1 章・9.4 章） |
 | v3.24 | 2026-10-05 | **カタログの定期バックアップと、設定画面のタブ化**。終了時に、前回から設定の日数（毎回 / 1・3・7・14・30 日 / なし。既定は 1 週間）がたっていれば、確認して（設定で聞かないこともできる）進捗つきでバックアップを取ってから終了する（Lightroom Classic と同じ）。バックアップは、そのまま開けるカタログのパッケージ（`<名前> YYYY-MM-DD HHMM.focalcatalog`）で、設定の保存先（既定 `~/Pictures/Focal/Backups`）に新しい N 個（既定 10）を残す。設定画面を一般 / 取り込み / カタログ / キャッシュのタブにし、**カタログ情報は設定の「カタログ」タブに統合**（ファイルメニューの「カタログ情報…」は廃止）。最適化は手動だけ。C API v20、CLI に `backup` / `backups`、`user_version` は 6 のまま（前回の日時は `meta.last_backup_at`）（7.1 章・9.4 章） |
@@ -87,17 +88,17 @@ Photomator の代わりとして使える、オープンソースの RAW 写真�
 
 | # | 項目 | 決定 | 理由・補足 |
 |---|---|---|---|
-| ADR-01 | ライセンス | **Apache License 2.0**（v3.18 で確定） | GPL ライセンスの依存ライブラリは追加しない。LibRaw（LGPL2.1/CDDL）は**動的リンク**（dylib を .app に同梱）で使用し、ライセンス文を同梱する。（v3: Qt への言及を削除） |
+| ADR-01 | ライセンス | **Apache License 2.0**（v3.18 で確定） | GPL ライセンスの依存ライブラリは追加しない。LibRaw（LGPL2.1/CDDL）は**動的リンク**（dylib を .app に同梱）で使用し、ライセンス文を同梱する。**v3.27 で追加（利用者の承認済み）: レンズ補正の Lensfun（LGPL-3.0）と、その依存の GLib・libintl（LGPL）も動的リンクで同梱する。レンズ DB（Lensfun のデータ）は CC BY-SA 3.0 で、未改変のまま別ファイルで同梱し、出典・ライセンスを表示する**（5.13 章）。（v3: Qt への言及を削除） |
 | ADR-02 | メタデータ | **RAW は LibRaw のみ**で取得。**RAW 以外の写真（v3.22 で変更、利用者の承認済み）**: JPEG・TIFF・PNG は自前の EXIF 読み取り（`imaging/image_io`）、HEIF は macOS の ImageIO（5.12 章） | 取得項目は 7.3 章。書き出しファイルには、カタログが持つ撮影情報の最小限だけを書く（v3.19、5.8 章。撮影日時・カメラ・レンズ・露出。元の EXIF をそのまま写すことはしない） |
 | ADR-03 | 対話的プレビュー | **縮小プロキシ方式・float32**。表示（フィット・100%）は **GPU（Metal）**、書き出し・サムネイルは CPU（v3.14 で変更） | CPU 版は基準の実装で、書き出しと同一の C++ 関数。GPU 版は同じ式・同じ表で計算し、CPU 版との差が 8-bit で ±2 以内であることをテストで保証する。GPU が使えない環境・設定では CPU 版で描く |
-| ADR-04 | 処理順序 | 5.4 章のパイプラインで確定（v3.9 で (5b) 彩度・自然な彩度、v3.10 で (5a) 明瞭度を追加） | WB はカメラ RGB 上、内部は float32、出力は正式な変換式。パラメータを足すときは、既定値で何もしない形にして既存の写真の見た目を変えない（変えるなら processVersion を上げる） |
+| ADR-04 | 処理順序 | 5.4 章のパイプラインで確定（v3.9 で (5b) 彩度・自然な彩度、v3.10 で (5a) 明瞭度、v3.27 で (1) のサンプリングにレンズ補正を追加） | WB はカメラ RGB 上、内部は float32、出力は正式な変換式。パラメータを足すときは、既定値で何もしない形にして既存の写真の見た目を変えない（変えるなら processVersion を上げる） |
 | ADR-05 | 表示部品 | 現像ビューは **`NSViewRepresentable` でラップした `NSView` + `CALayer`**。core が CPU で作った 8-bit 画像を、色空間タグ付きの `CGImage` として `layer.contents` に設定する | SwiftUI の `Image` は大きな画像の頻繁な差し替えと 100% 表示の画素対応に向かないため。画像の計算には Metal を使う（v3.14、ADR-03）が、表示は今の `CALayer` のまま（GPU の結果を共有メモリから書き戻す） |
 | ADR-06 | 色管理 | **macOS の表示は OS（ColorSync）に委譲**する。core は表示用に Display P3 の画像を出力し、色空間をタグ付けする。**Little CMS 2（lcms2, MIT）**は書き出しの色変換・ICC 生成と、将来の Windows / Linux の表示変換に使う | ディスプレイプロファイルの取得や画面移動の追従が不要になり、二重変換の問題も構造上起きない |
 | ADR-07 | DB | **SQLite 3（C API を薄い RAII ラッパーで直接使用）**、WAL、書き込みは専用スレッド 1 本 | 編集パラメータは JSON + process_version |
 | ADR-08 | Undo | **Undo スタックは core に置く**。写真ごと、**現像・ジオメトリ操作のみ**対象、セッション内のみ（永続化しない）。macOS では **Edit メニューの取り消す / やり直す（⌘Z / ⌘⇧Z）を core の Undo スタックに直接つなぐ**（`UndoManager` には登録しない。テキスト入力中は通常のテキストの Undo に渡す） | 将来の各 OS の UI で同じ Undo 動作を共有するため。スライダーのドラッグ 1 回 = 1 エントリ。写真ごとのスタックは core が持つので、写真の切り替え時に `UndoManager` を作り直す処理が要らない（v3.4 で変更） |
-| ADR-09 | ジオメトリ | 出力座標 → ソース座標の**逆写像サンプリング**で実装、座標は正規化値で保存 | 詳細は 5.6 章 |
+| ADR-09 | ジオメトリ | 出力座標 → ソース座標の**逆写像サンプリング**で実装、座標は正規化値で保存。**v3.27: アフィン変換の後に、レンズ補正の非線形な写像（補正マップ）を挟む** | 詳細は 5.6 章・5.13 章 |
 | ADR-10 | モジュール構成 | `core`（C++20、OS 非依存）/ `gpu`（表示用の GPU 実装、macOS は Metal。v3.14）/ `capi`（C API）/ `cli` / `apps/macos`（SwiftUI） | GUI なしで全画像処理・カタログ処理を検証できるようにする。UI 層には画像処理・カタログのロジックを書かない |
-| ADR-11 | ビルド | core / capi / cli: **CMake + vcpkg manifest**。macOS アプリ: **Xcode プロジェクト**。core と capi は静的ライブラリ + ヘッダ + modulemap の **XCFramework** にまとめてアプリにリンクする。vcpkg はオーバーレイトリプレットで**LibRaw と libomp（OpenMP ランタイム）を動的リンク**、他は静的リンク。LibRaw は **OpenMP 有効**でビルドし、macOS の libomp は LLVM のソースからビルドする**オーバーレイポート**（`ports/llvm-openmp`）で用意する | ADR-01 の動的リンク要件を満たしつつ、配布物の dylib を最小にする。OpenMP で LibRaw の展開・デモザイクが 2〜6 倍速くなる（M0 実測、X-Trans 14.5s → 2.3s）。Apple clang は OpenMP ランタイムを同梱せず、vcpkg にも libomp のポートがないため自前で用意する。libomp は Apache-2.0 WITH LLVM-exception（v3.1 で変更） |
+| ADR-11 | ビルド | core / capi / cli: **CMake + vcpkg manifest**。macOS アプリ: **Xcode プロジェクト**。core と capi は静的ライブラリ + ヘッダ + modulemap の **XCFramework** にまとめてアプリにリンクする。vcpkg はオーバーレイトリプレットで**LibRaw・libomp（OpenMP ランタイム）・Lensfun・GLib・libintl（v3.27）を動的リンク**、他は静的リンク。LibRaw は **OpenMP 有効**でビルドし、macOS の libomp は LLVM のソースからビルドする**オーバーレイポート**（`ports/llvm-openmp`）で用意する。Lensfun のポートは vcpkg 本体が arm では使えない設定なのでオーバーレイ（`ports/lensfun`。GLib をホストの MacPorts などから拾わないよう pkg-config の検索先を絞る）。レンズ DB はビルド時に `tools/fetch-lensfun-db.sh` で取得する | ADR-01 の動的リンク要件を満たしつつ、配布物の dylib を最小にする。OpenMP で LibRaw の展開・デモザイクが 2〜6 倍速くなる（M0 実測、X-Trans 14.5s → 2.3s）。Apple clang は OpenMP ランタイムを同梱せず、vcpkg にも libomp のポートがないため自前で用意する。libomp は Apache-2.0 WITH LLVM-exception（v3.1 で変更） |
 | ADR-12 | 取り込み | **参照方式を基本**とする（登録したフォルダの写真は移動・コピー・変更しない）。**例外として、SD カードなどからの取り込みだけ、ライブラリのルートの下に新しいファイルとしてコピーする**（v3.19 で変更、利用者の判断）。カードの元ファイルは移動・削除・変更しない | 元ファイルへの書き込みは一切行わない。コピー先には新規作成だけで、既存のファイルは上書きしない |
 | ADR-13 | ブリッジ | **C API（`extern "C"`、不透明ハンドル）**を core と UI の唯一の境界とする。macOS では Swift ラッパー（`FocalCore` モジュール）で Swift らしい API に包む | Swift の C++ 直接相互運用は使わない。C ABI なら将来の Windows（C# など）・Linux（GTK など）の UI からも同じ境界を使える。規約は 4.3 章 |
 | ADR-14 | 配布 | **Developer ID 署名 + 公証（notarization）、App Sandbox なし**、Hardened Runtime 有効 | 個人利用。サンドボックスなしなので、参照フォルダへのアクセスに security-scoped bookmark は不要 |
@@ -239,7 +240,7 @@ params.user_qual      = 3;      // AHD（X-Trans は LibRaw 側で自動的に�
 出力ピクセルごとに以下を 1 パスで行う。
 
 ```text
-(1) ジオメトリ逆写像で、ソース（プロキシ or フル解像度）をサンプリング    … 5.6 章
+(1) ジオメトリ逆写像 →（レンズ補正マップ）で、ソース（プロキシ or フル解像度）をサンプリング … 5.6 章・5.13 章
 (2) WB 補正:        カメラ RGB の各チャンネルに ×(新 WB 係数 / As Shot WB 係数)
 (3) 色変換:         M = (sRGB→Rec.2020) × rgb_cam の 3×3 合成行列 1 本で
                     リニア Rec.2020（作業色空間）へ。負値はこの段階ではクリップしない
@@ -404,6 +405,18 @@ JPEG・TIFF・PNG（macOS は HEIF / HEIC も）を写真として管理する�
 - **カード取り込み（5.10 章）**: JPEG だけの 1 枚（RAW のない 1 枚）も登録する（撮影日時は EXIF。取れなければ更新日時で「推定」）。RAW + JPEG のペアは、RAW を写真として登録し、JPEG は付属ファイルとして記録する。
 - **削除（5.11 章）**: 主役が RAW なら、同じ名前の RAW 以外の写真ファイル・サイドカー・動画を一緒に消す（従来どおり）。主役が RAW 以外なら、同じ名前の別の写真ファイル（`a.png` など）は**別の写真なので消さない**（サイドカー・動画は一緒）。
 
+### 5.13 レンズ補正（v3.27、ADR-01・04・09・11）
+
+Lensfun（https://lensfun.github.io/ 。ライブラリ LGPL-3.0、データ CC BY-SA 3.0）で、歪曲収差（樽型・糸巻き型・陣笠型）・倍率色収差（TCA）・周辺減光の補正と、射影の変換（魚眼 ↔ 通常など）を行う。macOS だけ（他の OS では `LensDatabase::supported()` が false で、補正なしのまま動く）。
+
+- **データ**: 同梱の DB（アプリの `Contents/Resources/LensfunDB`。配布元の「版 1」の XML を未改変で。データの日付は「ライセンス」に表示）→ 利用者のフォルダ（`~/Library/Application Support/jp.bekki.focal/Lensfun`。XML を足せる。同じレンズは後から読んだものが優先）の順に読む。CLI は `--lens-db DIR` / `FOCAL_LENSFUN_DB`（既定 `build/lensfun/db`）。DB の取得は `tools/fetch-lensfun-db.sh`（リポジトリには入れない）。
+- **レンズの選択**: 写真のカメラ・レンズ名（EXIF）から Lensfun が自動で選ぶ（`lens.id` が空）。レンズ固定のカメラはカメラ名から。手動で選ぶときは DB を検索して `lens.id`（"メーカー|モデル"）に保存する。クロップ係数はカメラ優先、焦点距離・絞りは写真から、被写体距離は 1000m（不明）。
+- **補正マップ（`imaging/lens_correction`）**: ジオメトリ (a)〜(d) のアフィン変換でできる「センサー座標（補正前の画像の座標）」の格子点（長辺の約 1/128 間隔）ごとに、Lensfun のモディファイアで **R・G・B 別の元の座標**と**周辺減光のゲイン**を求めて持つ。描画は、出力画素 → アフィン変換 → 格子を双一次補間 → 元の座標（R・G・B 別）→ サンプリング → ゲインを掛ける（(2) の WB の前、リニア）。補間の誤差は 0.1 画素以下。歪曲収差の補正で四隅に空白が出ないよう、Lensfun の自動拡大率（scale = 0）を使う。**CPU（`renderer.cpp`）と Metal（`shaders.metal`）は同じ格子を同じ式で引く**ので、差は ADR-03 の範囲（±2）に収まる（`tests/test_gpu.cpp`）。
+- **量**: 歪曲収差は「補正なし」と「補正あり」の線形補間（0〜100）。倍率色収差は G との差だけを量に応じて足す。周辺減光は 1 と補正ゲインの線形補間。どれも 100 が Lensfun の補正どおり。0 のものは Lensfun に計算させない。
+- **既定は何もしない**（`lens.enabled = false`）。ゴールデン画像・既存の写真は変わらない。プリセットには含めない（レンズに結びつくため。ジオメトリと同じ扱い）。補正マップは写真・設定が同じなら使い回す（スライダー操作のたびに作らない）。
+- **ライセンスの表示**: アプリの「ライセンス」に Lensfun（LGPL-3.0）・レンズ DB（CC BY-SA 3.0、出典・データの日付・未改変・差し替え方法）・GLib・libintl・PCRE2・libffi の文を載せ、README と公開サイトにも出典を書く。dylib は `Contents/Frameworks` にあり、利用者が差し替えられる（再署名が必要）。
+- **未確認 / 制限**: 補正データのないレンズは補正されない（インスペクタには補正の有無を出さない。CLI の `lens search` は D/T/V（歪曲・TCA・周辺減光のデータの有無）を出す）。縦位置・回転した写真は、センサー座標で補正してから回すので正しい。魚眼から通常への変換は大きく拡大される。
+
 ## 6. 編集パラメータ
 
 ### 6.1 JSON 形式（schema 1）
@@ -426,6 +439,7 @@ JPEG・TIFF・PNG（macOS は HEIF / HEIC も）を写真として管理する�
   "sharpness": 0,
   "noiseReduction": 0,
   "colorNoiseReduction": 0,
+  "lens": { "enabled": false },
   "geometry": {
     "rotate90": 0,
     "straighten": 0.0,
@@ -446,6 +460,10 @@ JPEG・TIFF・PNG（macOS は HEIF / HEIC も）を写真として管理する�
 | `clarity` | -200〜+200（v3.10、v3.12 で ±100 から広げた。既定値 0 のときはキーを書かない） | 0 |
 | `sharpness` | 0〜150（v3.13。既定値 0 のときはキーを書かない） | 0 |
 | `noiseReduction` / `colorNoiseReduction` | 0〜100（v3.13。輝度・カラー。既定値 0 のときはキーを書かない） | 0 |
+| `lens.enabled` | true / false（v3.27。既定値のときは `lens` のキーごと書かない） | false |
+| `lens.id` | `"メーカー\|モデル"`（Lensfun の DB のレンズ）。空は写真のレンズ名から自動 | `""` |
+| `lens.distortion` / `lens.tca` / `lens.vignetting` | 0〜100（歪曲収差〈射影の変換・自動拡大を含む〉・倍率色収差・周辺減光。0 で補正しない） | 100 |
+| `lens.projection` | `"keep"` / `"rectilinear"` / `"fisheye"` / `"equisolid"` / `"stereographic"` / `"orthographic"` / `"panoramic"` / `"equirectangular"` | `"keep"` |
 | `geometry.rotate90` | 0〜3 | 0 |
 | `geometry.straighten` | -45.0〜+45.0 度 | 0.0 |
 | `geometry.crop` | 正規化矩形 | 全体 |

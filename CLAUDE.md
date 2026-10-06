@@ -1,6 +1,6 @@
 # focal — 軽量 RAW 現像・管理アプリ
 
-設計書は `design.md`（v3.20）。ADR は `docs/adr/`。利用者向けの使い方は `docs/user-guide.md`（機能や操作を変えたら、ここも直す。GitHub Pages の使い方ガイドの元でもある）。公開サイト（トップページ + ガイド）は `site/` と `docs/site.md`（`python3 site/build.py` で `_site/` を作る。`main` への push で `.github/workflows/pages.yml` が公開する）。
+設計書は `design.md`（v3.27）。ADR は `docs/adr/`。利用者向けの使い方は `docs/user-guide.md`（機能や操作を変えたら、ここも直す。GitHub Pages の使い方ガイドの元でもある）。公開サイト（トップページ + ガイド）は `site/` と `docs/site.md`（`python3 site/build.py` で `_site/` を作る。`main` への push で `.github/workflows/pages.yml` が公開する）。
 
 ## 守ること
 
@@ -69,7 +69,7 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 # Developer ID で署名・公証: SIGN_IDENTITY="Developer ID Application: … (TEAMID)" NOTARY_PROFILE=… apps/macos/scripts/package.sh
 ```
 
-- `scripts/build-core.sh`: core + capi + 静的リンクの依存を `build/FocalCore.xcframework`（module `CFocal`）にまとめ、LibRaw と libomp の dylib を `build/Frameworks` に置く。アプリのビルド時に `Contents/Frameworks` へコピーして署名する。
+- `scripts/build-core.sh`: core + capi + 静的リンクの依存を `build/FocalCore.xcframework`（module `CFocal`）にまとめ、LibRaw・libomp・Lensfun・GLib・libintl の dylib を `build/Frameworks` に置き、レンズ DB（`build/LensfunDB`）とライセンス文を用意する。アプリのビルド時に `Contents/Frameworks` へコピーして署名する。
 - `ui-test.sh` は、書き出しのテスト用フォルダと、色のチェックの基準（ニコンの写真を CLI で書き出して `focal colorgrid` でマスごとの平均色にしたもの）も用意する。外部ディスプレイで色のチェックをするときは `FOCAL_WINDOW_SCREEN=1 apps/macos/scripts/ui-test.sh … -only-testing:FocalUITests/FocalUITests/testDisplayColor`。
 - 環境変数: `FOCAL_CATALOG`（このカタログを開く。.sqlite か .focalcatalog）/ `FOCAL_CACHE`（サムネイルのキャッシュ。大きいプレビューは隣の `〜-previews`）、`FOCAL_CATALOG_HOME`（新規カタログの既定の場所。前回のカタログと古い場所を見ず、記録もしない。初回起動のテスト用）、`FOCAL_EXPORT_DIR`（書き出し先の初期値）、`FOCAL_PRESETS` / `FOCAL_BUILTIN_PRESETS`（現像プリセットの利用者・同梱のフォルダ。UI テスト用）、`FOCAL_BACKUP_DIR` / `FOCAL_BACKUP_INTERVAL`（日数。0 = 毎回）/ `FOCAL_BACKUP_ASK`（0 で確認なし）（カタログのバックアップの保存先・頻度・確認。UI テスト用。`FOCAL_BACKUP_INTERVAL` を指定したときだけ、固定のカタログでも終了時のバックアップが動く）、`FOCAL_IMPORT_SOURCE` / `FOCAL_IMPORT_DEST`（カード取り込みシートの取り込み元と読み込み先。UI テスト用。指定すると設定を書き換えない）、`FOCAL_WINDOW_SCREEN=番号`（ウィンドウを置くディスプレイ）、`FOCAL_GRID=lazy`（比較用の LazyVGrid）、`FOCAL_FRAME_STATS=1`（ヒッチと現像の計測値を表示）、`FOCAL_SCROLL_BENCH=1`（自動スクロール）、`FOCAL_WINDOW_SIZE=幅x高さ`（ウィンドウの大きさ。UI テストは毎回 1440x900 を指定する。指定しないと前回の大きさが使われる。指定したときは、保存されたサイドバーとインスペクタの区分の開閉も消し、保存された外観も使わない）、`FOCAL_APPEARANCE=system|light|dark`（UI テストの外観）、`FOCAL_GPU=0`（表示を CPU で描く。`FOCAL_GPU=0 apps/macos/scripts/ui-test.sh` で UI テストにも渡る）、`FOCAL_GPU_TIMING=1`（GPU の実行時間を標準エラーに出す）。
 - 文言は `Focal/Localizable.xcstrings`（英語がキー、日本語訳）。SwiftUI の `Text("…")` などは自動で引かれる。`String` を渡す API（`Button(cond ? "a" : "b")` など）は `String(localized:)` を使う。UI テストは表示言語に依らないよう、文言ではなくアクセシビリティ識別子で要素を探す。
@@ -83,7 +83,7 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 
 ## 依存ライブラリの構成（M0 で確認済み）
 
-- vcpkg のオーバーレイトリプレット `triplets/arm64-osx-focal.cmake`: **LibRaw と libomp を動的リンク**（`libraw_r.dylib`、`libomp.dylib`）、他は静的リンク（ADR-01 / ADR-11）。
+- vcpkg のオーバーレイトリプレット `triplets/arm64-osx-focal.cmake`: **LibRaw・libomp・Lensfun・GLib・libintl を動的リンク**（`libraw_r.dylib`、`libomp.dylib`、`liblensfun.dylib` など）、他は静的リンク（ADR-01 / ADR-11）。
 - LibRaw 0.22.2、feature `dng-lossy` と **`openmp` を有効**。スレッド安全版 `raw_r` を使う。
 - オーバーレイポート（`ports/`、プリセットで `VCPKG_OVERLAY_PORTS` に設定済み）:
   - `llvm-openmp`: LLVM 23.1.2 の libomp。llvm-project の tarball から必要なディレクトリだけ展開し、`runtimes/` 経由でビルドする（LLVM 23 で OpenMP の standalone ビルドは廃止）。`share/openmp/vcpkg-cmake-wrapper.cmake` で `find_package(OpenMP)` がこの libomp を使うようにしている（Apple clang は `-Xclang -fopenmp` が必要）。install name は `@rpath/libomp.dylib`。
@@ -105,6 +105,7 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 
 - `core/imaging/` — `raw_decoder`（LibRaw）、`resample`（プロキシ・Lanczos3）、`white_balance`（Robertson 法の K/tint ⇔ 係数）、`tone_curve`（5.5 章 + ベースカーブ + 白・黒・明るさ、4096 要素 LUT）、`color_pipeline`（5.4 章 (2)〜(5b)。(5b) は彩度・自然な彩度。`process_tone` と `process_color` に分けられる）、`local_contrast`（(5a) 明瞭度。ガイデッドフィルタ、縮小して計算）、`detail`（(5a) ノイズ低減・シャープネス。半径はフル解像度の画素）、`geometry`（5.6 章の逆写像・自動クロップ）、`output_transform`（lcms2、(6)(7)）、`renderer`（(1)〜(7) の組み立て）、`image_io`（TIFF / JPEG）
 - `core/imaging/photo_kind`・`photo_file` — RAW 以外の写真（v3.22、design.md 5.12 章）。`PhotoKind`・`photo_kind_for_name`（拡張子。HEIF は OS の読み取り部品が登録されているときだけ）、`read_image_file_metadata` / `decode_image_file`（`DecodedRaw` に読む。色の行列は恒等、`display_referred` でベースカーブを入れない）/ `image_file_thumbnail`。`decode_raw` / `read_raw_metadata` / `make_thumbnail` は拡張子で RAW か RAW 以外かを振り分ける。JPEG・TIFF・PNG の読み取りと EXIF は `image_io`。HEIF は `platform/apple`（ImageIO。`register_apple_image_reader`。capi の `fc_catalog_open` と CLI の起動時に登録）
+- `core/imaging/lens_db`・`lens_correction` — レンズ補正（v3.27、design.md 5.13 章、macOS だけ `FOCAL_HAVE_LENSFUN`）。Lensfun（LGPL-3.0、**動的リンク**。`ports/lensfun` はオーバーレイで、GLib を MacPorts などから拾わないよう pkg-config の検索先を絞っている）。`LensDatabase`（DB の読み込み・カメラとレンズの検索）、`build_lens_maps`（設定 + 写真のメタデータ → センサー座標の格子 `LensMaps`: R・G・B 別の元の座標と周辺減光のゲイン）、`shared_lens_database` / `set_lens_database_dirs`（同梱 → 利用者のフォルダの順）。描画は `renderer.cpp` の `SourceView::lens`（`sample_row_lens`）と `shaders.metal` の `sample_source_lens`（同じ格子を同じ式で引く。変えるときは両方）。DB は `tools/fetch-lensfun-db.sh` が `build/lensfun/` に取得（リポジトリには入れない。CC BY-SA 3.0）。CLI は `lens` と `render --lens-correction`。プリセットには含めない。ライセンスの文は `build-core.sh` が Resources/Licenses に入れる
 - `core/edit/settings` — 6.1 章の JSON（未知キー保持）
 - `core/edit/preset` — 現像のプリセット（v3.21、design.md 6.3 章）。調整だけ（`geometry` は含めない）、`apply_preset`（調整は丸ごと置き換え、geometry・processVersion・未知キーは写真のまま）、`PresetStore`（1 プリセット 1 JSON ファイル `.focalpreset`、利用者のフォルダ + 同梱の読み取り専用フォルダ、id は `user:` / `builtin:`）。`Catalog::apply_preset`、`CardImportOptions::preset`。Focal 標準は `apps/macos/Presets/`（README.md に登録の手順）。`PresetStore` は一覧・照合の結果をキャッシュ（`find_match` はスライダー操作のたびに呼ぶ。save / remove / rename / list で読み直す）。右ペインの「プリセット」区分は `DevelopPanel.presetSection`、状態は `PresetModel`（`appliedID`・`revision`）。プリセットの項目を足すときは `settings` と同じ項目を `apply_preset` が丸ごと置き換えることを確認する
 - `core/catalog/` — `sqlite`（RAII ラッパー）、`schema`（7.2 章とマイグレーション。移行前に `VACUUM INTO` でバックアップ）、`db_writer`（書き込み専用スレッド。最大 500 件を 1 トランザクションにまとめ、ジョブごとに SAVEPOINT）、`catalog`（ルート登録・スキャン・照合・絞り込み・★/フラグ/タグ・アルバム・最近の取り込み）

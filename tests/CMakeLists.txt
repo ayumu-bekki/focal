@@ -23,9 +23,11 @@ add_executable(focal_tests
     test_editor.cpp
     test_crop_tool.cpp
     test_export.cpp
+    test_lens_db.cpp
 )
 target_link_libraries(focal_tests PRIVATE focal_core Catch2::Catch2WithMain)
-target_compile_definitions(focal_tests PRIVATE FOCAL_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+target_compile_definitions(focal_tests PRIVATE FOCAL_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+    FOCAL_LENSFUN_DB_DIR="${PROJECT_SOURCE_DIR}/build/lensfun/db")
 # 表示用の GPU レンダラーが CPU 版と一致するか（macOS のみ）
 if(TARGET focal_gpu)
     target_sources(focal_tests PRIVATE test_gpu.cpp)
@@ -90,7 +92,8 @@ if(TARGET focal_gpu)
     target_link_libraries(focal_capi_tests PRIVATE focal_gpu)
 endif()
 set_target_properties(focal_capi_tests PROPERTIES LINKER_LANGUAGE CXX C_STANDARD 11)
-target_compile_definitions(focal_capi_tests PRIVATE FOCAL_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+target_compile_definitions(focal_capi_tests PRIVATE FOCAL_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+    FOCAL_LENSFUN_DB_DIR="${PROJECT_SOURCE_DIR}/build/lensfun/db")
 add_test(NAME capi COMMAND focal_capi_tests)
 set_tests_properties(capi PROPERTIES SKIP_RETURN_CODE 77)
 endif()

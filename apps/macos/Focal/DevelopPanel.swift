@@ -88,6 +88,8 @@ struct DevelopPanel: View {
     @AppStorage("inspector.light.expanded") private var lightExpanded = true
     @AppStorage("inspector.color.expanded") private var colorExpanded = true
     @AppStorage("inspector.detail.expanded") private var detailExpanded = true
+    @AppStorage("inspector.lens.expanded") private var lensExpanded = false
+    @State private var lensPicker = false
 
     var body: some View {
         // 読み込み中は中身だけを操作できなくする（見出しは開閉できる）
@@ -178,16 +180,92 @@ struct DevelopPanel: View {
                 develop.resetDetail()
             }
         }
+
+        if LensLibrary.isSupported { lensSection(disabled: disabled) }
+    }
+
+    // MARK: レンズ補正（v3.27）
+
+    private static let projections: [(Int32, LocalizedStringKey)] = [
+        (0, "Same as lens"), (1, "Rectilinear"), (2, "Fisheye"), (3, "Equisolid fisheye"),
+        (4, "Stereographic fisheye"), (5, "Orthographic fisheye"), (6, "Panoramic"), (7, "Equirectangular"),
+    ]
+
+    @ViewBuilder private func lensSection(disabled: Bool) -> some View {
+        let s = develop.settings
+        Section {
+            if lensExpanded {
+                Group {
+                    Toggle("Enable Lens Correction", isOn: Binding(get: { develop.settings.lensEnabled },
+                                                                    set: { v in develop.update { $0.lensEnabled = v } }))
+                        .accessibilityIdentifier("lensToggle")
+                    lensName(s)
+                    Group {
+                        amountRow("Distortion", \.lensDistortion, "lensDistortionSlider", range: 0...100, defaultValue: 100)
+                        amountRow("Chromatic Ab.", \.lensTCA, "lensTCASlider", range: 0...100, defaultValue: 100)
+                        amountRow("Vignetting", \.lensVignetting, "lensVignettingSlider", range: 0...100, defaultValue: 100)
+                        Picker("Projection", selection: Binding(get: { develop.settings.lensProjection },
+                                                                set: { v in develop.update { $0.lensProjection = v } })) {
+                            ForEach(Self.projections, id: \.0) { Text($0.1).tag($0.0) }
+                        }
+                        .accessibilityIdentifier("lensProjectionPicker")
+                    }
+                    .disabled(!s.lensEnabled)
+                }
+                .disabled(disabled)
+                Text("Lens data: Lensfun (CC BY-SA 3.0). See Licenses in the Focal menu.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            InspectorSectionHeader(title: "Lens Correction", expanded: $lensExpanded, identifier: "lensGroup") {
+                develop.resetLens()
+            }
+        }
+    }
+
+    /// 使うレンズ。自動のときは写真のレンズ名から選ばれたもの（なければその旨）。「選ぶ…」で手動に切り替える
+    @ViewBuilder private func lensName(_ s: DevelopSettings) -> some View {
+        let manual = s.lensID.isEmpty ? nil : LensLibrary.find(id: s.lensID)
+        let detected = develop.detectedLens
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Group {
+                    if !s.lensID.isEmpty {
+                        Text(manual?.displayName ?? s.lensID)
+                    } else if let detected {
+                        Text("Auto: \(detected.displayName)")
+                    } else {
+                        Text("Auto: no matching lens")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityIdentifier("lensName")
+                Spacer(minLength: 0)
+                Button("Choose…") { lensPicker = true }
+                    .controlSize(.small)
+                    .accessibilityIdentifier("lensChooseButton")
+                    .popover(isPresented: $lensPicker, arrowEdge: .leading) {
+                        LensPicker(develop: develop, dismiss: { lensPicker = false })
+                    }
+            }
+            .font(.callout)
+            .lineLimit(2)
+            let exif = develop.lensExif.replacingOccurrences(of: "\n", with: "  ")
+            if !exif.isEmpty {
+                Text(exif).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
     }
 
     /// 既定 0 のスライダー。範囲は -limit〜+limit（明瞭度は ±200）か、range で指定（シャープネス・ノイズ低減は 0 から）
     private func amountRow(_ title: LocalizedStringKey, _ key: WritableKeyPath<DevelopSettings, Double>,
                            _ identifier: String, limit: Double = 100,
-                           range: ClosedRange<Double>? = nil) -> some View {
+                           range: ClosedRange<Double>? = nil, defaultValue: Double = 0) -> some View {
         let r = range ?? -limit...limit
         let v = develop.settings[keyPath: key]
         return SliderRow(title: title, valueText: r.lowerBound < 0 ? String(format: "%+.0f", v) : String(format: "%.0f", v),
-                         value: bind(key), range: r, defaultValue: 0, identifier: identifier, develop: develop)
+                         value: bind(key), range: r, defaultValue: defaultValue, identifier: identifier, develop: develop)
     }
 
     private func bind(_ key: WritableKeyPath<DevelopSettings, Double>) -> Binding<Double> {
@@ -374,5 +452,53 @@ private struct SliderRow: View {
                 .frame(width: 58, alignment: .trailing)
         }
         .font(.callout)
+    }
+}
+
+/// レンズを探して選ぶ（v3.27）。検索は core（Lensfun の DB）。「自動」で写真のレンズ名からの選択に戻す
+private struct LensPicker: View {
+    let develop: DevelopModel
+    let dismiss: () -> Void
+    @State private var query = ""
+    @State private var results: [LensInfo] = []
+    @State private var counts = LensLibrary.counts()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Search lenses", text: $query)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("lensSearchField")
+                .onChange(of: query) { _, q in results = LensLibrary.search(q, limit: 100) }
+            List(results) { lens in
+                Button {
+                    develop.update { $0.lensID = lens.id; $0.lensEnabled = true }
+                    dismiss()
+                } label: {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(lens.displayName)
+                        Text(lens.mounts).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(width: 320, height: 240)
+            .accessibilityIdentifier("lensResults")
+            HStack {
+                Button("Auto") {
+                    develop.update { $0.lensID = "" }
+                    dismiss()
+                }
+                .accessibilityIdentifier("lensAutoButton")
+                Spacer()
+                Text("\(counts.lenses) lenses")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .onAppear {
+            counts = LensLibrary.counts()
+            results = LensLibrary.search("", limit: 100)
+        }
     }
 }

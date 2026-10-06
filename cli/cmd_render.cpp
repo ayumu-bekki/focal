@@ -59,6 +59,13 @@ Settings settings_from_args(const Args& args) {
         s.wb.temperature = args.get_double("temp", 5500);
         s.wb.tint = args.get_double("tint", 0);
     }
+    if (args.has("lens-correction") || args.has("lens")) s.lens.enabled = true;
+    if (auto id = args.get("lens")) s.lens.id = *id;
+    s.lens.distortion = args.get_double("lens-distortion", s.lens.distortion);
+    s.lens.tca = args.get_double("lens-tca", s.lens.tca);
+    s.lens.vignetting = args.get_double("lens-vignetting", s.lens.vignetting);
+    if (auto pr = args.get("projection"); pr && !lens_projection_from_string(*pr, s.lens.projection))
+        throw Error(Error::Code::InvalidArgument, "unknown --projection " + *pr);
     s.geometry.rotate90 = args.get_int("rotate", s.geometry.rotate90);
     s.geometry.straighten = args.get_double("straighten", s.geometry.straighten);
     if (auto crop = args.get("crop")) {
@@ -74,7 +81,7 @@ Settings settings_from_args(const Args& args) {
 } // namespace
 
 int cmd_render(int argc, char** argv) {
-    Args args(argc, argv, {"half"});
+    Args args(argc, argv, {"half", "lens-correction"});
     if (args.positional().size() != 2) {
         std::fprintf(stderr, "usage: focal render <in.RAW> <out.tif|out.jpg> [options]\n");
         return 2;
@@ -87,6 +94,7 @@ int cmd_render(int argc, char** argv) {
         throw Error(Error::Code::InvalidArgument, "output must be .tif or .jpg");
 
     Settings settings = settings_from_args(args);
+    if (settings.lens.enabled) init_lens_db(args);
 
     auto t0 = Clock::now();
     const DecodedRaw raw = decode_raw(in, {.half_size = args.has("half")});

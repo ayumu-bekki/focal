@@ -78,6 +78,17 @@
         }
       }
     },
+    "%lld lenses" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 本のレンズ"
+          }
+        }
+      }
+    },
     "%lld photos" : {
       "localizations" : {
         "ja" : {
@@ -556,6 +567,36 @@
         }
       }
     },
+    "Auto" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動"
+          }
+        }
+      }
+    },
+    "Auto: %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動: %@"
+          }
+        }
+      }
+    },
+    "Auto: no matching lens" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動: 合うレンズが見つかりません"
+          }
+        }
+      }
+    },
     "Back Up and Quit" : {
       "localizations" : {
         "ja" : {
@@ -935,6 +976,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選択…"
+          }
+        }
+      }
+    },
+    "Chromatic Ab." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "倍率色収差"
           }
         }
       }
@@ -1332,6 +1383,16 @@
         }
       }
     },
+    "Distortion" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "歪曲収差"
+          }
+        }
+      }
+    },
     "does not contain" : {
       "localizations" : {
         "ja" : {
@@ -1418,6 +1479,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "カードを取り出す"
+          }
+        }
+      }
+    },
+    "Enable Lens Correction" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "レンズ補正を使う"
+          }
+        }
+      }
+    },
+    "Equirectangular" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正距円筒"
+          }
+        }
+      }
+    },
+    "Equisolid fisheye" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "魚眼（等立体角）"
           }
         }
       }
@@ -1603,6 +1694,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "絞り込み"
+          }
+        }
+      }
+    },
+    "Fisheye" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "魚眼"
           }
         }
       }
@@ -2028,6 +2129,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "レンズ"
+          }
+        }
+      }
+    },
+    "Lens Correction" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "レンズ補正"
+          }
+        }
+      }
+    },
+    "Lens data: Lensfun (CC BY-SA 3.0). See Licenses in the Focal menu." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "レンズのデータ: Lensfun（CC BY-SA 3.0）。ライセンスは Focal メニューの「ライセンス」から。"
+          }
+        }
+      }
+    },
+    "Lensfun database %@ (CC BY-SA 3.0)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lensfun データベース %@（CC BY-SA 3.0）"
           }
         }
       }
@@ -2778,12 +2909,32 @@
         }
       }
     },
+    "Orthographic fisheye" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "魚眼（正射影）"
+          }
+        }
+      }
+    },
     "Overwrite this preset with the current adjustments" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "このプリセットを現在の調整内容で上書きします"
+          }
+        }
+      }
+    },
+    "Panoramic" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "パノラマ"
           }
         }
       }
@@ -2908,6 +3059,16 @@
         }
       }
     },
+    "Projection" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "射影"
+          }
+        }
+      }
+    },
     "px" : {
       "localizations" : {
         "ja" : {
@@ -3004,6 +3165,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最近の取り込み"
+          }
+        }
+      }
+    },
+    "Rectilinear" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通常（直線を直線に）"
           }
         }
       }
@@ -3258,6 +3429,16 @@
         }
       }
     },
+    "Same as lens" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "レンズのまま"
+          }
+        }
+      }
+    },
     "Saturation" : {
       "localizations" : {
         "ja" : {
@@ -3314,6 +3495,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "スキャン中…"
+          }
+        }
+      }
+    },
+    "Search lenses" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "レンズを検索"
           }
         }
       }
@@ -3457,6 +3648,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "状態"
+          }
+        }
+      }
+    },
+    "Stereographic fisheye" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "魚眼（立体射影）"
           }
         }
       }
@@ -3938,6 +4139,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ビューア"
+          }
+        }
+      }
+    },
+    "Vignetting" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "周辺減光"
           }
         }
       }

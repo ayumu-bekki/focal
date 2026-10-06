@@ -31,7 +31,10 @@ int cmd_sources(int argc, char** argv);
 int cmd_import_card(int argc, char** argv);
 int cmd_album(int argc, char** argv);
 int cmd_preset(int argc, char** argv);
+int cmd_lens(int argc, char** argv);
 
+// レンズ DB を開く場所を決める（--lens-db / FOCAL_LENSFUN_DB / build/lensfun/db、と利用者のフォルダ）
+void init_lens_db(const Args& args);
 // --catalog / --cache、または環境変数 FOCAL_CATALOG / FOCAL_CACHE。なければ既定の場所
 std::filesystem::path catalog_path(const Args& args);
 std::filesystem::path cache_path(const Args& args);

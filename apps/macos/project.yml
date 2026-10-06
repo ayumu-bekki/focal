@@ -43,7 +43,7 @@ targets:
         DEFINES_MODULE: YES
         SKIP_INSTALL: YES
         LIBRARY_SEARCH_PATHS: $(PROJECT_DIR)/build/Frameworks
-        OTHER_LDFLAGS: -lraw_r -lomp -lc++ -framework ImageIO -framework CoreGraphics -framework CoreFoundation
+        OTHER_LDFLAGS: -lraw_r -lomp -llensfun -lc++ -framework ImageIO -framework CoreGraphics -framework CoreFoundation
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks @loader_path/../Frameworks @loader_path/Frameworks"
 
   Focal:
@@ -54,18 +54,21 @@ targets:
       - path: build/Licenses       # scripts/build-core.sh が作る（同梱ライブラリのライセンス文）
         type: folder
         buildPhase: resources
+      - path: build/LensfunDB      # レンズ補正の DB（Lensfun。CC BY-SA 3.0。scripts/build-core.sh が用意する）
+        type: folder
+        buildPhase: resources
       - path: Presets              # Focal 標準の現像プリセット（*.focalpreset。README.md を参照）
         type: folder
         buildPhase: resources
     dependencies:
       - target: FocalCore
     postCompileScripts:
-      - name: Embed LibRaw and libomp
+      - name: Embed LibRaw, libomp and Lensfun
         script: |
           set -e
           dst="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}"
           mkdir -p "$dst"
-          for lib in libraw_r.25.0.0.dylib libomp.dylib; do
+          for lib in libraw_r.25.0.0.dylib libomp.dylib liblensfun.0.3.4.dylib libglib-2.0.0.dylib libintl.8.dylib; do
             cp -f "${PROJECT_DIR}/build/Frameworks/$lib" "$dst/"
             if [ "${EXPANDED_CODE_SIGN_IDENTITY:--}" = "-" ]; then
               codesign --force --sign - --timestamp=none "$dst/$lib"

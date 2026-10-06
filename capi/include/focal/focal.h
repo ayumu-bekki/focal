@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 21
+#define FC_API_VERSION 22
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -599,6 +599,17 @@ typedef enum fc_aspect {
     FC_ASPECT_5_4 = 6,
 } fc_aspect;
 
+typedef enum fc_lens_projection {
+    FC_LENS_PROJECTION_KEEP = 0,  /* レンズ本来の射影のまま */
+    FC_LENS_PROJECTION_RECTILINEAR = 1,
+    FC_LENS_PROJECTION_FISHEYE = 2,
+    FC_LENS_PROJECTION_EQUISOLID = 3,
+    FC_LENS_PROJECTION_STEREOGRAPHIC = 4,
+    FC_LENS_PROJECTION_ORTHOGRAPHIC = 5,
+    FC_LENS_PROJECTION_PANORAMIC = 6,
+    FC_LENS_PROJECTION_EQUIRECTANGULAR = 7,
+} fc_lens_projection;
+
 /* 編集パラメータ（6.1 章）。JSON にない未知のキーは core 側のセッションが保持する */
 typedef struct fc_settings {
     int32_t process_version;
@@ -622,6 +633,13 @@ typedef struct fc_settings {
     double straighten;    /* 度 */
     double crop_x, crop_y, crop_w, crop_h;
     int32_t aspect;       /* fc_aspect */
+    /* レンズ補正（v3.27、Lensfun）。lens_enabled = 0 なら何もしない。lens_id が空なら写真のレンズ名から自動で選ぶ */
+    int32_t lens_enabled;
+    char lens_id[256];    /* "メーカー|モデル"（UTF-8、NUL 終端） */
+    double lens_distortion;   /* 0..100 歪曲収差（射影の変換・自動拡大を含む） */
+    double lens_tca;          /* 0..100 倍率色収差 */
+    double lens_vignetting;   /* 0..100 周辺減光 */
+    int32_t lens_projection;  /* fc_lens_projection */
 } fc_settings;
 
 /* 既定値で初期化する */
@@ -699,6 +717,36 @@ typedef struct fc_session_info {
     int32_t preview_display_p3;
 } fc_session_info;
 
+/* ---- レンズ補正（v3.27、design.md 5.12 章） -------------------------------- */
+
+/* Lensfun を使えるビルドなら 1（macOS 以外は 0） */
+int32_t fc_lens_supported(void);
+/* レンズ DB（Lensfun の XML）を読むフォルダ。bundled = アプリに同梱、user = 利用者が足せるフォルダ（どちらも NULL 可）。
+   最初に使う前に 1 回呼ぶ。後から呼ぶと読み直す */
+fc_status fc_lens_configure(const char* bundled_dir, const char* user_dir);
+/* DB に入っているカメラとレンズの数 */
+fc_status fc_lens_counts(int32_t* out_cameras, int32_t* out_lenses);
+
+typedef struct fc_lens_item {
+    const char* id;      /* "メーカー|モデル"（fc_settings の lens_id） */
+    const char* maker;
+    const char* model;
+    const char* mounts;  /* "Nikon Z, Nikon F" */
+    float crop_factor;
+    float min_focal, max_focal;
+    int32_t has_distortion, has_tca, has_vignetting;  /* 補正データがあるか */
+} fc_lens_item;
+typedef struct fc_lens_array {
+    size_t count;
+    const fc_lens_item* items;
+} fc_lens_array;
+void fc_lens_array_free(fc_lens_array* array);
+
+/* 文字列（スペース区切りで AND、大文字小文字を区別しない）で探す。mount が NULL か空なら全マウント。名前順 */
+fc_status fc_lens_search(const char* query, const char* mount, int32_t limit, fc_lens_array** out);
+/* id のレンズ（0 または 1 件） */
+fc_status fc_lens_find(const char* id, fc_lens_array** out);
+
 /* catalog は editor より長く生きていること。デコード・プレビュー・レンダリング・保存のスレッドを作る */
 fc_status fc_editor_create(fc_catalog* catalog, fc_editor** out);
 /* 未保存の編集を書き込む。開いているセッションはすべて先に閉じておくこと */
@@ -727,6 +775,12 @@ fc_status fc_editor_set_preview_cache_limit(fc_editor* editor, uint64_t limit_by
 /* 使用量（バイト）。キャッシュを設定していなければ 0 */
 fc_status fc_editor_preview_cache_usage(fc_editor* editor, uint64_t* out_bytes);
 fc_status fc_editor_clear_preview_cache(fc_editor* editor);
+
+/* 写真の EXIF のレンズ補正まわりの情報（カメラ・レンズ名・焦点距離・絞り）を、表示用の 1 行にして返す。
+   メタデータの読み込み前は空。fc_string_free で解放 */
+fc_status fc_session_lens_exif(fc_session* session, fc_string** out);
+/* 写真のレンズ名から自動で選ばれるレンズ（0 または 1 件） */
+fc_status fc_session_detect_lens(fc_session* session, fc_lens_array** out);
 
 /* 編集をすぐ保存し、ハンドルを解放する（実行中のコールバックがあれば終わるまで待つ） */
 void fc_session_close(fc_session* session);
