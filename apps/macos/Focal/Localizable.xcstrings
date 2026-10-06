@@ -79,7 +79,6 @@
       }
     },
     "%lld lenses" : {
-      "extractionState" : "stale",
       "localizations" : {
         "ja" : {
           "stringUnit" : {

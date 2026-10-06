@@ -1427,6 +1427,31 @@ final class FocalUITests: XCTestCase {
 
     /// カタログのバックアップ: 設定から今すぐ取れる。終了時に聞かれ、取ってから終了する（Lightroom Classic と同じ）
     @MainActor
+    func testBackupCancelAfterClosingWindow() throws {
+        try requireCatalog()
+        let env = ProcessInfo.processInfo.environment
+        let app = XCUIApplication()
+        app.launchEnvironment["FOCAL_CATALOG"] = env["FOCAL_CATALOG"]
+        app.launchEnvironment["FOCAL_CACHE"] = env["FOCAL_CACHE"]
+        app.launchEnvironment["FOCAL_BACKUP_DIR"] = NSTemporaryDirectory() + "focal-ui-backups-\(UUID().uuidString)"
+        app.launchEnvironment["FOCAL_BACKUP_INTERVAL"] = "0"
+        app.launchEnvironment["FOCAL_BACKUP_ASK"] = "1"
+        app.launchEnvironment["FOCAL_WINDOW_SIZE"] = "1440x900"
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        app.launch()
+        XCTAssertTrue(app.windows["library"].waitForExistence(timeout: 10))
+        // 閉じるボタン（⌘W）で最後のウィンドウを閉じると終了の流れになる。キャンセルしたら、ダイアログは閉じたままで、終了しない
+        app.typeKey("w", modifierFlags: .command)
+        let start = app.buttons.matching(NSPredicate(format: "label IN %@ OR title IN %@", ["バックアップして終了", "Back Up and Quit"], ["バックアップして終了", "Back Up and Quit"])).firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        app.buttons.matching(NSPredicate(format: "label IN %@ OR title IN %@", ["キャンセル", "Cancel"], ["キャンセル", "Cancel"])).firstMatch.click()
+        XCTAssertTrue(waitGone(start))
+        sleep(3)
+        XCTAssertFalse(start.exists, "キャンセルしたあと、ダイアログがまた出てはいけない")
+        XCTAssertEqual(app.state, .runningForeground, "終了しない")
+    }
+
+    @MainActor
     func testBackupNowAndOnQuit() throws {
         try requireCatalog()
         let env = ProcessInfo.processInfo.environment

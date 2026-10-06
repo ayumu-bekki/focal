@@ -111,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard BackupSettings.autoOnQuitEnabled, let backup = state?.model?.backup, backup.isDue else { return .terminateNow }
         backup.beginQuitFlow { [weak self] quit in
             self?.quitPanel.dismiss()
+            if !quit { self?.quitCancelled() }
             NSApp.reply(toApplicationShouldTerminate: quit)
         }
         quitPanel.present(backup)
@@ -127,7 +128,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppAppearance.current.apply()
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// 終了をキャンセルした直後は、最後のウィンドウが閉じていても自動で終了の流れに戻さない
+    /// （戻すと、キャンセルしたダイアログがもう一度出る）
+    private var cancelledQuitAt: Date?
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        guard let at = cancelledQuitAt else { return true }
+        return Date().timeIntervalSince(at) > 3
+    }
+
+    /// 終了をやめた: 閉じていたメインウィンドウを出して、作業に戻れるようにする
+    @MainActor
+    private func quitCancelled() {
+        cancelledQuitAt = Date()
+        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue.contains("library") == true }) {
+            window.makeKeyAndOrderFront(nil)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
 
     /// Finder でカタログ（〜.focalcatalog）を開いた
     @MainActor
