@@ -124,6 +124,41 @@ static void on_card_done(void* user, fc_status status, const fc_card_import_resu
     waiter_signal(&ctx->w);
 }
 
+typedef struct card_list_ctx {
+    waiter w;
+    fc_status status;
+    size_t count;
+    int imported;
+    int is_photo;
+    char name[128];
+    char key[1024];
+    char capture_time[32];
+    int progress_calls;
+} card_list_ctx;
+
+static void on_card_list_progress(void* user, int32_t done, int32_t total) {
+    card_list_ctx* ctx = (card_list_ctx*)user;
+    (void)done;
+    (void)total;
+    ctx->progress_calls++;
+}
+
+static void on_card_list_done(void* user, fc_status status, const fc_card_shot* shots, size_t count,
+                              const char* message) {
+    card_list_ctx* ctx = (card_list_ctx*)user;
+    (void)message;
+    ctx->status = status;
+    ctx->count = count;
+    if (count > 0) {
+        ctx->imported = shots[0].imported;
+        ctx->is_photo = shots[0].is_photo;
+        snprintf(ctx->name, sizeof ctx->name, "%s", shots[0].name);
+        snprintf(ctx->key, sizeof ctx->key, "%s", shots[0].key);
+        snprintf(ctx->capture_time, sizeof ctx->capture_time, "%s", shots[0].capture_time);
+    }
+    waiter_signal(&ctx->w);
+}
+
 /* ---- 写真の削除 ---- */
 
 static int trash_count = 0;
@@ -652,6 +687,37 @@ int main(void) {
         waiter_wait_calls(&ctx.w, 1);
         fc_task_release(task);
         CHECK(ctx.result.skipped_duplicates == 1 && ctx.result.imported == 0);
+
+        /* 取り込む写真を選ぶ一覧（v3.29）: 取り込み済みと分かり、指定した写真だけが取り込まれる */
+        {
+            card_list_ctx lc;
+            memset(&lc, 0, sizeof lc);
+            waiter_init(&lc.w);
+            fc_task* ltask = NULL;
+            REQUIRE_OK(fc_card_list_start(cat, card_dir, dest, on_card_list_progress, on_card_list_done, &lc, &ltask));
+            waiter_wait_calls(&lc.w, 1);
+            fc_task_release(ltask);
+            CHECK(lc.status == FC_OK);
+            CHECK(lc.count == 1 && lc.imported == 1 && lc.is_photo == 1);
+            CHECK(strcmp(lc.name, "IMG_9999.CR3") == 0);
+            CHECK(strncmp(lc.capture_time, "2018-07-01T", 11) == 0);
+            CHECK(lc.progress_calls >= 1);
+            CHECK(fc_card_list_start(NULL, card_dir, dest, NULL, on_card_list_done, &lc, &ltask) == FC_ERR_INVALID_ARGUMENT);
+
+            /* 空の指定は何も取り込まない（取り込み済みは取り込み済みのまま、ほかは「選ばれていない」） */
+            const char* none_keys[1] = {lc.key};
+            opt.use_only = 1;
+            opt.only_keys = none_keys;
+            opt.only_count = 0;
+            memset(&ctx, 0, sizeof ctx);
+            waiter_init(&ctx.w);
+            REQUIRE_OK(fc_card_import_start(cat, &opt, on_card_progress, on_card_done, &ctx, &task));
+            waiter_wait_calls(&ctx.w, 1);
+            fc_task_release(task);
+            CHECK(ctx.result.imported == 0 && ctx.result.skipped_duplicates == 1 && ctx.result.skipped_unselected == 0);
+            opt.use_only = 0;
+            opt.only_keys = NULL;
+        }
 
         /* ルートにはボリュームの情報が付き、オンライン */
         fc_root_array* roots2 = NULL;

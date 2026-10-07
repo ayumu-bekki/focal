@@ -19,8 +19,12 @@ struct ImportSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 500)
+        // 設定の画面は、写真の一覧を出すので広く、広げられる。実行中・完了は小さい
+        .frame(minWidth: wide ? 780 : 500, idealWidth: wide ? 840 : 500, maxWidth: wide ? .infinity : 500,
+               minHeight: wide ? 660 : nil, idealHeight: wide ? 740 : nil, maxHeight: wide ? .infinity : nil)
     }
+
+    private var wide: Bool { importer.phase == .settings }
 
     // MARK: 設定
 
@@ -55,7 +59,11 @@ struct ImportSheet: View {
                         if importer.isSummarizing {
                             Text("Reading the card…")
                         } else if let s = importer.summary {
-                            Text("\(s.shots) photos, \(ByteCountFormatter.string(fromByteCount: s.bytes, countStyle: .file))")
+                            if importer.importedCount > 0 {
+                                Text("\(s.shots) photos, \(ByteCountFormatter.string(fromByteCount: s.bytes, countStyle: .file)) (\(importer.importedCount) already imported)")
+                            } else {
+                                Text("\(s.shots) photos, \(ByteCountFormatter.string(fromByteCount: s.bytes, countStyle: .file))")
+                            }
                         } else if importer.sourceURL == nil {
                             Text("No card with a DCIM folder was found.")
                         }
@@ -74,9 +82,9 @@ struct ImportSheet: View {
                             .accessibilityIdentifier("importChooseDestination")
                     }
                 }
-                if let s = importer.summary, let free = importer.freeSpace, s.bytes > free {
+                if let free = importer.freeSpace, let needed = importer.neededBytes, needed > free {
                     LabeledContent("") {
-                        Text("The destination has \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) free; the card holds \(ByteCountFormatter.string(fromByteCount: s.bytes, countStyle: .file)). Photos already imported are skipped, but there may not be enough space.")
+                        Text("The destination has \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) free; the selected photos take \(ByteCountFormatter.string(fromByteCount: needed, countStyle: .file)). Photos already imported are skipped, but there may not be enough space.")
                             .font(.callout)
                             .foregroundStyle(.orange)
                             .accessibilityIdentifier("importSpaceWarning")
@@ -112,6 +120,8 @@ struct ImportSheet: View {
                     .accessibilityIdentifier("importVerify")
             }
             .formStyle(.columns)
+            CardShotGrid(importer: importer)
+                .frame(minHeight: 220)
             if let failure = importer.failure {
                 Text(failure).font(.caption).foregroundStyle(.red)
             }
@@ -123,7 +133,7 @@ struct ImportSheet: View {
                 Button("Cancel", action: onClose).keyboardShortcut(.cancelAction)
                 Button("Import") { importer.start() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(importer.sourceURL == nil || (importer.summary?.shots ?? 1) == 0)
+                    .disabled(!importer.canStart)
                     .accessibilityIdentifier("importStart")
             }
         }
@@ -183,6 +193,10 @@ struct ImportSheet: View {
                     .accessibilityIdentifier("importResult")
                 if r.skippedDuplicates > 0 {
                     Text("\(r.skippedDuplicates) photos were already imported and skipped.")
+                        .foregroundStyle(.secondary)
+                }
+                if r.skippedUnselected > 0 {
+                    Text("\(r.skippedUnselected) photos were not selected and skipped.")
                         .foregroundStyle(.secondary)
                 }
                 if r.estimatedDates > 0 {

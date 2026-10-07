@@ -248,6 +248,52 @@ final class FocalCoreTests: XCTestCase {
         XCTAssertNoThrow(try Catalog.importSources())
     }
 
+    /// 取り込む写真を選ぶ一覧（v3.29）: 取り込み済みの判定、サムネイル、選んだ写真だけの取り込み
+    func testCardShotsAndSelection() async throws {
+        _ = try requireData()
+        let card = tmp.appendingPathComponent("card2/DCIM/100CANON")
+        try FileManager.default.createDirectory(at: card, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: Self.dataDir.appendingPathComponent("canon_eos_m50.CR3"),
+                                         to: card.appendingPathComponent("IMG_0001.CR3"))
+        try FileManager.default.copyItem(at: Self.dataDir.appendingPathComponent("sony_ilce7m3.ARW"),
+                                         to: card.appendingPathComponent("DSC_0002.ARW"))
+        let catalog = try Catalog(url: tmp.appendingPathComponent("c3.sqlite"))
+        let source = tmp.appendingPathComponent("card2")
+        let destination = tmp.appendingPathComponent("Photos3")
+
+        func list() async throws -> [CardShot] {
+            var shots: [CardShot] = []
+            var progressed = false
+            for try await ev in catalog.listCardShots(source: source, destination: destination) {
+                switch ev {
+                case .progress: progressed = true
+                case .finished(let l): shots = l
+                }
+            }
+            XCTAssertTrue(progressed)
+            return shots
+        }
+        var shots = try await list()
+        XCTAssertEqual(shots.map(\.name), ["DSC_0002.ARW", "IMG_0001.CR3"])  // 撮影日時順（2018-03、2018-07）
+        XCTAssertEqual(shots.map(\.imported), [false, false])
+        XCTAssertEqual(shots[1].day, "2018-07-01")
+
+        let thumb = try Catalog.cardThumbnail(file: shots[0].path, cacheDirectory: tmp.appendingPathComponent("card-thumbs"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: thumb.path))
+
+        // 1 枚だけ選んで取り込む
+        var options = CardImportOptions(source: source, destination: destination)
+        options.only = [shots[1].key]
+        var result: CardImportResult?
+        for try await ev in catalog.importFromCard(options) {
+            if case .finished(let r) = ev { result = r }
+        }
+        XCTAssertEqual(result?.imported, 1)
+        XCTAssertEqual(result?.skippedUnselected, 1)
+        shots = try await list()
+        XCTAssertEqual(shots.map(\.imported), [false, true])
+    }
+
     func testPresets() throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("focal-presets-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tmp) }

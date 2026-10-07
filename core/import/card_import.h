@@ -41,6 +41,31 @@ struct CardSummary {
 // source: DCIM フォルダ、または DCIM を持つボリューム
 CardSummary summarize_card(const std::filesystem::path& source);
 
+// カードの 1 枚（取り込む写真を選ぶ一覧用。v3.29）。RAW + JPEG のペアやサイドカーは 1 枚
+struct CardShot {
+    std::string key;                    // 1 枚を指す鍵（CardImportOptions::only に渡す）
+    std::string name;                   // 表示名（写真になるファイル。RAW があれば RAW）
+    std::filesystem::path primary_path;  // サムネイル・プレビューを取り出すファイル
+    std::string capture_time;           // 'YYYY-MM-DDTHH:MM:SS'
+    bool estimated = false;             // 撮影日時を読めず、ファイルの更新日時で代用した
+    int files = 0;
+    int64_t bytes = 0;
+    bool has_raw = false;
+    bool has_companion = false;         // 同じ名前の JPEG などが一緒にある
+    bool is_photo = true;               // false なら動画だけ（カタログには登録されないが、コピーはされる）
+    bool imported = false;              // 取り込み済み（取り込みでは飛ばされる）
+};
+// カードの 1 枚ごとの一覧（撮影日時順）。撮影日時を読むので少し時間がかかる。progress は (読んだ枚数, 全体)。
+// キャンセルされたら空。取り込み済みの判定は import_from_card と同じ（カタログの照合 + コピー先のファイル）
+std::vector<CardShot> list_card_shots(Catalog& catalog, const std::filesystem::path& source,
+                                      const std::filesystem::path& dest_root, const std::atomic<bool>* cancel = nullptr,
+                                      std::function<void(int, int)> progress = {});
+
+// カード上のファイル（CardShot::primary_path）のサムネイル（sRGB の JPEG、向き補正済み）をキャッシュに用意して、そのパスを返す。
+// 取り込み前のファイルなのでカタログには結びつけない（キーはパス・大きさ・更新日時）。同じカードをもう一度開いたときは
+// キャッシュにあるのでカードを読まない。読めなければ Error。複数スレッドから呼んでよい（カードの読み込みは同時に数本まで）
+std::filesystem::path card_thumbnail(const ThumbnailCache& cache, const std::filesystem::path& file);
+
 struct CardImportProgress {
     enum class Phase { Reading, Copying, Cataloging };
     Phase phase = Phase::Reading;
@@ -56,6 +81,8 @@ struct CardImportOptions {
     std::filesystem::path dest_root;  // コピー先（ライブラリのルート。登録されていなければ登録する）
     bool verify = true;               // コピー後に、書いたファイルを読み直してハッシュ（BLAKE3）を照合する
     bool dry_run = false;             // コピーも登録もせず、何がどうなるかだけ数える
+    // 取り込む写真の指定（CardShot::key）。なければカードの全部（取り込み済みは除く）。指定にない写真は skipped_unselected に数える（v3.29）
+    std::optional<std::vector<std::string>> only;
     std::optional<int64_t> album_id;  // 取り込んだ写真を足す手で集めるアルバム
     std::vector<int64_t> tag_ids;     // 取り込んだ写真に付けるタグ
     std::optional<Settings> preset;   // 取り込んだ写真に重ねる現像のプリセット（調整だけ。なければ何もしない、v3.20）
@@ -68,6 +95,7 @@ struct CardImportResult {
     int shots = 0;               // カードにあった枚数
     int imported = 0;            // コピーした枚数（dry_run では、コピーするはずの枚数）
     int skipped_duplicates = 0;  // 取り込み済みなのでコピーしなかった枚数
+    int skipped_unselected = 0;  // 取り込む写真の指定（only）に入っていないのでコピーしなかった枚数（取り込み済みは数えない）
     int failed = 0;
     int estimated_dates = 0;     // 撮影日時を読めず、ファイルの更新日時で日付フォルダを決めた枚数
     int files_copied = 0;

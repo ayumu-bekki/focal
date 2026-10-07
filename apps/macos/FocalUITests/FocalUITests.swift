@@ -1085,6 +1085,7 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(app.windows["library"].waitForExistence(timeout: 10))
         app.typeKey("i", modifierFlags: [.command, .shift])
         XCTAssertTrue(app.buttons["importStart"].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil { app.buttons["importStart"].isEnabled })  // カードの一覧を読み終わるまで押せない
         app.buttons["importStart"].click()
         XCTAssertTrue(app.staticTexts["importResult"].waitForExistence(timeout: 30))
         app.buttons["importShow"].click()
@@ -1121,6 +1122,7 @@ final class FocalUITests: XCTestCase {
         let summary = app.staticTexts["importSummary"]
         XCTAssertTrue(summary.waitForExistence(timeout: 5))
         XCTAssertTrue(waitUntil { (summary.value as? String ?? summary.label).contains("1") })  // カードの写真 1 枚
+        XCTAssertTrue(waitUntil { start.isEnabled })  // カードの一覧を読み終わるまで押せない
         saveScreenshot(app, name: "import-sheet")
         start.click()
         let result = app.staticTexts["importResult"]
@@ -1131,6 +1133,59 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(waitValue(app.staticTexts["photoCount"], "1 / 1"))
         XCTAssertTrue(app.descendants(matching: .any)["sidebarRecent"].exists)
         saveScreenshot(app, name: "import-recent")
+    }
+
+    /// v3.29: カードの写真を一覧から選んで取り込む。取り込み済みの写真は隠れ（表示すると薄く出る）、チェックを外した写真は取り込まれない
+    @MainActor
+    func testCardImportSelection() throws {
+        let env = ProcessInfo.processInfo.environment
+        try XCTSkipIf(env["FOCAL_SELECT_CARD"] == nil || env["FOCAL_SELECT_CATALOG"] == nil, "scripts/ui-test.sh から実行する")
+        let app = XCUIApplication()
+        app.launchEnvironment["FOCAL_CATALOG"] = env["FOCAL_SELECT_CATALOG"]
+        app.launchEnvironment["FOCAL_CACHE"] = env["FOCAL_CACHE"]
+        app.launchEnvironment["FOCAL_IMPORT_SOURCE"] = env["FOCAL_SELECT_CARD"]
+        app.launchEnvironment["FOCAL_IMPORT_DEST"] = env["FOCAL_SELECT_DEST"]
+        app.launchEnvironment["FOCAL_WINDOW_SIZE"] = "1440x900"
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        app.launch()
+        XCTAssertTrue(app.windows["library"].waitForExistence(timeout: 10))
+
+        app.typeKey("i", modifierFlags: [.command, .shift])
+        let start = app.buttons["importStart"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        let sony = app.descendants(matching: .any)["cardShot-DSC_9202.ARW"]
+        let nikon = app.descendants(matching: .any)["cardShot-DSC_9203.NEF"]
+        let canon = app.descendants(matching: .any)["cardShot-IMG_9201.CR3"]
+        XCTAssertTrue(sony.waitForExistence(timeout: 20))
+        XCTAssertTrue(nikon.exists)
+        XCTAssertFalse(canon.exists)  // 取り込み済みは、既定では隠れる
+        XCTAssertTrue(waitUntil { start.isEnabled })
+        let selection = app.staticTexts["importSelection"]
+        XCTAssertTrue(waitUntil { (selection.value as? String ?? selection.label).hasPrefix("2") })
+        XCTAssertEqual(sony.value as? String, "checked")
+        saveScreenshot(app, name: "import-selection")
+
+        // 取り込み済みを表示すると薄く出て、チェックできない
+        let hide = app.checkBoxes["importHideImported"]
+        XCTAssertTrue(hide.exists)
+        hide.click()
+        XCTAssertTrue(canon.waitForExistence(timeout: 5))
+        XCTAssertEqual(canon.value as? String, "imported")
+        canon.click()
+        XCTAssertEqual(canon.value as? String, "imported")
+        saveScreenshot(app, name: "import-selection-imported")
+        hide.click()
+
+        // Nikon のチェックを外して取り込む: Sony だけがコピーされる
+        nikon.click()
+        XCTAssertTrue(waitUntil { nikon.value as? String == "unchecked" })
+        XCTAssertTrue(waitUntil { (selection.value as? String ?? selection.label).hasPrefix("1") })
+        start.click()
+        let result = app.staticTexts["importResult"]
+        XCTAssertTrue(result.waitForExistence(timeout: 30))
+        XCTAssertTrue((result.value as? String ?? result.label).contains("1"), "\(result.label)")
+        app.buttons["importShow"].click()
+        XCTAssertTrue(waitValue(app.staticTexts["photoCount"], "1 / 1"))
     }
 
     /// 現像プリセット: 取り込みシートで選ぶと取り込んだ写真に重なり、現像画面のメニューから適用・保存できる
@@ -1162,6 +1217,7 @@ final class FocalUITests: XCTestCase {
         saveScreenshot(app, name: "import-preset-menu")
         standard.click()
         XCTAssertTrue(waitUntil { (picker.value as? String ?? "") == "Focal Standard" })
+        XCTAssertTrue(waitUntil { start.isEnabled })  // カードの一覧を読み終わるまで押せない
         start.click()
         XCTAssertTrue(app.staticTexts["importResult"].waitForExistence(timeout: 30))
         app.buttons["importShow"].click()

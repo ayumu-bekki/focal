@@ -406,6 +406,45 @@ public final class Catalog: @unchecked Sendable {
         return CardSummary(shots: Int(s.shots), files: Int(s.files), bytes: s.bytes)
     }
 
+    public enum CardListEvent: Sendable {
+        /// 撮影日時を読んだ枚数
+        case progress(done: Int, total: Int)
+        /// 撮影日時順の一覧
+        case finished([CardShot])
+    }
+
+    /// カードの 1 枚ごとの一覧を作る（取り込み済みの判定つき。カードには書き込まない）。ストリームを途中で捨てると中断する
+    public func listCardShots(source: URL, destination: URL) -> AsyncThrowingStream<CardListEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let box = StreamTaskBox<CardListEvent>(continuation: continuation, catalog: self)
+            let user = Unmanaged.passRetained(box).toOpaque()
+            var task: OpaquePointer?
+            let status = source.path.withCString { src in
+                destination.path.withCString { dest in
+                    fc_card_list_start(handle, src, dest, cardListProgress, cardListDone, user, &task)
+                }
+            }
+            if status != FC_OK {
+                Unmanaged<StreamTaskBox<CardListEvent>>.fromOpaque(user).release()
+                continuation.finish(throwing: FocalError(status: status))
+                return
+            }
+            box.setTask(task!)
+            continuation.onTermination = { @Sendable _ in box.cancel() }
+        }
+    }
+
+    /// カード上のファイルのサムネイル（sRGB の JPEG）をキャッシュに用意して、その URL を返す。カードを読むので、
+    /// メインスレッド以外で呼ぶこと
+    public static func cardThumbnail(file: URL, cacheDirectory: URL) throws -> URL {
+        var out: UnsafeMutablePointer<fc_string>?
+        try cacheDirectory.path.withCString { dir in
+            try file.path.withCString { try check(fc_card_thumbnail(dir, $0, &out)) }
+        }
+        defer { fc_string_free(out) }
+        return URL(fileURLWithPath: String(cString: out!.pointee.value))
+    }
+
     public enum CardImportEvent: Sendable {
         public enum Phase: Int32, Sendable { case reading = 0, copying = 1, cataloging = 2 }
         case progress(phase: Phase, done: Int, total: Int, bytesDone: Int64, bytesTotal: Int64, current: String)
@@ -417,10 +456,16 @@ public final class Catalog: @unchecked Sendable {
     /// 取り込みをキャンセルする
     public func importFromCard(_ options: CardImportOptions) -> AsyncThrowingStream<CardImportEvent, Error> {
         AsyncThrowingStream { continuation in
-            let box = CardImportBox(continuation: continuation, catalog: self)
+            let box = StreamTaskBox<CardImportEvent>(continuation: continuation, catalog: self)
             let user = Unmanaged.passRetained(box).toOpaque()
             var task: OpaquePointer?
             var opt = fc_card_import_options()
+            // 取り込む写真の指定。C の文字列は、開始の呼び出しの間だけあればよい（core が複製する）
+            let onlyStrings = (options.only ?? []).map { strdup($0) }
+            defer { onlyStrings.forEach { free($0) } }
+            let onlyPointers: [UnsafePointer<CChar>?] = onlyStrings.map { UnsafePointer($0) }
+            opt.use_only = options.only == nil ? 0 : 1
+            opt.only_count = onlyPointers.count
             opt.verify = options.verify ? 1 : 0
             opt.album_id = options.albumID ?? 0
             opt.tag_count = options.tagIDs.count
@@ -435,14 +480,17 @@ public final class Catalog: @unchecked Sendable {
                             return withOptionalCString(options.presetID) { presetID in
                                 opt.presets = options.presets?.handle
                                 opt.preset_id = presetID
-                                return fc_card_import_start(handle, &opt, cardProgress, cardDone, user, &task)
+                                return onlyPointers.withUnsafeBufferPointer { only in
+                                    opt.only_keys = only.baseAddress
+                                    return fc_card_import_start(handle, &opt, cardProgress, cardDone, user, &task)
+                                }
                             }
                         }
                     }
                 }
             }
             if status != FC_OK {
-                Unmanaged<CardImportBox>.fromOpaque(user).release()
+                Unmanaged<StreamTaskBox<CardImportEvent>>.fromOpaque(user).release()
                 continuation.finish(throwing: FocalError(status: status))
                 return
             }
@@ -606,14 +654,14 @@ private func exportDone(_ user: UnsafeMutableRawPointer?, _ status: fc_status) {
 }
 
 /// カードの取り込み中の状態。完了コールバックで解放する
-private final class CardImportBox: @unchecked Sendable {
-    let continuation: AsyncThrowingStream<Catalog.CardImportEvent, Error>.Continuation
+private final class StreamTaskBox<Event: Sendable>: @unchecked Sendable {
+    let continuation: AsyncThrowingStream<Event, Error>.Continuation
     let catalog: Catalog
     private let lock = NSLock()
     private var task: OpaquePointer?
     private var finished = false
 
-    init(continuation: AsyncThrowingStream<Catalog.CardImportEvent, Error>.Continuation, catalog: Catalog) {
+    init(continuation: AsyncThrowingStream<Event, Error>.Continuation, catalog: Catalog) {
         self.continuation = continuation
         self.catalog = catalog
     }
@@ -653,7 +701,7 @@ private final class CardImportBox: @unchecked Sendable {
 
 private func cardProgress(_ user: UnsafeMutableRawPointer?, _ phase: Int32, _ done: Int32, _ total: Int32,
                           _ bytesDone: Int64, _ bytesTotal: Int64, _ current: UnsafePointer<CChar>?) {
-    let box = Unmanaged<CardImportBox>.fromOpaque(user!).takeUnretainedValue()
+    let box = Unmanaged<StreamTaskBox<Catalog.CardImportEvent>>.fromOpaque(user!).takeUnretainedValue()
     box.continuation.yield(.progress(phase: Catalog.CardImportEvent.Phase(rawValue: phase) ?? .copying,
                                      done: Int(done), total: Int(total), bytesDone: bytesDone, bytesTotal: bytesTotal,
                                      current: String(optionalCString: current) ?? ""))
@@ -661,7 +709,7 @@ private func cardProgress(_ user: UnsafeMutableRawPointer?, _ phase: Int32, _ do
 
 private func cardDone(_ user: UnsafeMutableRawPointer?, _ status: fc_status,
                       _ result: UnsafePointer<fc_card_import_result>?, _ message: UnsafePointer<CChar>?) {
-    let box = Unmanaged<CardImportBox>.fromOpaque(user!).takeRetainedValue()
+    let box = Unmanaged<StreamTaskBox<Catalog.CardImportEvent>>.fromOpaque(user!).takeRetainedValue()
     let text = String(optionalCString: message) ?? ""
     // キャンセルは失敗ではなく、途中までの結果として返す
     if status == FC_OK || status == FC_ERR_CANCELLED, let result {
@@ -669,6 +717,26 @@ private func cardDone(_ user: UnsafeMutableRawPointer?, _ status: fc_status,
         box.continuation.finish()
     } else {
         box.continuation.finish(throwing: FocalError(status: status, message: text))
+    }
+    box.finish()
+}
+
+private func cardListProgress(_ user: UnsafeMutableRawPointer?, _ done: Int32, _ total: Int32) {
+    let box = Unmanaged<StreamTaskBox<Catalog.CardListEvent>>.fromOpaque(user!).takeUnretainedValue()
+    box.continuation.yield(.progress(done: Int(done), total: Int(total)))
+}
+
+private func cardListDone(_ user: UnsafeMutableRawPointer?, _ status: fc_status, _ shots: UnsafePointer<fc_card_shot>?,
+                          _ count: Int, _ message: UnsafePointer<CChar>?) {
+    let box = Unmanaged<StreamTaskBox<Catalog.CardListEvent>>.fromOpaque(user!).takeRetainedValue()
+    if status == FC_OK {
+        let list = (0..<count).map { CardShot(shots![$0]) }
+        box.continuation.yield(.finished(list))
+        box.continuation.finish()
+    } else if status == FC_ERR_CANCELLED {
+        box.continuation.finish()
+    } else {
+        box.continuation.finish(throwing: FocalError(status: status, message: String(optionalCString: message) ?? ""))
     }
     box.finish()
 }

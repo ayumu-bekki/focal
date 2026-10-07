@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 23
+#define FC_API_VERSION 24
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -502,6 +502,11 @@ typedef struct fc_card_import_options {
     const char* thumbnail_cache_dir; /* NULL でなければ登録のときにサムネイルも作る */
     fc_presets* presets;             /* preset_id を引くプリセットの置き場。preset_id が NULL なら使わない */
     const char* preset_id;           /* 取り込んだ写真に重ねる現像のプリセット（調整だけ）。NULL か空なら「なし」 */
+    /* 取り込む写真の指定（fc_card_shot の key）。use_only が 0 なら全部（取り込み済みは除く）。1 なら only_keys の写真だけ
+       （only_count が 0 なら何も取り込まない）。指定にない写真は skipped_unselected に数える */
+    int32_t use_only;
+    const char* const* only_keys;
+    size_t only_count;
 } fc_card_import_options;
 
 typedef enum fc_import_phase {
@@ -523,6 +528,7 @@ typedef struct fc_card_import_result {
     int32_t added;           /* カタログに新しく足した写真の数 */
     int64_t bytes_needed;    /* コピーするはずの大きさ（取り込み済みを除く） */
     int64_t space_available; /* 読み込み先の空き容量。取れなければ -1 */
+    int32_t skipped_unselected; /* 取り込む写真の指定に入っていないのでコピーしなかった枚数（取り込み済みは数えない） */
 } fc_card_import_result;
 
 /* path（なければいちばん近い親）があるボリュームの空き容量。取れなければ -1 */
@@ -540,6 +546,38 @@ typedef void (*fc_card_done_fn)(void* user, fc_status status, const fc_card_impo
    キャンセルしても、それまでにコピーした分は登録する。catalog は完了まで閉じないこと。out_task は fc_task_release で手放す */
 fc_status fc_card_import_start(fc_catalog* catalog, const fc_card_import_options* options,
                                fc_card_progress_fn progress, fc_card_done_fn done, void* user, fc_task** out_task);
+
+/* カードの 1 枚（取り込む写真を選ぶ一覧用。RAW + JPEG のペアやサイドカーは 1 枚）。文字列はコールバックの間だけ有効 */
+typedef struct fc_card_shot {
+    const char* key;           /* 1 枚を指す鍵（fc_card_import_options の only_keys に渡す） */
+    const char* name;          /* 表示名（写真になるファイル。RAW があれば RAW） */
+    const char* path;          /* サムネイル・プレビューを取り出すファイルのパス */
+    const char* capture_time;  /* 'YYYY-MM-DDTHH:MM:SS' */
+    int32_t estimated;         /* 撮影日時を読めず、ファイルの更新日時で代用した */
+    int32_t files;
+    int32_t has_raw;
+    int32_t has_companion;     /* 同じ名前の JPEG などが一緒にある */
+    int32_t is_photo;          /* 0 なら動画だけ（カタログには登録されないが、コピーはされる） */
+    int32_t imported;          /* 取り込み済み（取り込みでは飛ばされる） */
+    int64_t bytes;
+} fc_card_shot;
+
+/* 一覧を作っている間の進捗（撮影日時を読んだ枚数）。ワーカースレッドから呼ばれる */
+typedef void (*fc_card_list_progress_fn)(void* user, int32_t done, int32_t total);
+/* 完了。必ず 1 回だけ呼ばれる。shots（撮影日時順）はコールバックの間だけ有効。キャンセルされたら status は FC_ERR_CANCELLED */
+typedef void (*fc_card_list_done_fn)(void* user, fc_status status, const fc_card_shot* shots, size_t count,
+                                     const char* message);
+
+/* カードの 1 枚ごとの一覧を core のスレッドで作る。取り込み済みの判定は fc_card_import_start と同じ（カタログの照合と、
+   コピー先 dest_root のファイル）。カードには書き込まない。catalog は完了まで閉じないこと。out_task は fc_task_release で手放す */
+fc_status fc_card_list_start(fc_catalog* catalog, const char* source, const char* dest_root,
+                             fc_card_list_progress_fn progress, fc_card_list_done_fn done, void* user,
+                             fc_task** out_task);
+
+/* カード上のファイル（fc_card_shot の path）のサムネイル（sRGB の JPEG）を cache_dir に用意して、そのパスを返す。
+   取り込み前のファイルなのでカタログには結びつけない。同じカードをもう一度開いたときはキャッシュから返す。
+   カードの読み込みで時間がかかるので、メインスレッドで呼ばないこと。*out_path は fc_string_free で解放する */
+fc_status fc_card_thumbnail(const char* cache_dir, const char* file_path, fc_string** out_path);
 
 /* ---- 書き出し（5.8 章） ------------------------------------------------- */
 

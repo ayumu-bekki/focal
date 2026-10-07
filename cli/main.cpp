@@ -32,7 +32,7 @@ void usage() {
                  "  backups <dest dir>                            バックアップの一覧と、最後のバックアップの日時\n"
                  "  optimize [--dry-run]                          カタログの最適化: 保管した情報（外したルートの現像・★・タグ）を消してファイルを詰める\n"
                  "  sources [--path dir]                          DCIM があるボリューム（SD カード）を探す。--path ならその中身の概算\n"
-                 "  import-card <card|DCIM> --dest dir [--album ID] [--tags a/b,c] [--no-verify] [--dry-run] [--no-thumbs]\n"
+                 "  import-card <card|DCIM> --dest dir [--album ID] [--tags a/b,c] [--no-verify] [--dry-run] [--no-thumbs] [--list] [--only name,name]\n"
                  "                  [--preset ID]                 取り込んだ写真に現像のプリセットを重ねる（preset ls の ID）\n"
                  "                                                カードから <dest>/YYYY/YYYY-MM-DD/ へコピーして登録する\n"
                  "  album list | create <name> | folder <name> | smart <name> --query JSON | query <id> [--query JSON]\n"

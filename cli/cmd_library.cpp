@@ -1,6 +1,7 @@
 // v3.19: SD カードの取り込み（sources / import-card）とアルバム（album）
 #include <cstdio>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -77,14 +78,22 @@ int cmd_sources(int argc, char** argv) {
 }
 
 int cmd_import_card(int argc, char** argv) {
-    Args args(argc, argv, {"no-verify", "dry-run", "no-thumbs"});
+    Args args(argc, argv, {"no-verify", "dry-run", "no-thumbs", "list"});
     if (args.positional().size() != 1 || !args.has("dest")) {
         std::fprintf(stderr,
                      "usage: focal import-card <card|DCIM dir> --dest dir [--album ID] [--tags a/b,c] [--no-verify]"
-                     " [--dry-run] [--no-thumbs] [--catalog file] [--cache dir]\n");
+                     " [--dry-run] [--no-thumbs] [--list] [--only name,name] [--catalog file] [--cache dir]\n");
         return 2;
     }
     auto catalog = Catalog::open(catalog_path(args));
+    // --list: 取り込む写真を選ぶ一覧（撮影日時順。取り込み済みは「*」）。--only: 名前（RAW のファイル名）で選んだ写真だけ取り込む
+    if (args.has("list")) {
+        const auto shots = list_card_shots(*catalog, utf8_to_path(args.positional()[0]), utf8_to_path(*args.get("dest")));
+        for (const auto& c : shots)
+            std::printf("%c %s  %-24s %2d files  %s%s\n", c.imported ? '*' : ' ', c.capture_time.c_str(), c.name.c_str(),
+                        c.files, human_bytes(c.bytes).c_str(), c.estimated ? "  (date estimated)" : "");
+        return 0;
+    }
     std::optional<ThumbnailCache> thumbs;
     if (!args.has("no-thumbs") && !args.has("dry-run")) thumbs.emplace(cache_path(args));
 
@@ -103,6 +112,16 @@ int cmd_import_card(int argc, char** argv) {
     }
     if (auto id = args.get("preset"))
         opt.preset = PresetStore(presets_path(args), builtin_presets_path(args)).load(*id);
+    if (auto only = args.get("only")) {
+        std::set<std::string> names;
+        std::stringstream ss(*only);
+        std::string name;
+        while (std::getline(ss, name, ','))
+            if (!name.empty()) names.insert(name);
+        opt.only = std::vector<std::string>{};
+        for (const auto& c : list_card_shots(*catalog, opt.source, opt.dest_root))
+            if (names.count(c.name)) opt.only->push_back(c.key);
+    }
     opt.progress = [](const CardImportProgress& p) {
         const char* phase = p.phase == CardImportProgress::Phase::Reading   ? "reading"
                             : p.phase == CardImportProgress::Phase::Copying ? "copying"
@@ -113,6 +132,7 @@ int cmd_import_card(int argc, char** argv) {
     std::fprintf(stderr, "\n");
     std::printf("%d shots: %s %d, skipped %d (already imported), failed %d", r.shots,
                 opt.dry_run ? "would import" : "imported", r.imported, r.skipped_duplicates, r.failed);
+    if (r.skipped_unselected) std::printf(", %d not selected", r.skipped_unselected);
     if (r.estimated_dates) std::printf(", %d dated by file time (estimated)", r.estimated_dates);
     std::printf("\n");
     if (!opt.dry_run)

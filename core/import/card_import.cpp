@@ -10,8 +10,11 @@
 #include <map>
 #include <set>
 #include <thread>
+#include <tuple>
 
 #include "imaging/raw_decoder.h"
+#include "thumbs/thumbnail.h"
+#include "util/omp_threads.h"
 #include "util/error.h"
 #include "util/file.h"
 #include "util/hash.h"
@@ -70,6 +73,7 @@ struct Shot {
     std::string capture_time;  // 'YYYY-MM-DDTHH:MM:SS'
     bool estimated = false;
     bool duplicate = false;
+    bool skip = false;  // 取り込む写真の指定に入っていない（options.only）
     fs::path dest_dir;
     std::string dest_stem;
     std::vector<bool> already_copied;  // files と同じ順。コピー先に同じファイルがすでにある
@@ -90,6 +94,8 @@ struct Shot {
     bool is_photo_file(const File& f) const {
         return f.cls == FileClass::Raw || (f.cls == FileClass::Image && photo_kind_for_name(f.name));
     }
+    // 1 枚を指す鍵（一覧と取り込む写真の指定で同じもの）: カード内の先頭のファイルのパス
+    std::string key() const { return path_to_utf8(files.front().path); }
 };
 
 std::optional<fs::path> find_dcim(const fs::path& dir) {
@@ -211,6 +217,43 @@ void plan_destination(Catalog& catalog, Shot& s, const fs::path& dest_root) {
     }
 }
 
+// 計画: 撮影日時（RAW のメタデータ。並列に読む）、コピー先、取り込み済みか（同じ名前を取り合わないよう順に）。
+// キャンセルされたら false。on_read は撮影日時を読むたびに（done, total, 名前）。メタデータの読み取りだけ並列
+bool plan_shots(Catalog& catalog, std::vector<Shot>& shots, const fs::path& dest_root, const std::atomic<bool>* cancel,
+                const std::function<void(int, int, const std::string&)>& on_read) {
+    auto cancelled = [&] { return cancel && cancel->load(); };
+    ThreadPool pool(std::max(1u, std::min(4u, std::thread::hardware_concurrency())));
+    std::atomic<int> done{0};
+    const int total = static_cast<int>(shots.size());
+    std::vector<std::string> times(shots.size());
+    pool.parallel_for(total, 1, [&](int b, int e) {
+        for (int i = b; i < e; ++i) {
+            if (cancelled()) return;
+            if (const auto* raw = shots[i].primary()) {
+                try {
+                    if (auto t = capture_time_string(read_raw_metadata(raw->path).timestamp)) times[i] = *t;
+                } catch (const Error&) {
+                }
+            }
+            if (on_read) on_read(++done, total, shots[i].stem);
+        }
+    });
+    if (cancelled()) return false;
+    for (size_t i = 0; i < shots.size(); ++i) {
+        Shot& s = shots[i];
+        s.capture_time = times[i];
+        if (s.capture_time.empty()) {
+            // LibRaw から撮影日時が取れない（JPEG だけ・動画など）。ファイルの更新日時で代用して「推定」と示す
+            s.estimated = true;
+            int64_t earliest = s.files.front().mtime_unix;
+            for (const auto& f : s.files) earliest = std::min(earliest, f.mtime_unix);
+            s.capture_time = capture_time_string(static_cast<std::time_t>(earliest)).value_or("1970-01-01T00:00:00");
+        }
+        plan_destination(catalog, s, dest_root);
+    }
+    return true;
+}
+
 // ルート（正規化した絶対パス）の下にある dir の、ルートからの相対パス
 std::string relative_under(const std::string& root, const std::string& dir) {
     if (dir == root) return {};
@@ -254,6 +297,50 @@ CardSummary summarize_card(const fs::path& source) {
         s.bytes += shot.bytes();
     }
     return s;
+}
+
+std::vector<CardShot> list_card_shots(Catalog& catalog, const fs::path& source, const fs::path& dest_root,
+                                      const std::atomic<bool>* cancel, std::function<void(int, int)> progress) {
+    std::vector<Shot> shots = list_shots(source);
+    const bool completed = plan_shots(catalog, shots, dest_root, cancel, [&](int d, int t, const std::string&) {
+        if (progress) progress(d, t);
+    });
+    if (!completed) return {};
+    std::vector<CardShot> out;
+    out.reserve(shots.size());
+    for (const auto& s : shots) {
+        CardShot c;
+        c.key = s.key();
+        const auto* primary = s.primary();
+        const auto& shown = primary ? *primary : s.files.front();
+        c.name = shown.name;
+        c.primary_path = shown.path;
+        c.capture_time = s.capture_time;
+        c.estimated = s.estimated;
+        c.files = static_cast<int>(s.files.size());
+        c.bytes = s.bytes();
+        c.has_raw = std::any_of(s.files.begin(), s.files.end(), [](const Shot::File& f) { return f.cls == FileClass::Raw; });
+        c.has_companion = primary && s.files.size() > 1;
+        c.imported = s.duplicate;
+        c.is_photo = primary != nullptr;
+        out.push_back(std::move(c));
+    }
+    std::sort(out.begin(), out.end(), [](const CardShot& a, const CardShot& b) {
+        return std::tie(a.capture_time, a.key) < std::tie(b.capture_time, b.key);
+    });
+    return out;
+}
+
+fs::path card_thumbnail(const ThumbnailCache& cache, const fs::path& file) {
+    const auto st = stat_file(file);
+    if (!st) throw Error(Error::Code::NotFound, "cannot read: " + path_to_utf8(file));
+    const std::string key =
+        blake3_hex("card\n" + to_nfc(path_to_utf8(file)) + "\n" + std::to_string(st->size) + "\n" + std::to_string(st->mtime));
+    if (!cache.contains(key)) {
+        ScopedOmpThreads one(1);  // 並列に呼ばれるので、LibRaw の OpenMP のスレッド数が掛け算で増えないようにする
+        cache.store(key, make_thumbnail(file).image);
+    }
+    return cache.path_for(key);
 }
 
 void copy_file_verified(const fs::path& src, const fs::path& dest, bool verify, const std::atomic<bool>* cancel,
@@ -327,40 +414,15 @@ CardImportResult import_from_card(Catalog& catalog, const CardImportOptions& opt
     // ---- 計画: 撮影日時（RAW のメタデータ）、コピー先、取り込み済みか
     std::vector<Shot> shots = list_shots(opt.source);
     result.shots = static_cast<int>(shots.size());
-    {
-        ThreadPool pool(std::max(1u, std::min(4u, std::thread::hardware_concurrency())));
-        std::atomic<int> done{0};
-        // メタデータの読み取りは並列に、コピー先の決定とカタログの照合は順に行う（同じ名前を取り合わないため）
-        std::vector<std::string> times(shots.size());
-        pool.parallel_for(static_cast<int>(shots.size()), 1, [&](int b, int e) {
-            for (int i = b; i < e; ++i) {
-                if (cancelled()) return;
-                if (const auto* raw = shots[i].primary()) {
-                    try {
-                        if (auto t = capture_time_string(read_raw_metadata(raw->path).timestamp)) times[i] = *t;
-                    } catch (const Error&) {
-                    }
-                }
-                report(CardImportProgress::Phase::Reading, ++done, result.shots, 0, 0, shots[i].stem);
-            }
-        });
-        if (cancelled()) {
-            result.cancelled = true;
-            return result;
-        }
-        for (size_t i = 0; i < shots.size(); ++i) {
-            Shot& s = shots[i];
-            s.capture_time = times[i];
-            if (s.capture_time.empty()) {
-                // LibRaw から撮影日時が取れない（JPEG だけ・動画など）。ファイルの更新日時で代用して「推定」と示す
-                s.estimated = true;
-                int64_t earliest = s.files.front().mtime_unix;
-                for (const auto& f : s.files) earliest = std::min(earliest, f.mtime_unix);
-                s.capture_time =
-                    capture_time_string(static_cast<std::time_t>(earliest)).value_or("1970-01-01T00:00:00");
-            }
-            plan_destination(catalog, s, opt.dest_root);
-        }
+    if (!plan_shots(catalog, shots, opt.dest_root, opt.cancel, [&](int d, int t, const std::string& name) {
+            report(CardImportProgress::Phase::Reading, d, t, 0, 0, name);
+        })) {
+        result.cancelled = true;
+        return result;
+    }
+    if (opt.only) {
+        const std::set<std::string> only(opt.only->begin(), opt.only->end());
+        for (auto& s : shots) s.skip = only.count(s.key()) == 0;
     }
 
     int to_copy = 0;
@@ -368,6 +430,10 @@ CardImportResult import_from_card(Catalog& catalog, const CardImportOptions& opt
     for (const auto& s : shots) {
         if (s.duplicate) {
             ++result.skipped_duplicates;
+            continue;
+        }
+        if (s.skip) {
+            ++result.skipped_unselected;
             continue;
         }
         ++to_copy;
@@ -396,7 +462,7 @@ CardImportResult import_from_card(Catalog& catalog, const CardImportOptions& opt
     int done = 0;
     int64_t bytes_done = 0;
     for (const auto& s : shots) {
-        if (s.duplicate) continue;
+        if (s.duplicate || s.skip) continue;
         if (cancelled()) {
             result.cancelled = true;
             break;

@@ -11,6 +11,7 @@
 #include "edit/preset.h"
 #include "import/card_import.h"
 #include "test_util.h"
+#include "thumbs/thumbnail.h"
 #include "util/error.h"
 #include "util/file.h"
 #include "util/hash.h"
@@ -145,6 +146,83 @@ TEST_CASE("カード取り込み: 取り込み済みの写真は、あとで別�
     CHECK(r.skipped_duplicates >= 1);
     CHECK(fs::exists(lib / "Photos" / "Sorted" / "DSC00001.ARW"));
     CHECK_FALSE(fs::exists(lib / "Photos" / day.substr(0, 4) / day / "DSC00001.ARW"));  // 戻ってこない
+}
+
+TEST_CASE("カード取り込み: 一覧を撮影日時順に出し、選んだ写真だけ取り込む（v3.29）", "[import][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Card card;
+    TempDir lib, db;
+    auto c = Catalog::open(db / "c.sqlite");
+    const fs::path dest = lib / "Photos";
+
+    auto shots = list_card_shots(*c, card.dir.path(), dest);
+    REQUIRE(shots.size() == 2);
+    CHECK(shots[0].capture_time <= shots[1].capture_time);  // 撮影日時順
+    for (const auto& s : shots) {
+        CHECK_FALSE(s.imported);
+        CHECK(s.is_photo);
+        CHECK_FALSE(s.estimated);
+        CHECK(s.has_raw);
+    }
+    const CardShot* pair = shots[0].name == "DSC00001.ARW" ? &shots[0] : &shots[1];
+    const CardShot* single = pair == &shots[0] ? &shots[1] : &shots[0];
+    CHECK(pair->files == 2);
+    CHECK(pair->has_companion);
+    CHECK(single->name == "DSC00002.CR3");
+    CHECK_FALSE(single->has_companion);
+    CHECK(fs::exists(pair->primary_path));
+
+    // 1 枚だけ選んで取り込む。選ばなかった写真は skipped_unselected（取り込み済みとは別に数える）
+    CardImportOptions opt;
+    opt.source = card.dir.path();
+    opt.dest_root = dest;
+    opt.only = std::vector<std::string>{single->key};
+    const CardImportResult r = import_from_card(*c, opt);
+    CHECK(r.shots == 2);
+    CHECK(r.imported == 1);
+    CHECK(r.skipped_unselected == 1);
+    CHECK(r.skipped_duplicates == 0);
+    CHECK(r.photo_ids.size() == 1);
+    const std::string day = day_of(data_file("sony_ilce7m3.ARW"));
+    CHECK_FALSE(fs::exists(dest / day.substr(0, 4) / day / "DSC00001.ARW"));
+
+    // 取り込んだ写真は「取り込み済み」になる。指定が空なら何も取り込まない
+    shots = list_card_shots(*c, card.dir.path(), dest);
+    REQUIRE(shots.size() == 2);
+    for (const auto& s : shots) CHECK(s.imported == (s.name == "DSC00002.CR3"));
+    opt.only = std::vector<std::string>{};
+    const CardImportResult none = import_from_card(*c, opt);
+    CHECK(none.imported == 0);
+    CHECK(none.skipped_duplicates == 1);
+    CHECK(none.skipped_unselected == 1);
+    CHECK(none.photo_ids.empty());
+
+    // 指定なしは、取り込み済み以外すべて（今までの動作）
+    opt.only.reset();
+    const CardImportResult rest = import_from_card(*c, opt);
+    CHECK(rest.imported == 1);
+    CHECK(fs::exists(dest / day.substr(0, 4) / day / "DSC00001.ARW"));
+    CHECK(fs::exists(dest / day.substr(0, 4) / day / "DSC00001.JPG"));
+
+    // キャンセルされた一覧は空
+    std::atomic<bool> cancel{true};
+    CHECK(list_card_shots(*c, card.dir.path(), dest, &cancel).empty());
+}
+
+TEST_CASE("カード取り込み: カード上のファイルのサムネイルをキャッシュに作る（v3.29）", "[import][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Card card;
+    TempDir cache_dir;
+    ThumbnailCache cache(cache_dir.path());
+    const fs::path file = card.dcim / "DSC00002.CR3";
+    const fs::path jpg = card_thumbnail(cache, file);
+    CHECK(fs::exists(jpg));
+    CHECK(jpg.extension() == ".jpg");
+    const auto before = fs::last_write_time(jpg);
+    CHECK(card_thumbnail(cache, file) == jpg);  // 2 回目はキャッシュから（作り直さない）
+    CHECK((fs::last_write_time(jpg) == before));
+    CHECK(card_thumbnail(cache, card.dcim / "DSC00001.ARW") != jpg);
+    CHECK_THROWS_AS(card_thumbnail(cache, card.dcim / "missing.CR3"), Error);
 }
 
 TEST_CASE("カード取り込み: 同名の別ファイルは上書きせず連番を付け、ペアの幹をそろえる", "[import][data]") {

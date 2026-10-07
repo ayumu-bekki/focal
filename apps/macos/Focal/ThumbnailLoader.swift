@@ -29,7 +29,7 @@ final class ThumbnailLoader: @unchecked Sendable {
 
     /// バックグラウンドで完全にデコードした画像を作る。
     /// 遅延デコードの CGImage をレイヤーに渡すと、表示の確定時にメインスレッドで JPEG を展開してしまう（ヒッチの原因）
-    private static func decode(_ url: URL) -> CGImage? {
+    static func decode(_ url: URL) -> CGImage? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
               let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
         // キャッシュの JPEG は ICC なしの sRGB という約束なので、sRGB のビットマップに描き込む（8.1 章）

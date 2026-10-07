@@ -5,7 +5,9 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -1085,6 +1087,14 @@ fc_status fc_card_import_start(fc_catalog* catalog, const fc_card_import_options
             require(options->presets, "presets must not be NULL when preset_id is given");
             opt.preset = options->presets->store.load(options->preset_id);  // 見つからなければ、取り込みを始める前に失敗する
         }
+        if (options->use_only) {
+            require(options->only_keys != nullptr || options->only_count == 0, "only_keys is NULL");
+            opt.only = std::vector<std::string>{};
+            for (size_t i = 0; i < options->only_count; ++i) {
+                require(options->only_keys[i] != nullptr, "only_keys has a NULL entry");
+                opt.only->push_back(options->only_keys[i]);
+            }
+        }
         std::optional<std::string> cache_dir;
         if (options->thumbnail_cache_dir) cache_dir = options->thumbnail_cache_dir;
 
@@ -1108,7 +1118,8 @@ fc_status fc_card_import_start(fc_catalog* catalog, const fc_card_import_options
                 const CardImportResult r = import_from_card(*c, opt);
                 out = {r.shots,           r.imported,           r.skipped_duplicates, r.failed,
                        r.estimated_dates, r.files_copied,       r.bytes_copied,       r.cancelled ? 1 : 0,
-                       r.root_id.value_or(0), r.scan.added, r.bytes_needed, r.space_available};
+                       r.root_id.value_or(0), r.scan.added, r.bytes_needed, r.space_available,
+                       r.skipped_unselected};
                 for (const auto& e : r.errors) message += (message.empty() ? "" : "\n") + e;
                 if (r.cancelled) status = FC_ERR_CANCELLED;
             } catch (const Error& e) {
@@ -1119,6 +1130,75 @@ fc_status fc_card_import_start(fc_catalog* catalog, const fc_card_import_options
                 message = e.what();
             }
             done(user, status, &out, message.c_str());
+        });
+        *out_task = task.release();
+    });
+}
+
+fc_status fc_card_thumbnail(const char* cache_dir, const char* file_path, fc_string** out_path) {
+    return guard([&] {
+        require(cache_dir && file_path && out_path, "cache_dir, file_path and out_path must not be NULL");
+        *out_path = nullptr;
+        // キャッシュの置き場は同じ cache_dir に対して 1 つだけ作って使い回す（作るたびにフォルダを調べないため）
+        static std::mutex mutex;
+        static std::map<std::string, std::unique_ptr<ThumbnailCache>> caches;
+        const ThumbnailCache* cache;
+        {
+            std::lock_guard lock(mutex);
+            auto& slot = caches[cache_dir];
+            if (!slot) slot = std::make_unique<ThumbnailCache>(utf8_to_path(cache_dir));
+            cache = slot.get();
+        }
+        auto b = std::make_unique<StringBox>();
+        b->text = path_to_utf8(card_thumbnail(*cache, utf8_to_path(file_path)));
+        b->value = b->text.c_str();
+        *out_path = b.release();
+    });
+}
+
+fc_status fc_card_list_start(fc_catalog* catalog, const char* source, const char* dest_root,
+                             fc_card_list_progress_fn progress, fc_card_list_done_fn done, void* user,
+                             fc_task** out_task) {
+    return guard([&] {
+        require(catalog && source && dest_root && done && out_task, "catalog, source, dest_root, done and out_task must not be NULL");
+        *out_task = nullptr;
+        auto task = std::make_unique<fc_task>();
+        fc_task* t = task.get();
+        Catalog* c = catalog->catalog.get();
+        task->thread = std::thread([t, c, src = std::string(source), dest = std::string(dest_root), progress, done, user] {
+            fc_status status = FC_OK;
+            std::string message;
+            std::vector<CardShot> shots;
+            try {
+                shots = list_card_shots(*c, utf8_to_path(src), utf8_to_path(dest), &t->cancel, [&](int d, int total) {
+                    if (progress) progress(user, d, total);
+                });
+                if (t->cancel.load()) status = FC_ERR_CANCELLED;
+            } catch (const Error& e) {
+                status = to_status(e.code());
+                message = e.what();
+            } catch (const std::exception& e) {
+                status = FC_ERR_INTERNAL;
+                message = e.what();
+            }
+            // 文字列は、コールバックの間だけ生きている shots のものを指す
+            std::vector<std::string> paths, times, keys, names;
+            std::vector<fc_card_shot> out;
+            out.reserve(shots.size());
+            paths.reserve(shots.size());
+            times.reserve(shots.size());
+            keys.reserve(shots.size());
+            names.reserve(shots.size());
+            for (const auto& s : shots) {
+                keys.push_back(s.key);
+                names.push_back(s.name);
+                paths.push_back(path_to_utf8(s.primary_path));
+                times.push_back(s.capture_time);
+                out.push_back({keys.back().c_str(), names.back().c_str(), paths.back().c_str(), times.back().c_str(),
+                               s.estimated ? 1 : 0, s.files, s.has_raw ? 1 : 0, s.has_companion ? 1 : 0,
+                               s.is_photo ? 1 : 0, s.imported ? 1 : 0, s.bytes});
+            }
+            done(user, status, out.data(), out.size(), message.c_str());
         });
         *out_task = task.release();
     });

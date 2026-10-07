@@ -88,6 +88,16 @@
         }
       }
     },
+    "%lld of %lld photos selected, %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld / %lld 枚を選択（%@）"
+          }
+        }
+      }
+    },
     "%lld photos" : {
       "localizations" : {
         "ja" : {
@@ -178,12 +188,32 @@
         }
       }
     },
+    "%lld photos were not selected and skipped." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選ばなかった %lld 枚は取り込みませんでした。"
+          }
+        }
+      }
+    },
     "%lld photos, %@" : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld 枚、%@"
+          }
+        }
+      }
+    },
+    "%lld photos, %@ (%lld already imported)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 枚、%@（取り込み済み %lld 枚）"
           }
         }
       }
@@ -204,6 +234,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld 枚選択中"
+          }
+        }
+      }
+    },
+    "+JPG" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+JPG"
           }
         }
       }
@@ -452,6 +492,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "すべての写真"
+          }
+        }
+      }
+    },
+    "All photos on the card are already imported." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カードの写真はすべて取り込み済みです。"
           }
         }
       }
@@ -909,6 +959,16 @@
         }
       }
     },
+    "Check All" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべてチェック"
+          }
+        }
+      }
+    },
     "Check the catalog before backing up" : {
       "localizations" : {
         "ja" : {
@@ -918,6 +978,9 @@
           }
         }
       }
+    },
+    "checked" : {
+
     },
     "Choose" : {
       "localizations" : {
@@ -1861,6 +1924,16 @@
         }
       }
     },
+    "Hide Already Imported (%lld)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り込み済みを隠す（%lld）"
+          }
+        }
+      }
+    },
     "Hide Filmstrip" : {
       "localizations" : {
         "ja" : {
@@ -1948,6 +2021,19 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "カードから取り込む…"
+          }
+        }
+      }
+    },
+    "imported" : {
+
+    },
+    "Imported" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り込み済み"
           }
         }
       }
@@ -2704,6 +2790,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "写真が選択されていません"
+          }
+        }
+      }
+    },
+    "No photos on the card." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カードに写真がありません。"
           }
         }
       }
@@ -3801,12 +3897,12 @@
         }
       }
     },
-    "The destination has %@ free; the card holds %@. Photos already imported are skipped, but there may not be enough space." : {
+    "The destination has %@ free; the selected photos take %@. Photos already imported are skipped, but there may not be enough space." : {
       "localizations" : {
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "読み込み先の空き容量は %1$@、カードのデータ量は %2$@ です。取り込み済みの写真はスキップされますが、空き容量が不足する可能性があります。"
+            "value" : "読み込み先の空きは %@ で、選んだ写真は %@ あります。取り込み済みの写真は飛ばしますが、足りないかもしれません。"
           }
         }
       }
@@ -4040,6 +4136,19 @@
           }
         }
       }
+    },
+    "Uncheck All" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべて外す"
+          }
+        }
+      }
+    },
+    "unchecked" : {
+
     },
     "Undo" : {
       "localizations" : {

@@ -337,6 +337,8 @@ public struct CardImportOptions: Sendable {
     /// 取り込んだ写真に重ねる現像のプリセット（presets から引く。nil なら「なし」）
     public var presetID: String?
     public var presets: PresetStore?
+    /// 取り込む写真の指定（`CardShot.key`）。nil ならカードの全部（取り込み済みは除く）。空なら何も取り込まない
+    public var only: [String]?
 
     public init(source: URL, destination: URL) {
         self.source = source
@@ -346,6 +348,8 @@ public struct CardImportOptions: Sendable {
 
 public struct CardImportResult: Sendable {
     public var shots = 0, imported = 0, skippedDuplicates = 0, failed = 0, estimatedDates = 0, filesCopied = 0
+    /// 取り込む写真の指定（`only`）に入っていないのでコピーしなかった枚数（取り込み済みは数えない）
+    public var skippedUnselected = 0
     public var bytesCopied: Int64 = 0
     public var cancelled = false
     public var rootID: Int64?
@@ -361,6 +365,7 @@ public struct CardImportResult: Sendable {
         shots = Int(r.shots)
         imported = Int(r.imported)
         skippedDuplicates = Int(r.skipped_duplicates)
+        skippedUnselected = Int(r.skipped_unselected)
         failed = Int(r.failed)
         estimatedDates = Int(r.estimated_dates)
         filesCopied = Int(r.files_copied)
@@ -371,5 +376,46 @@ public struct CardImportResult: Sendable {
         bytesNeeded = r.bytes_needed
         spaceAvailable = r.space_available >= 0 ? r.space_available : nil
         self.errors = errors
+    }
+}
+
+/// カードの 1 枚（取り込む写真を選ぶ一覧用。RAW + JPEG のペアやサイドカーは 1 枚）
+public struct CardShot: Sendable, Identifiable, Hashable {
+    /// 1 枚を指す鍵（`CardImportOptions.only` に渡す）
+    public var id: String { key }
+    public var key: String
+    /// 表示名（写真になるファイル。RAW があれば RAW）
+    public var name: String
+    /// サムネイルを取り出すファイル
+    public var path: URL
+    /// 'YYYY-MM-DDTHH:MM:SS'
+    public var captureTime: String
+    /// 撮影日時を読めず、ファイルの更新日時で代用した
+    public var estimated: Bool
+    public var files: Int
+    public var bytes: Int64
+    public var hasRaw: Bool
+    /// 同じ名前の JPEG などが一緒にある
+    public var hasCompanion: Bool
+    /// false なら動画だけ（カタログには登録されないが、コピーはされる）
+    public var isPhoto: Bool
+    /// 取り込み済み（取り込みでは飛ばされる）
+    public var imported: Bool
+
+    /// 撮影日（'YYYY-MM-DD'）
+    public var day: String { String(captureTime.prefix(10)) }
+
+    init(_ c: fc_card_shot) {
+        key = String(cString: c.key)
+        name = String(cString: c.name)
+        path = URL(fileURLWithPath: String(cString: c.path))
+        captureTime = String(cString: c.capture_time)
+        estimated = c.estimated != 0
+        files = Int(c.files)
+        bytes = c.bytes
+        hasRaw = c.has_raw != 0
+        hasCompanion = c.has_companion != 0
+        isPhoto = c.is_photo != 0
+        imported = c.imported != 0
     }
 }

@@ -34,6 +34,14 @@ cat > "$WORK/builtin-presets/Focal Standard.focalpreset" <<'JSON'
 {"focalPreset": 1, "name": "Focal Standard", "settings": {"schema": 1, "processVersion": 1, "exposure": 1.5, "contrast": 10}}
 JSON
 
+# 取り込む写真の選択（v3.29）のテスト用: 3 枚（Canon・Sony・Nikon）のカード。Canon の 1 枚は先に取り込んでおく（取り込み済みの表示）
+mkdir -p "$WORK/select-card/DCIM/100TEST" "$WORK/select-dest"
+cp -c "$ROOT/tests/data/canon_eos_m50.CR3" "$WORK/select-card/DCIM/100TEST/IMG_9201.CR3"
+cp -c "$ROOT/tests/data/sony_ilce7m3.ARW" "$WORK/select-card/DCIM/100TEST/DSC_9202.ARW"
+cp -c "$ROOT/tests/data/nikon_z7.NEF" "$WORK/select-card/DCIM/100TEST/DSC_9203.NEF"
+"$ROOT/build/release/cli/focal" import-card "$WORK/select-card" --dest "$WORK/select-dest" --only IMG_9201.CR3 --no-thumbs \
+  --catalog "$WORK/select-catalog.sqlite" --cache "$WORK/thumbs" >/dev/null 2>&1
+
 # RAW 以外の写真（v3.22）のテスト用: RAW + 同じ名前の JPEG（1 枚）、PNG だけ、JPEG だけ
 mkdir -p "$WORK/mixed"
 cp -c "$ROOT/tests/data/canon_eos_m50.CR3" "$WORK/mixed/MIX_1.CR3"
@@ -78,6 +86,9 @@ TEST_RUNNER_FOCAL_MULTI_CATALOG="$WORK/multi-catalog.sqlite" \
 TEST_RUNNER_FOCAL_NESTED_CATALOG="$WORK/nested-catalog.sqlite" \
 TEST_RUNNER_FOCAL_MIXED_CATALOG="$WORK/mixed-catalog.sqlite" \
 TEST_RUNNER_FOCAL_DETACH_CATALOG="$WORK/detach-catalog.sqlite" \
+TEST_RUNNER_FOCAL_SELECT_CARD="$WORK/select-card" \
+TEST_RUNNER_FOCAL_SELECT_DEST="$WORK/select-dest" \
+TEST_RUNNER_FOCAL_SELECT_CATALOG="$WORK/select-catalog.sqlite" \
 TEST_RUNNER_FOCAL_PRESET_CARD="$WORK/preset-card" \
 TEST_RUNNER_FOCAL_PRESET_DEST="$WORK/preset-dest" \
 TEST_RUNNER_FOCAL_PRESET_CATALOG="$WORK/preset-catalog.sqlite" \
