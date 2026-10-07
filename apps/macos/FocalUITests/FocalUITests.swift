@@ -1353,7 +1353,7 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(waitGone(any("presetRow-Renamed")))
     }
 
-    /// 「Focal について」: 版に β などの種類が添えられている（26.0.0 β）
+    /// 「Focal について」: 版に β などの種類が添えられている（26.0.1 β）
     @MainActor
     func testAboutPanelShowsVersion() throws {
         try requireCatalog()
@@ -1362,7 +1362,7 @@ final class FocalUITests: XCTestCase {
         let about = app.menuBars.menuItems.matching(NSPredicate(format: "title BEGINSWITH 'Focal について' OR title BEGINSWITH 'About Focal'")).firstMatch
         XCTAssertTrue(about.waitForExistence(timeout: 3) || { app.menuBars.menuBarItems["Focal"].click(); return about.waitForExistence(timeout: 3) }())
         about.click()
-        let text = app.staticTexts.matching(NSPredicate(format: "value CONTAINS '26.0.0'")).firstMatch
+        let text = app.staticTexts.matching(NSPredicate(format: "value CONTAINS '26.0.1'")).firstMatch
         XCTAssertTrue(text.waitForExistence(timeout: 5))
         saveScreenshot(app, name: "about-panel")
         let value = text.value as? String ?? ""

@@ -111,7 +111,7 @@ targets:
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         # 版は数字だけ（CFBundleShortVersionString は 26.0.0 のような数字の並びでなければならない）。
         # 「β」などの表示は FOCAL_RELEASE_CHANNEL（空なら正式版）で持ち、「Focal について」と DMG の名前に使う
-        MARKETING_VERSION: "26.0.0"
+        MARKETING_VERSION: "26.0.1"
         FOCAL_RELEASE_CHANNEL: "β"
         CURRENT_PROJECT_VERSION: "1"
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
