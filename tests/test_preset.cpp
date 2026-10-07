@@ -39,7 +39,8 @@ Settings adjusted() {
 TEST_CASE("プリセット: 調整だけを持ち、切り取り・回転・傾きは含めない", "[preset]") {
     const Settings p = preset_adjustments(adjusted());
     CHECK(p.geometry == GeometrySettings{});
-    CHECK(p.lens == LensSettings{});  // レンズ補正は入れない
+    CHECK(p.lens.enabled);  // レンズ補正はオン・オフだけ
+    CHECK(p.lens.id.empty());
     CHECK(p.exposure == 0.7);
     CHECK(p.wb.mode == WhiteBalanceSettings::Mode::Custom);
 
@@ -55,7 +56,33 @@ TEST_CASE("プリセット: 調整だけを持ち、切り取り・回転・傾�
     CHECK(r.saturation == 0.0);
     CHECK(r.clarity == 30);
     CHECK(r.geometry == photo.geometry);
-    CHECK(r.lens == photo.lens);  // 写真のレンズ補正はそのまま
+    CHECK(r.lens.enabled);  // プリセットがオンなので、写真もオンになる
+    CHECK(r.lens.id == photo.lens.id);  // レンズの選択・量は写真のまま
+
+    // レンズ補正: プリセットにはオン・オフだけ入り、オンのプリセットだけが写真をオンにする
+    Settings lens_on = adjusted();
+    lens_on.lens.enabled = true;
+    lens_on.lens.id = "Some|Lens";
+    lens_on.lens.tca = 40;
+    lens_on.lens.projection = LensProjection::Fisheye;
+    const Settings lp = preset_adjustments(lens_on);
+    CHECK(lp.lens.enabled);
+    CHECK(lp.lens.id.empty());
+    CHECK(lp.lens.tca == 100.0);
+    CHECK(lp.lens.projection == LensProjection::Keep);
+    Settings other;  // レンズ補正オフの写真
+    other.lens.id = "Mine|Lens";
+    other.lens.tca = 70;
+    const Settings on = apply_preset(other, lp);
+    CHECK(on.lens.enabled);
+    CHECK(on.lens.id == "Mine|Lens");  // レンズの選択・量は写真のまま
+    CHECK(on.lens.tca == 70);
+    // オフのプリセットは、オンの写真を切らない
+    Settings lens_photo;
+    lens_photo.lens.enabled = true;
+    Settings off = adjusted();
+    off.lens = LensSettings{};
+    CHECK(apply_preset(lens_photo, preset_adjustments(off)).lens.enabled);
 }
 
 TEST_CASE("プリセット: 保存・一覧・読み込み・上書き・削除", "[preset]") {

@@ -14,6 +14,13 @@
     "vibrance": 20.0,
     "clarity": 10.0,
     "sharpness": 10.0,
-    "noiseReduction": 10.0
+    "noiseReduction": 10.0,
+    "lens": {
+      "enabled": true,
+      "id": "",
+      "distortion": 100.0,
+      "tca": 100.0,
+      "vignetting": 100.0
+    }
   }
 }

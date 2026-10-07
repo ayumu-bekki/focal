@@ -13,11 +13,13 @@ namespace focal {
 
 // 現像のプリセット（v3.20、design.md 6.3 章）。現像の「調整」だけを持つ（白バランス・露出・トーン・色・明瞭度・
 // ノイズ低減・シャープネス）。切り取り・回転・傾き補正（geometry）は含めない。
+// レンズ補正はオン・オフだけ持つ（v3.28。レンズの選択・量・射影は写真ごと）。適用はオンのときだけ写真をオンにする。
 
-// プリセットにする設定。geometry・process_version・未知のキーを落とす
+// プリセットにする設定。geometry・process_version・未知のキーを落とし、lens は enabled だけ残す
 Settings preset_adjustments(const Settings& settings);
 
-// base にプリセットの調整を重ねる。geometry・process_version・未知のキーは base のまま
+// base にプリセットの調整を重ねる。geometry・process_version・未知のキーは base のまま。
+// lens は、プリセットがオンなら enabled だけオンにする（ほかは base のまま）
 Settings apply_preset(const Settings& base, const Settings& preset);
 
 // 調整の項目（現像パラメータの同期で「動かした項目だけ」を他の写真へ写すための印、6.3 章）。白バランスは 1 項目（モード・色温度・色かぶり）

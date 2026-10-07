@@ -277,6 +277,21 @@ final class FocalCoreTests: XCTestCase {
         XCTAssertEqual(merged.rotate90, 3)
         XCTAssertEqual(merged.cropW, 0.8)
 
+        // レンズ補正はオン・オフだけがプリセットに入り、オンのプリセットだけが写真をオンにする
+        var lensLook = DevelopSettings()
+        lensLook.lensEnabled = true
+        lensLook.lensID = "Some|Lens"
+        let lensID = try store.save(name: "補正あり", from: lensLook)
+        var lensPhoto = DevelopSettings()
+        lensPhoto.lensID = "Mine|Lens"
+        let withLens = try store.applying(id: lensID, to: lensPhoto)
+        XCTAssertTrue(withLens.lensEnabled)
+        XCTAssertEqual(withLens.lensID, "Mine|Lens")  // レンズの選択は写真のまま
+        var lensOn = DevelopSettings()
+        lensOn.lensEnabled = true
+        XCTAssertTrue(try store.applying(id: id, to: lensOn).lensEnabled)  // オフのプリセットは補正を切らない
+        try store.delete(id: lensID)
+
         XCTAssertThrowsError(try store.applying(id: "user:none", to: photo))
         XCTAssertThrowsError(try store.delete(id: "builtin:x"))
         try store.delete(id: id)
