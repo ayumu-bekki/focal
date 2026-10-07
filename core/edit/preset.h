@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <mutex>
 #include <optional>
@@ -18,6 +19,31 @@ Settings preset_adjustments(const Settings& settings);
 
 // base にプリセットの調整を重ねる。geometry・process_version・未知のキーは base のまま
 Settings apply_preset(const Settings& base, const Settings& preset);
+
+// 調整の項目（現像パラメータの同期で「動かした項目だけ」を他の写真へ写すための印、6.3 章）。白バランスは 1 項目（モード・色温度・色かぶり）
+enum AdjustmentField : uint32_t {
+    kAdjWhiteBalance = 1u << 0,
+    kAdjExposure = 1u << 1,
+    kAdjContrast = 1u << 2,
+    kAdjHighlights = 1u << 3,
+    kAdjShadows = 1u << 4,
+    kAdjWhites = 1u << 5,
+    kAdjBlacks = 1u << 6,
+    kAdjBrightness = 1u << 7,
+    kAdjSaturation = 1u << 8,
+    kAdjVibrance = 1u << 9,
+    kAdjClarity = 1u << 10,
+    kAdjSharpness = 1u << 11,
+    kAdjNoiseReduction = 1u << 12,
+    kAdjColorNoiseReduction = 1u << 13,
+    kAdjAll = (1u << 14) - 1,
+};
+
+// a と b で値が違う調整の項目（AdjustmentField のビット和）。切り取り・回転・傾き・レンズは見ない
+uint32_t changed_adjustments(const Settings& a, const Settings& b);
+
+// base の mask の項目だけを src の値にする。ほかの項目・geometry・lens・process_version・未知のキーは base のまま
+Settings apply_adjustments(const Settings& base, const Settings& src, uint32_t mask);
 
 // 調整が同じか（白バランスは、As Shot なら色温度・色かぶりを見ない）。切り取りなどは見ない
 bool adjustments_equal(const Settings& a, const Settings& b);

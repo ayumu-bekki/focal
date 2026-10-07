@@ -68,11 +68,13 @@ final class LibraryModel {
     private(set) var changedPhotos: (generation: Int, ids: Set<Int64>) = (0, [])
 
     var currentIndex: Int? = nil {
-        didSet { if currentIndex != oldValue { syncDevelop() } }
+        didSet { if currentIndex != oldValue { syncDevelop(); updateAutoSync() } }
     }
-    var selection: Set<Int64> = []
+    var selection: Set<Int64> = [] {
+        didSet { updateAutoSync() }
+    }
     var mode: MainMode = .grid {
-        didSet { if mode != oldValue { syncDevelop() } }
+        didSet { if mode != oldValue { syncDevelop(); updateAutoSync() } }
     }
     var thumbnailSize: Double = 160
     /// 現像画面のフィルムストリップの高さ（ドラッグで変える。次回の起動でも保つ）
@@ -121,6 +123,7 @@ final class LibraryModel {
         prefs = CatalogPrefs(catalog: catalog)
         thumbnails = ThumbnailLoader(thumbnailer: try Thumbnailer(catalog: catalog, cacheDirectory: cacheURL))
         develop = try DevelopModel(catalog: catalog)
+        develop.onSync = { [weak self] settings, mask in self?.syncAdjustments(settings, mask: mask) }
         reloadSidebar()
         try develop.setThumbnailCache(cacheURL) { [weak self] id in self?.thumbnailUpdated(id) }
         try develop.editor.setPreviewCache(previewCacheURL, limitBytes: previewCacheLimit)
@@ -263,6 +266,47 @@ final class LibraryModel {
         watcher.stop()
         develop.close()
         try? catalog.flush()
+    }
+
+    // MARK: 現像パラメータの同期（9.5 章）
+
+    /// 現像画面で、開いている写真のほかに選択している写真（現像パラメータの同期の写す先）
+    private var syncTargetIDs: [Int64] {
+        guard mode == .viewer, let i = currentIndex, photoIDs.indices.contains(i) else { return [] }
+        return selection.subtracting([photoIDs[i]]).sorted()
+    }
+
+    /// 写す先の数を合わせ、写す先がなくなったら（選択が 1 枚に戻った・現像画面を出た）現像パラメータの同期をオフにする。
+    /// 気づかないうちに他の写真を書き換えないため
+    private func updateAutoSync() {
+        var n = 0
+        if mode == .viewer, let i = currentIndex, photoIDs.indices.contains(i) {
+            n = selection.count - (selection.contains(photoIDs[i]) ? 1 : 0)
+        }
+        if develop.syncTargetCount != n { develop.syncTargetCount = n }
+        if n == 0 && develop.autoSync { develop.autoSync = false }
+    }
+
+    /// 前の同期が終わるのを待つ（同じ写真の編集を読み直して書くので、続けて走らせると前の項目が消える）
+    private var syncChain: Task<Void, Never>?
+
+    /// 開いている写真で動かした調整の項目を、選択中の他の写真へ写す（書き終わったらセルを読み直す）
+    private func syncAdjustments(_ settings: DevelopSettings, mask: DevelopSettings.AdjustmentMask) {
+        let targets = syncTargetIDs
+        guard !targets.isEmpty else { return }
+        let catalog = catalog
+        let previous = syncChain
+        syncChain = Task {
+            await previous?.value
+            let failure: String? = await Task.detached {
+                do {
+                    try catalog.applyAdjustments(settings, mask: mask, to: targets)
+                    try catalog.flush()
+                    return nil
+                } catch { return String(describing: error) }
+            }.value
+            if let failure { reportMessage(failure) } else { afterPhotoChange(targets) }
+        }
     }
 
     /// メニューの操作の対象（選択中の写真。なければ今の写真）

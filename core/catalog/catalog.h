@@ -332,6 +332,10 @@ public:
     // 重ねた結果がすべて既定値なら行を消す。書き込みスレッドに積む（完了を待たない）。
     // 現像ビューアで開いている写真には使わない（セッションが後で上書きするので、セッションの設定を変える）
     void apply_preset(std::span<const int64_t> photo_ids, const Settings& preset);
+    // 写真の編集の mask（AdjustmentField）の項目だけを src の値にする（現像パラメータの同期、6.3 章）。ほかの項目は各写真のまま。
+    // RAW 以外は飛ばす。結果がすべて既定値なら行を消す。書き込みスレッドに積む（完了を待たない）。
+    // 現像ビューアで開いている写真には使わない
+    void apply_adjustments(std::span<const int64_t> photo_ids, const Settings& src, uint32_t mask);
     // それまでに積んだ書き込みがすべて終わるまで待つ
     void flush();
 

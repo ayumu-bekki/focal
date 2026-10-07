@@ -119,6 +119,7 @@ final class DevelopModel {
             }
             session = s
             settings = s.settings
+            syncBaseline = settings
             refreshUndoState()
         } catch {
             stage = .failed
@@ -171,6 +172,29 @@ final class DevelopModel {
     /// スライダーのドラッグ中（beginChange 〜 endChange）
     private var changing = false
 
+    // MARK: 現像パラメータの同期（9.5 章）
+
+    /// オンの間、動かした調整の項目だけを、選択中の他の写真へ同じ値で写す（Lightroom Classic の Auto Sync）。
+    /// ドラッグ中は開いている写真だけを描き、ドラッグの終わり（数値の入力・リセットなどはその場）に他の写真へ書く。
+    /// 他の写真の変更は Undo の対象外。LibraryModel が、写す先がなくなったときや現像画面を出るときにオフにする
+    var autoSync = false {
+        didSet { if autoSync, !oldValue { syncBaseline = settings } }
+    }
+    /// 写す先になる写真の数（選択中から開いている写真を除いたもの。LibraryModel が更新する）
+    var syncTargetCount = 0
+    /// 動かした項目を他の写真に渡す（settings、項目）。LibraryModel が設定する
+    var onSync: ((DevelopSettings, DevelopSettings.AdjustmentMask) -> Void)?
+    /// 最後に同期した（または同期の対象にしなかった）時点の設定。ここからの差が「動かした項目」
+    private var syncBaseline = DevelopSettings()
+
+    private func commitSync() {
+        guard autoSync, isEditable else { return }
+        let mask = settings.changedAdjustments(from: syncBaseline)
+        guard mask != 0 else { return }
+        syncBaseline = settings
+        onSync?(settings, mask)
+    }
+
     func beginChange() {
         changing = true
         session?.beginChange()
@@ -180,6 +204,7 @@ final class DevelopModel {
         session?.endChange()
         refreshUndoState()
         changing = false
+        commitSync()
         // 100% 表示では、ドラッグ中に省いた縮小表示（ヒストグラム）を描く
         if case .actual = zoom { requestRender() }
     }
@@ -195,6 +220,7 @@ final class DevelopModel {
         session.setSettings(s)
         refreshInfo()
         refreshUndoState()
+        if !changing { commitSync() }
         if render { requestRender(measureEdit: true) }
     }
 
@@ -398,6 +424,7 @@ final class DevelopModel {
     func undo() {
         guard let session, session.undo() else { return }
         settings = session.settings
+        syncBaseline = settings  // 取り消し・やり直しは他の写真へ写さない
         refreshUndoState()
         requestRender()
     }
@@ -405,6 +432,7 @@ final class DevelopModel {
     func redo() {
         guard let session, session.redo() else { return }
         settings = session.settings
+        syncBaseline = settings  // 取り消し・やり直しは他の写真へ写さない
         refreshUndoState()
         requestRender()
     }

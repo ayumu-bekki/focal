@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 22
+#define FC_API_VERSION 23
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -680,6 +680,30 @@ fc_status fc_presets_apply(fc_presets* presets, const char* id, const fc_setting
    現像ビューアで開いている写真には使わない（fc_presets_apply で求めた設定を fc_session_set_settings する） */
 fc_status fc_catalog_apply_preset(fc_catalog* catalog, fc_presets* presets, const char* id, const int64_t* photo_ids,
                                   size_t count);
+
+/* 調整の項目（現像パラメータの同期用。ビット和）。白バランスはモード・色温度・色かぶりで 1 項目。切り取り・回転・傾き・レンズは含めない */
+enum {
+    FC_ADJ_WHITE_BALANCE = 1 << 0,
+    FC_ADJ_EXPOSURE = 1 << 1,
+    FC_ADJ_CONTRAST = 1 << 2,
+    FC_ADJ_HIGHLIGHTS = 1 << 3,
+    FC_ADJ_SHADOWS = 1 << 4,
+    FC_ADJ_WHITES = 1 << 5,
+    FC_ADJ_BLACKS = 1 << 6,
+    FC_ADJ_BRIGHTNESS = 1 << 7,
+    FC_ADJ_SATURATION = 1 << 8,
+    FC_ADJ_VIBRANCE = 1 << 9,
+    FC_ADJ_CLARITY = 1 << 10,
+    FC_ADJ_SHARPNESS = 1 << 11,
+    FC_ADJ_NOISE_REDUCTION = 1 << 12,
+    FC_ADJ_COLOR_NOISE_REDUCTION = 1 << 13,
+};
+/* a と b で値が違う調整の項目（FC_ADJ_ のビット和）。切り取りなどは見ない */
+uint32_t fc_settings_changed_adjustments(const fc_settings* a, const fc_settings* b);
+/* 写真のカタログ上の編集の、mask の項目だけを settings の値にする（現像パラメータの同期。ほかの項目と切り取りは各写真のまま。
+   書き込みは core のスレッドで、完了を待たない）。RAW 以外は飛ばす。現像ビューアで開いている写真には使わない */
+fc_status fc_catalog_apply_adjustments(fc_catalog* catalog, const fc_settings* settings, uint32_t mask,
+                                       const int64_t* photo_ids, size_t count);
 
 typedef struct fc_editor fc_editor;
 typedef struct fc_session fc_session;

@@ -1059,6 +1059,18 @@ int main(void) {
         REQUIRE_OK(fc_catalog_flush(cat));
         CHECK(fc_catalog_apply_preset(cat, presets, "user:none", one, 1) == FC_ERR_NOT_FOUND);
 
+        /* 現像パラメータの同期: 動かした項目だけを写す */
+        {
+            fc_settings moved = base;
+            moved.exposure = 0.5;
+            moved.rotate90 = 1;
+            CHECK(fc_settings_changed_adjustments(&base, &moved) == FC_ADJ_EXPOSURE);
+            CHECK(fc_settings_changed_adjustments(&base, &base) == 0);
+            REQUIRE_OK(fc_catalog_apply_adjustments(cat, &moved, FC_ADJ_EXPOSURE, one, 1));
+            REQUIRE_OK(fc_catalog_flush(cat));
+            CHECK(fc_catalog_apply_adjustments(NULL, &moved, FC_ADJ_EXPOSURE, one, 1) == FC_ERR_INVALID_ARGUMENT);
+        }
+
         CHECK(fc_presets_delete(presets, "builtin:x") == FC_ERR_INVALID_ARGUMENT);
         REQUIRE_OK(fc_presets_delete(presets, id->value));
         fc_string_free(id);

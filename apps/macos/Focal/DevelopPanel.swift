@@ -27,10 +27,38 @@ struct HistogramHeader: View {
 
 /// 現像の操作（9.5 章）: Fit / 100%、切り抜き、90° 回転。ヒストグラムの下に固定する
 struct DevelopTools: View {
-    let develop: DevelopModel
+    @Bindable var develop: DevelopModel
     let presets: PresetModel
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            toolRow
+            if develop.syncTargetCount > 0 || develop.autoSync { autoSyncRow }
+        }
+        .disabled(develop.stage != .ready)
+    }
+
+    /// 現像パラメータの同期（Lightroom Classic の Auto Sync）: 選択中の他の写真があるときだけ出す。オンの間、動かした項目だけが他の写真に写る
+    private var autoSyncRow: some View {
+        HStack(spacing: 6) {
+            Toggle("Sync Develop Settings", isOn: $develop.autoSync)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .disabled(!develop.isEditable || develop.syncTargetCount == 0)
+                .help("Apply only the adjustments you change to the other selected photos too")
+                .accessibilityIdentifier("autoSyncToggle")
+            if develop.autoSync {
+                Text("Syncing to \(develop.syncTargetCount) Other Photos")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("autoSyncCount")
+            }
+            Spacer(minLength: 0)
+        }
+        .font(.caption)
+    }
+
+    private var toolRow: some View {
         HStack(spacing: 8) {
             Picker("Zoom", selection: Binding(
                 get: { develop.zoom == .fit },
@@ -74,7 +102,6 @@ struct DevelopTools: View {
                 .accessibilityIdentifier("rotateRightButton")
         }
         .controlSize(.small)
-        .disabled(develop.stage != .ready)
     }
 }
 

@@ -526,6 +526,16 @@
         }
       }
     },
+    "Apply only the adjustments you change to the other selected photos too" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "動かした項目だけを、選択中の他の写真にも同じ値で反映します"
+          }
+        }
+      }
+    },
     "Apply Preset" : {
       "localizations" : {
         "ja" : {
@@ -3707,6 +3717,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "一覧と現像を切り替え（V）"
+          }
+        }
+      }
+    },
+    "Sync Develop Settings" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現像パラメータの同期"
+          }
+        }
+      }
+    },
+    "Syncing to %lld Other Photos" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "他の %lld 枚と同期中"
           }
         }
       }

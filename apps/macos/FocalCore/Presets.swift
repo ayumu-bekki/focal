@@ -86,3 +86,27 @@ extension Catalog {
         }
     }
 }
+
+extension DevelopSettings {
+    /// 現像パラメータの同期の項目（`fc_settings_changed_adjustments` の戻り値の型。切り取り・回転・傾き・レンズは含まない）
+    public typealias AdjustmentMask = UInt32
+
+    /// other と値が違う調整の項目。ビットの意味は core が決める
+    public func changedAdjustments(from other: DevelopSettings) -> AdjustmentMask {
+        var a = other.c
+        var b = c
+        return fc_settings_changed_adjustments(&a, &b)
+    }
+}
+
+extension Catalog {
+    /// 写真のカタログ上の編集の、mask の項目だけを settings の値にする（現像パラメータの同期。書き込みは core のスレッドで、完了を待たない）。
+    /// 現像ビューアで開いている写真には使わない
+    public func applyAdjustments(_ settings: DevelopSettings, mask: DevelopSettings.AdjustmentMask,
+                                 to photoIDs: [Int64]) throws {
+        var c = settings.c
+        try photoIDs.withUnsafeBufferPointer {
+            try check(fc_catalog_apply_adjustments(handle, &c, mask, $0.baseAddress, $0.count))
+        }
+    }
+}

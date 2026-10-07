@@ -2138,6 +2138,19 @@ void Catalog::apply_preset(std::span<const int64_t> photo_ids, const Settings& p
     }
 }
 
+void Catalog::apply_adjustments(std::span<const int64_t> photo_ids, const Settings& src, uint32_t mask) {
+    if (mask == 0) return;
+    for (const int64_t id : photo_ids) {
+        if (const auto photo = this->photo(id); photo && photo->kind != PhotoKind::Raw) continue;
+        const auto json = edit_json(id);
+        const Settings merged = focal::apply_adjustments(json ? settings_from_json(*json) : Settings{}, src, mask);
+        if (settings_need_no_row(merged))
+            save_edit(id, merged.process_version, std::nullopt);
+        else
+            save_edit(id, merged.process_version, settings_to_json(merged));
+    }
+}
+
 void Catalog::flush() {
     writer_->call([](Database&) {});
 }

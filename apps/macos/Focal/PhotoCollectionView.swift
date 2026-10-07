@@ -26,7 +26,7 @@ struct PhotoCollectionView: NSViewRepresentable {
         let cv = KeyCollectionView()
         cv.collectionViewLayout = layout
         cv.isSelectable = true
-        cv.allowsMultipleSelection = style == .grid
+        cv.allowsMultipleSelection = true  // フィルムストリップも（⌘クリック・⇧クリックで選ぶと、現像パラメータの同期の写す先になる）
         cv.backgroundColors = [.controlBackgroundColor]
         cv.register(PhotoGridItem.self, forItemWithIdentifier: PhotoGridItem.identifier)
         // 写真をサイドバーのアルバムへドラッグできる（v3.16）
@@ -184,7 +184,8 @@ final class KeyCollectionView: NSCollectionView {
     }
 
     /// 一覧の選択（Photomator・「写真」と同じ）: ふつうのクリックは 1 枚、⌘クリックは 1 枚ずつ追加・解除、
-    /// ⇧クリックは起点からその写真までの範囲（⇧⌘ならいまの選択に範囲を足す）。フィルムストリップは 1 枚だけ
+    /// ⇧クリックは起点からその写真までの範囲（⇧⌘ならいまの選択に範囲を足す）。フィルムストリップは標準の動作で、
+    /// 開いている写真は変えずに選択だけ増やせる（現像パラメータの同期の写す先）
     override func mouseDown(with event: NSEvent) {
         let mods = event.modifierFlags.intersection([.shift, .command, .option, .control])
         if takesFocus, let model, mods.contains(.shift), !mods.contains(.option), !mods.contains(.control),

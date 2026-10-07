@@ -106,6 +106,44 @@ Settings apply_preset(const Settings& base, const Settings& preset) {
     return s;
 }
 
+uint32_t changed_adjustments(const Settings& a, const Settings& b) {
+    uint32_t m = 0;
+    if (a.wb != b.wb) m |= kAdjWhiteBalance;
+    if (a.exposure != b.exposure) m |= kAdjExposure;
+    if (a.contrast != b.contrast) m |= kAdjContrast;
+    if (a.highlights != b.highlights) m |= kAdjHighlights;
+    if (a.shadows != b.shadows) m |= kAdjShadows;
+    if (a.whites != b.whites) m |= kAdjWhites;
+    if (a.blacks != b.blacks) m |= kAdjBlacks;
+    if (a.brightness != b.brightness) m |= kAdjBrightness;
+    if (a.saturation != b.saturation) m |= kAdjSaturation;
+    if (a.vibrance != b.vibrance) m |= kAdjVibrance;
+    if (a.clarity != b.clarity) m |= kAdjClarity;
+    if (a.sharpness != b.sharpness) m |= kAdjSharpness;
+    if (a.noise_reduction != b.noise_reduction) m |= kAdjNoiseReduction;
+    if (a.color_noise_reduction != b.color_noise_reduction) m |= kAdjColorNoiseReduction;
+    return m;
+}
+
+Settings apply_adjustments(const Settings& base, const Settings& src, uint32_t mask) {
+    Settings s = base;
+    if (mask & kAdjWhiteBalance) s.wb = src.wb;
+    if (mask & kAdjExposure) s.exposure = src.exposure;
+    if (mask & kAdjContrast) s.contrast = src.contrast;
+    if (mask & kAdjHighlights) s.highlights = src.highlights;
+    if (mask & kAdjShadows) s.shadows = src.shadows;
+    if (mask & kAdjWhites) s.whites = src.whites;
+    if (mask & kAdjBlacks) s.blacks = src.blacks;
+    if (mask & kAdjBrightness) s.brightness = src.brightness;
+    if (mask & kAdjSaturation) s.saturation = src.saturation;
+    if (mask & kAdjVibrance) s.vibrance = src.vibrance;
+    if (mask & kAdjClarity) s.clarity = src.clarity;
+    if (mask & kAdjSharpness) s.sharpness = src.sharpness;
+    if (mask & kAdjNoiseReduction) s.noise_reduction = src.noise_reduction;
+    if (mask & kAdjColorNoiseReduction) s.color_noise_reduction = src.color_noise_reduction;
+    return s;
+}
+
 bool adjustments_equal(const Settings& a, const Settings& b) {
     const bool wb_same = a.wb.mode == b.wb.mode &&
                          (a.wb.mode == WhiteBalanceSettings::Mode::AsShot ||

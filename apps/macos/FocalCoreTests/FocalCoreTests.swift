@@ -39,6 +39,20 @@ final class FocalCoreTests: XCTestCase {
         return try XCTUnwrap(stats)
     }
 
+    func testChangedAdjustments() {
+        let base = DevelopSettings()
+        XCTAssertEqual(base.changedAdjustments(from: base), 0)
+        var moved = base
+        moved.exposure = 1
+        moved.rotate90 = 1  // 切り取り・回転は見ない
+        let one = moved.changedAdjustments(from: base)
+        XCTAssertNotEqual(one, 0)
+        moved.clarity = 20
+        let two = moved.changedAdjustments(from: base)
+        XCTAssertNotEqual(two, one)
+        XCTAssertEqual(two & one, one)  // 項目が増えると、前の項目は残る
+    }
+
     func testAPIVersion() {
         XCTAssertTrue(FocalCoreInfo.isCompatible)
     }

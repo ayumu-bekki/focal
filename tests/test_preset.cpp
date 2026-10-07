@@ -157,6 +157,70 @@ TEST_CASE("プリセット: カタログの写真に重ねる（切り取りは�
     CHECK(settings_from_json(*c->edit_json(ids[0])).geometry.crop == CropRect{0, 0, 0.5, 0.5});
 }
 
+TEST_CASE("現像パラメータの同期: 動かした項目だけを写す", "[preset]") {
+    Settings a;
+    Settings b = a;
+    CHECK(changed_adjustments(a, b) == 0);
+    b.exposure = 1;
+    b.wb.mode = WhiteBalanceSettings::Mode::Custom;
+    b.wb.temperature = 6500;
+    b.geometry.rotate90 = 1;  // 切り取り・回転は見ない
+    b.lens.enabled = true;
+    CHECK(changed_adjustments(a, b) == (kAdjExposure | kAdjWhiteBalance));
+
+    Settings photo;
+    photo.contrast = 20;
+    photo.exposure = -1;
+    photo.geometry.rotate90 = 3;
+    const Settings r = apply_adjustments(photo, b, kAdjExposure);
+    CHECK(r.exposure == 1);
+    CHECK(r.contrast == 20);  // 動かしていない項目は写真のまま
+    CHECK(r.wb.mode == WhiteBalanceSettings::Mode::AsShot);
+    CHECK(r.geometry == photo.geometry);
+    CHECK(r.lens == photo.lens);
+    CHECK(apply_adjustments(photo, b, kAdjWhiteBalance).wb == b.wb);
+    CHECK(apply_adjustments(photo, b, 0) == photo);
+}
+
+TEST_CASE("現像パラメータの同期: カタログの写真に項目だけを写す", "[preset][catalog]") {
+    TempDir lib, db;
+    fs::create_directories(lib.path() / "d");
+    std::ofstream(lib.path() / "d" / "a.NEF") << "x";
+    std::ofstream(lib.path() / "d" / "b.NEF") << "yy";
+    auto c = Catalog::open(db / "c.sqlite");
+    c->scan_root(c->add_root(lib.path()));
+    const auto ids = c->query_ids(PhotoFilter{});
+    REQUIRE(ids.size() == 2);
+
+    Settings own;  // a は切り取り済みで、コントラストも動かしてある
+    own.geometry.crop = {0, 0, 0.5, 0.5};
+    own.contrast = 30;
+    c->save_edit(ids[0], 1, settings_to_json(own));
+    c->flush();
+
+    Settings src;
+    src.exposure = 1.5;
+    src.contrast = -50;  // mask に入れないので写らない
+    c->apply_adjustments(ids, src, kAdjExposure);
+    c->flush();
+    const Settings a = settings_from_json(*c->edit_json(ids[0]));
+    CHECK(a.exposure == 1.5);
+    CHECK(a.contrast == 30);
+    CHECK(a.geometry.crop == CropRect{0, 0, 0.5, 0.5});
+    const Settings b = settings_from_json(*c->edit_json(ids[1]));
+    CHECK(b.exposure == 1.5);
+    CHECK(b.contrast == 0.0);
+
+    // 既定値に戻すと、切り取りのない写真は行がなくなる。mask が 0 なら何もしない
+    c->apply_adjustments(ids, Settings{}, 0);
+    c->flush();
+    CHECK(settings_from_json(*c->edit_json(ids[1])).exposure == 1.5);
+    c->apply_adjustments(ids, Settings{}, kAdjExposure);
+    c->flush();
+    CHECK_FALSE(c->edit_json(ids[1]));
+    CHECK(settings_from_json(*c->edit_json(ids[0])).contrast == 30);
+}
+
 TEST_CASE("プリセット: 調整が同じプリセットを探す・名前を変える", "[preset]") {
     TempDir user, builtin;
     PresetStore maker(builtin.path());

@@ -674,6 +674,23 @@ fc_status fc_catalog_apply_preset(fc_catalog* catalog, fc_presets* presets, cons
     });
 }
 
+uint32_t fc_settings_changed_adjustments(const fc_settings* a, const fc_settings* b) {
+    if (!a || !b) return 0;
+    try {
+        return changed_adjustments(to_settings(*a), to_settings(*b));
+    } catch (...) {
+        return 0;
+    }
+}
+
+fc_status fc_catalog_apply_adjustments(fc_catalog* catalog, const fc_settings* settings, uint32_t mask,
+                                       const int64_t* photo_ids, size_t count) {
+    return guard([&] {
+        require(catalog && settings && (photo_ids || count == 0), "invalid arguments");
+        catalog->catalog->apply_adjustments({photo_ids, count}, to_settings(*settings), mask);
+    });
+}
+
 int32_t fc_lens_supported(void) { return LensDatabase::supported() ? 1 : 0; }
 
 fc_status fc_lens_configure(const char* bundled_dir, const char* user_dir) {
