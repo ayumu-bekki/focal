@@ -284,6 +284,8 @@ struct DevSlider: NSViewRepresentable {
     var onEnd: () -> Void = {}
     /// ダブルクリックの動作。nil なら既定値に戻す
     var onReset: (() -> Void)? = nil
+    /// トラックに敷くグラデーション（位置 0...1 と色）。nil なら標準のトラック。表示だけで画像処理には関係しない
+    var trackStops: [TrackStop]? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -301,6 +303,7 @@ struct DevSlider: NSViewRepresentable {
         s.isContinuous = true
         s.controlSize = .small
         s.setAccessibilityIdentifier(identifier)
+        if let stops = trackStops { s.cell = GradientSliderCell(stops: stops, from: s) }
         return s
     }
 
@@ -326,6 +329,42 @@ struct DevSlider: NSViewRepresentable {
         var parent: DevSlider
         init(_ p: DevSlider) { parent = p }
         @objc func changed(_ sender: NSSlider) { parent.value = sender.doubleValue }
+    }
+}
+
+struct TrackStop {
+    let location: CGFloat
+    let color: NSColor
+}
+
+/// トラックをグラデーションで描くセル（ホワイトバランスのスライダー用）
+final class GradientSliderCell: NSSliderCell {
+    private let stops: [TrackStop]
+
+    init(stops: [TrackStop], from old: NSSlider) {
+        self.stops = stops
+        super.init()
+        minValue = old.minValue
+        maxValue = old.maxValue
+        doubleValue = old.doubleValue
+        controlSize = old.controlSize
+        isContinuous = true
+        target = old.target
+        action = old.action
+    }
+
+    required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func drawBar(inside rect: NSRect, flipped: Bool) {
+        let bar = NSRect(x: rect.minX, y: rect.midY - 3, width: rect.width, height: 6)
+        let path = NSBezierPath(roundedRect: bar, xRadius: 3, yRadius: 3)
+        if let g = NSGradient(colors: stops.map(\.color), atLocations: stops.map(\.location),
+                              colorSpace: .sRGB) {
+            g.draw(in: path, angle: 0)
+        }
+        NSColor.separatorColor.setStroke()
+        path.lineWidth = 0.5
+        path.stroke()
     }
 }
 

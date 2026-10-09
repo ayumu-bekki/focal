@@ -138,12 +138,14 @@ struct DevelopPanel: View {
                     SliderRow(title: "Temperature", valueText: "\(Int(displayTemperature.rounded())) K",
                               value: temperatureSlider, range: 0...1, defaultValue: Self.miredPosition(5500),
                               identifier: "temperatureSlider", develop: develop,
-                              onReset: { develop.setCustomWhiteBalance(false) })
+                              onReset: { develop.setCustomWhiteBalance(false) },
+                              trackStops: Self.temperatureTrack)
                     SliderRow(title: "Tint", valueText: String(format: "%+.0f", displayTint),
                               value: Binding(get: { displayTint },
                                              set: { v in develop.updateWhiteBalance { $0.tint = v.rounded() } }),
                               range: -150...150, defaultValue: 0, identifier: "tintSlider", develop: develop,
-                              onReset: { develop.setCustomWhiteBalance(false) })
+                              onReset: { develop.setCustomWhiteBalance(false) },
+                              trackStops: Self.tintTrack)
                 }
                 .disabled(disabled)
             }
@@ -300,6 +302,16 @@ struct DevelopPanel: View {
     }
 
     // 色温度は逆数（mired）で等間隔にする（低い色温度ほど細かく調整できる）
+    /// 色温度のトラック: 低い K は青、高い K は黄（動かすと写真がその色に寄る）
+    private static let temperatureTrack: [TrackStop] = [
+        TrackStop(location: 0, color: NSColor(srgbRed: 0.10, green: 0.45, blue: 1.0, alpha: 1)),
+        TrackStop(location: 1, color: NSColor(srgbRed: 1.0, green: 0.80, blue: 0.05, alpha: 1)),
+    ]
+    /// 色かぶりのトラック: 負は緑、正はマゼンタ
+    private static let tintTrack: [TrackStop] = [
+        TrackStop(location: 0, color: NSColor(srgbRed: 0.10, green: 0.80, blue: 0.25, alpha: 1)),
+        TrackStop(location: 1, color: NSColor(srgbRed: 1.0, green: 0.15, blue: 0.80, alpha: 1)),
+    ]
     private static let minK = 2000.0, maxK = 50000.0
     static func miredPosition(_ k: Double) -> Double {
         (1e6 / minK - 1e6 / k) / (1e6 / minK - 1e6 / maxK)
@@ -462,6 +474,7 @@ private struct SliderRow: View {
     let identifier: String
     let develop: DevelopModel
     var onReset: (() -> Void)? = nil
+    var trackStops: [TrackStop]? = nil
 
     var body: some View {
         HStack(spacing: 6) {
@@ -470,7 +483,8 @@ private struct SliderRow: View {
                 .minimumScaleFactor(0.8)
                 .frame(width: 78, alignment: .leading)
             DevSlider(value: $value, range: range, defaultValue: defaultValue, identifier: identifier,
-                      onBegin: { develop.beginChange() }, onEnd: { develop.endChange() }, onReset: onReset)
+                      onBegin: { develop.beginChange() }, onEnd: { develop.endChange() }, onReset: onReset,
+                      trackStops: trackStops)
                 .baselineAtCenter()
             Text(valueText)
                 .monospacedDigit()
