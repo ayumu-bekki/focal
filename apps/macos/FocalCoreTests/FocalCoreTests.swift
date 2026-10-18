@@ -97,6 +97,23 @@ final class FocalCoreTests: XCTestCase {
         XCTAssertThrowsError(try catalog.setRating(7, for: ids))
     }
 
+    /// スキャンの進み具合（v3.30）: 探す段階 → 読む段階の順に、パス付きで届く
+    func testScanProgressPhasesAndPaths() async throws {
+        let lib = try requireData()
+        let catalog = try Catalog(url: tmp.appendingPathComponent("p.sqlite"))
+        let root = try catalog.addRoot(lib)
+        var events: [Catalog.ScanProgress] = []
+        for try await ev in catalog.scan(rootID: root, thumbnailCache: nil) {
+            if case .progress(let p) = ev { events.append(p) }
+        }
+        XCTAssertEqual(events.first?.phase, .listing)
+        XCTAssertFalse(events.first?.path.isEmpty ?? true)
+        let reading = events.filter { $0.phase == .reading }
+        XCTAssertEqual(reading.last.map { [$0.done, $0.total] }, [2, 2])
+        XCTAssertTrue(reading.contains { $0.path.hasSuffix(".ARW") || $0.path.hasSuffix(".CR3") })
+        XCTAssertEqual(events.firstIndex { $0.phase == .reading }.map { events[$0...].allSatisfy { $0.phase == .reading } }, true)
+    }
+
     func testScanOfMissingRootFails() async throws {
         let catalog = try Catalog(url: tmp.appendingPathComponent("c.sqlite"))
         do {

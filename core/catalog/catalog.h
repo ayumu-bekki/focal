@@ -147,10 +147,23 @@ struct ScanStats {
     int thumbnail_failures = 0;
 };
 
+// スキャンの進み具合（v3.30）。
+// Listing: フォルダをたどって写真を探している（done = 見つけた写真ファイルの数、total = 0。量が分からない）。
+// Reading: 新しい・変わった写真を読んでカタログに書いている（done / total。変わっていない写真は数えない）。
+// path は、いま調べているフォルダ（Listing）・読んでいるファイル（Reading）の絶対パス（UTF-8）。最後の知らせでは空のことがある
+enum class ScanPhase { Listing = 0, Reading = 1 };
+struct ScanProgress {
+    ScanPhase phase = ScanPhase::Listing;
+    int done = 0;
+    int total = 0;
+    std::string path;
+};
+
 struct ScanOptions {
     const ThumbnailCache* thumbnails = nullptr;  // 指定すればサムネイルも作る（キャッシュ済みは飛ばす）
     unsigned threads = 0;                        // 0 ならコア数 - 1（4.2 章のサムネイルプール）
-    std::function<void(int done, int total)> progress;
+    // 進み具合。ワーカースレッドから呼ばれる（同時には呼ばない）。1 秒に 10 回程度に間引き、各段階の終わりは必ず知らせる
+    std::function<void(const ScanProgress&)> progress;
     const std::atomic<bool>* cancel = nullptr;
 };
 

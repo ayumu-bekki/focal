@@ -2368,6 +2368,16 @@
         }
       }
     },
+    "Looking for photos… %lld found" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "写真を探しています… %lld 件"
+          }
+        }
+      }
+    },
     "Luma Noise" : {
       "localizations" : {
         "ja" : {

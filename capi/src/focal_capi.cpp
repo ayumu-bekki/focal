@@ -868,7 +868,10 @@ fc_status fc_catalog_scan_async(fc_catalog* catalog, int64_t root_id, const char
                 ScanOptions opt;
                 opt.thumbnails = cache ? &*cache : nullptr;
                 opt.cancel = &t->cancel;
-                if (progress) opt.progress = [progress, user](int d, int n) { progress(user, d, n); };
+                if (progress)
+                    opt.progress = [progress, user](const ScanProgress& p) {
+                        progress(user, static_cast<int32_t>(p.phase), p.done, p.total, p.path.c_str());
+                    };
                 const ScanStats s = c->scan_root(root_id, opt);
                 stats = {s.added,         s.updated,    s.unchanged,    s.missing,   s.restored,
                          s.renamed,       s.unsupported, s.relinked,    s.inherited, s.restored_data, s.folders_added, s.thumbnails,

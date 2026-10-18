@@ -850,3 +850,41 @@ TEST_CASE("バックアップ: 同じ理由のものは新しい 5 つだけ残�
         CHECK(st.column_int(1) == 1);
     }
 }
+
+TEST_CASE("スキャンの進み具合: 探す段階（見つけた数とフォルダ）→ 読む段階（done / total とファイル）の順で、終わりは必ず知らせる", "[library]") {
+    TempDir lib, db;
+    for (int d = 0; d < 3; ++d) {
+        fs::create_directories(lib.path() / ("d" + std::to_string(d)));
+        for (int i = 0; i < 50; ++i)  // 中身のないファイルでも写真の行はできる（非対応）
+            std::ofstream(lib.path() / ("d" + std::to_string(d)) / ("IMG_" + std::to_string(i) + ".NEF")) << "x";
+    }
+    auto c = Catalog::open(db / "c.sqlite");
+    const int64_t root = c->add_root(lib.path());
+    std::vector<ScanProgress> events;
+    ScanOptions opt;
+    opt.progress = [&](const ScanProgress& p) { events.push_back(p); };
+    c->scan_root(root, opt);
+
+    REQUIRE(events.size() >= 4);
+    CHECK(events.front().phase == ScanPhase::Listing);
+    CHECK_FALSE(events.front().path.empty());  // 探し始めのフォルダ（ルート）
+    // 探す段階が先で、読む段階に入ったら戻らない
+    const auto first_reading = std::find_if(events.begin(), events.end(), [](const auto& e) { return e.phase == ScanPhase::Reading; });
+    REQUIRE(first_reading != events.end());
+    CHECK(std::all_of(first_reading, events.end(), [](const auto& e) { return e.phase == ScanPhase::Reading; }));
+    const auto last_listing = std::prev(first_reading);
+    CHECK(last_listing->done == 150);  // 探し終わり: 見つけた写真ファイルの数
+    CHECK(last_listing->total == 0);
+    for (auto it = first_reading; it != events.end(); ++it) {
+        CHECK(it->total == 150);
+        if (it != first_reading) CHECK(it->done >= std::prev(it)->done);
+    }
+    CHECK(events.back().done == 150);  // 読み終わり
+    CHECK(std::any_of(first_reading, events.end(), [](const auto& e) { return e.path.find(".NEF") != std::string::npos; }));
+
+    // 変わっていなければ、読む段階はない（探す段階だけ）
+    events.clear();
+    c->scan_root(root, opt);
+    CHECK_FALSE(events.empty());
+    CHECK(std::all_of(events.begin(), events.end(), [](const auto& e) { return e.phase == ScanPhase::Listing; }));
+}

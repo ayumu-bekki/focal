@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 26
+#define FC_API_VERSION 27
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -369,8 +369,15 @@ typedef struct fc_scan_stats {
 
 typedef struct fc_task fc_task;
 
-/* 進捗。ワーカースレッドから呼ばれる */
-typedef void (*fc_scan_progress_fn)(void* user, int32_t done, int32_t total);
+/* スキャンの段階 */
+typedef enum fc_scan_phase {
+    FC_SCAN_LISTING = 0, /* フォルダをたどって写真を探している（done = 見つけた写真ファイルの数、total = 0） */
+    FC_SCAN_READING = 1, /* 新しい・変わった写真を読んでいる（done / total） */
+} fc_scan_phase;
+
+/* 進捗。ワーカースレッドから呼ばれる（同時には呼ばない。1 秒に 10 回程度に間引く）。
+   path はいま調べているフォルダ・読んでいるファイル（UTF-8 の絶対パス、空のこともある）。コールバックの間だけ有効 */
+typedef void (*fc_scan_progress_fn)(void* user, int32_t phase, int32_t done, int32_t total, const char* path);
 /* 完了。必ず 1 回だけ呼ばれる（キャンセル時は FC_ERR_CANCELLED）。stats と message はコールバックの間だけ有効 */
 typedef void (*fc_scan_done_fn)(void* user, fc_status status, const fc_scan_stats* stats, const char* message);
 

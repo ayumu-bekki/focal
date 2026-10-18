@@ -70,15 +70,7 @@ struct ContentView: View {
             }
         }
         .overlay(alignment: .top) {
-            if let p = model.importProgress {
-                ProgressView(value: Double(p.done), total: Double(max(p.total, 1))) {
-                    Text(p.total == 0 ? "Scanning…" : "Importing \(p.done) / \(p.total)")
-                }
-                .padding(10)
-                .frame(maxWidth: 360)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                .padding(.top, 8)
-            }
+            if let p = model.importProgress { ScanProgressPanel(progress: p) }
         }
         .overlay(alignment: .top) {
             if let text = model.toast {
@@ -460,5 +452,40 @@ struct FilmstripHandle: View {
         .simultaneousGesture(TapGesture(count: 2).onEnded { withAnimation(.easeInOut(duration: 0.15)) { visible.toggle() } })
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("filmstripHandle")
+    }
+}
+
+/// スキャンの進み具合（上に重ねる）。探している間は量が分からないので流れるバー、読む段階は done / total。
+/// 下に、いま調べているフォルダ・読んでいるファイルのパスを出す（v3.30）
+struct ScanProgressPanel: View {
+    let progress: Catalog.ScanProgress
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            switch progress.phase {
+            case .listing:
+                ProgressView {
+                    Text(progress.done > 0 ? "Looking for photos… \(progress.done) found" : "Scanning…")
+                }
+                .progressViewStyle(.linear)
+            case .reading:
+                ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1))) {
+                    Text("Importing \(progress.done) / \(progress.total)")
+                }
+            }
+            Text(verbatim: progress.path.isEmpty ? " " : displayPath(URL(fileURLWithPath: progress.path)))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(progress.path)
+                .accessibilityIdentifier("scanProgressPath")
+        }
+        .padding(10)
+        .frame(width: 360)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding(.top, 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("scanProgress")
     }
 }

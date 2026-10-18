@@ -8,6 +8,7 @@
 #include <cstring>
 #include <ctime>
 #include <map>
+#include <mutex>
 #include <set>
 #include <system_error>
 #include <thread>
@@ -134,7 +135,32 @@ bool is_managed_library(const std::string& name) {
            ext == "migratedaplibrary" || ext == "lrdata";
 }
 
-void walk(const fs::path& disk_root, std::vector<std::string>& dirs, std::vector<FoundFile>& files) {
+// 進み具合の知らせを間引く（ワーカースレッドから呼んでよい。コールバックは同時には呼ばない）
+class ProgressReporter {
+public:
+    explicit ProgressReporter(const std::function<void(const ScanProgress&)>& fn) : fn_(fn) {}
+
+    // force でなければ、前の知らせから 100ms 経っていないときは捨てる
+    void operator()(ScanPhase phase, int done, int total, const fs::path& path, bool force = false) {
+        if (!fn_) return;
+        const auto now = std::chrono::steady_clock::now();
+        std::lock_guard lock(mutex_);
+        if (!force && sent_ && now - last_ < std::chrono::milliseconds(100)) return;
+        sent_ = true;
+        last_ = now;
+        fn_(ScanProgress{phase, done, total, path.empty() ? std::string() : path_to_utf8(path)});
+    }
+
+private:
+    const std::function<void(const ScanProgress&)>& fn_;
+    std::mutex mutex_;
+    bool sent_ = false;
+    std::chrono::steady_clock::time_point last_;
+};
+
+void walk(const fs::path& disk_root, std::vector<std::string>& dirs, std::vector<FoundFile>& files,
+          ProgressReporter& report) {
+    report(ScanPhase::Listing, 0, 0, disk_root, true);
     dirs.push_back("");
     std::error_code ec;
     fs::recursive_directory_iterator it(disk_root, fs::directory_options::skip_permission_denied, ec), end;
@@ -161,11 +187,13 @@ void walk(const fs::path& disk_root, std::vector<std::string>& dirs, std::vector
                 continue;
             }
             dirs.push_back(rel);
+            report(ScanPhase::Listing, static_cast<int>(files.size()), 0, it->path());
         } else if (const auto kind = photo_kind_for_name(name)) {
             if (auto st = stat_file(it->path())) files.push_back({parent_rel(rel), name, it->path(), *st, *kind, {}});
         }
     }
     std::sort(dirs.begin(), dirs.end());  // 親が子より先に来る
+    report(ScanPhase::Listing, static_cast<int>(files.size()), 0, {}, true);
 }
 
 // 同じフォルダで、拡張子を除いた名前が同じ（大文字小文字を区別しない）写真ファイルを 1 枚にする（v3.22、5.12 章）。
@@ -640,12 +668,19 @@ void process_works(db::DbWriter& writer, const std::vector<Work>& work, const Sc
     const unsigned threads = opt.threads ? opt.threads : std::max(1u, std::thread::hardware_concurrency() - 1);
     ThreadPool pool(threads);
     const int total = static_cast<int>(work.size());
+    ProgressReporter report(opt.progress);
+    std::atomic<int> read{0};  // 読み終えた写真の数（1 枚ごとに知らせる）
+    if (total > 0) report(ScanPhase::Reading, 0, total, work.front().disk, true);
     for (int start = 0; start < total; start += kScanChunk) {
         if (opt.cancel && opt.cancel->load()) throw Error(Error::Code::Cancelled, "scan cancelled");
         const int end = std::min(total, start + kScanChunk);
         std::vector<Probe> probes(end - start);
         pool.parallel_for(end - start, 1, [&](int b, int e) {
-            for (int i = b; i < e; ++i) probes[i] = probe(work[start + i], opt.thumbnails);
+            for (int i = b; i < e; ++i) {
+                report(ScanPhase::Reading, read.load(), total, work[start + i].disk);
+                probes[i] = probe(work[start + i], opt.thumbnails);
+                ++read;
+            }
         });
 
         for (int i = start; i < end; ++i) {
@@ -691,8 +726,8 @@ void process_works(db::DbWriter& writer, const std::vector<Work>& work, const Sc
         for (const auto& f : fresh)
             if (!restored.count(f.id)) remaining.push_back(f);
         stats.inherited += inherit_from_copies(writer, remaining);
-        if (opt.progress) opt.progress(end, total);
     }
+    if (total > 0) report(ScanPhase::Reading, total, total, {}, true);
 }
 
 // ---- Catalog -----------------------------------------------------------
@@ -1360,7 +1395,10 @@ ScanStats Catalog::scan_root(int64_t root_id, const ScanOptions& opt) {
 
     std::vector<std::string> dirs;
     std::vector<FoundFile> files;
-    walk(*disk_root, dirs, files);
+    {
+        ProgressReporter report(opt.progress);
+        walk(*disk_root, dirs, files, report);
+    }
     attach_companions(files);  // RAW と同じ名前の JPEG などは、その RAW の付属ファイルにする（v3.22）
 
     ScanStats stats;

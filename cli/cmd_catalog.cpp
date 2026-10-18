@@ -107,7 +107,12 @@ int cmd_import(int argc, char** argv) {
     ScanOptions opt;
     opt.thumbnails = thumbs ? &*thumbs : nullptr;
     opt.threads = static_cast<unsigned>(args.get_int("threads", 0));
-    opt.progress = [](int done, int total) { std::fprintf(stderr, "\r  %d / %d", done, total); };
+    opt.progress = [](const ScanProgress& p) {
+        if (p.phase == ScanPhase::Listing)
+            std::fprintf(stderr, "\r  scanning: %d photo files found\033[K", p.done);
+        else
+            std::fprintf(stderr, "\r  reading: %d / %d\033[K", p.done, p.total);
+    };
 
     const auto t0 = std::chrono::steady_clock::now();
     const ScanStats s = catalog->scan_root(root, opt);

@@ -103,7 +103,7 @@ final class LibraryModel {
     /// カタログごとの設定（起動時の再スキャン・読み込み先。v3.25）
     let prefs: CatalogPrefs
 
-    private(set) var importProgress: (done: Int, total: Int)? = nil
+    private(set) var importProgress: Catalog.ScanProgress? = nil
     private(set) var lastError: String? = nil
 
     var currentPhoto: Photo? { currentIndex.flatMap { photo(at: $0) } }
@@ -582,12 +582,12 @@ final class LibraryModel {
         }
         var current: Int64? = rootID
         while let id = current {
-            importProgress = (0, 0)
+            importProgress = .init(phase: .listing)
             do {
                 // サムネイルは表示時に作る（取り込みを早く終わらせる）
                 for try await ev in catalog.scan(rootID: id, thumbnailCache: nil) {
                     switch ev {
-                    case .progress(let done, let total): importProgress = (done, total)
+                    case .progress(let p): if p != importProgress { importProgress = p }
                     case .finished(let stats):
                         // カタログから外したときに保管した情報（現像・★・タグなど）が、同じ写真に戻った（v3.23）
                         if stats.restoredData > 0 {
@@ -727,7 +727,7 @@ final class LibraryModel {
             develop.close()
         }
         let catalog = catalog
-        importProgress = (0, 0)
+        importProgress = .init(phase: .listing)
         Task {
             let outcome = await Task.detached { () -> Result<DeleteResult, Error> in
                 Result {

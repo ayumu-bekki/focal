@@ -73,6 +73,22 @@ sqlite3 "$WORK/nested-catalog.sqlite" "
   INSERT INTO photos (folder_id, file_name, file_size, file_mtime, quick_hash, status, capture_time, rating, flag)
     SELECT (SELECT id FROM folders WHERE root_id = 2), file_name, file_size, file_mtime, quick_hash, 0, capture_time, 3, 0 FROM photos;"
 
+# 現像を変えた印（v3.30）のテスト用: 編集のない写真 1 枚だけのカタログ（共有のカタログは、ほかのテストが編集を残す）
+mkdir -p "$WORK/badge"
+cp -c "$ROOT/tests/data/sony_ilce7m3.ARW" "$WORK/badge/"
+"$ROOT/build/release/cli/focal" import "$WORK/badge" --catalog "$WORK/badge-catalog.sqlite" --cache "$WORK/thumbs" >/dev/null
+
+# スキャンの進み具合（v3.30）のテスト用: 空のルートを登録したカタログを作ってから、写真（クローン）を 6,000 枚置く
+# （数秒かかる量にして、進み具合のパネルが出ている間に確かめる。600 枚のフォルダを 10 回複製する）
+mkdir -p "$WORK/scan-lib" "$WORK/scan-seed"
+"$ROOT/build/release/cli/focal" import "$WORK/scan-lib" --catalog "$WORK/scan-catalog.sqlite" --no-thumbs >/dev/null
+SRC=("$ROOT"/tests/data/*.{CR3,NEF,ARW,RAF,DNG})
+for ((i = 0; i < 600; i++)); do
+  src=${SRC[$((i % ${#SRC[@]}))]}
+  cp -c "$src" "$WORK/scan-seed/IMG_$(printf '%04d' "$i").${src##*.}"
+done
+for ((k = 0; k < 10; k++)); do cp -c -R "$WORK/scan-seed" "$WORK/scan-lib/$k"; done
+
 cd "$ROOT/apps/macos"
 xcodegen -q
 XCODE_STATUS=0
@@ -102,6 +118,8 @@ TEST_RUNNER_FOCAL_COLOR_INDEX="$COLOR_INDEX" \
 TEST_RUNNER_FOCAL_COLOR_REF="$COLOR_REF" \
 TEST_RUNNER_FOCAL_COLOR_ASPECT="$COLOR_ASPECT" \
 TEST_RUNNER_FOCAL_FIRST_RUN_HOME="$WORK/first-run" \
+TEST_RUNNER_FOCAL_SCAN_CATALOG="$WORK/scan-catalog.sqlite" \
+TEST_RUNNER_FOCAL_BADGE_CATALOG="$WORK/badge-catalog.sqlite" \
 TEST_RUNNER_FOCAL_GPU="${FOCAL_GPU:-1}" \
 TEST_RUNNER_FOCAL_WINDOW_SCREEN="${FOCAL_WINDOW_SCREEN:-0}" \
   xcodebuild test -project Focal.xcodeproj -scheme Focal -destination 'platform=macOS' \

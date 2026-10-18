@@ -503,8 +503,30 @@ public final class Catalog: @unchecked Sendable {
 
     // MARK: スキャン
 
+    /// スキャンの進み具合（v3.30）
+    public struct ScanProgress: Sendable, Equatable {
+        public enum Phase: Sendable, Equatable {
+            /// フォルダをたどって写真を探している（done = 見つけた写真ファイルの数。total は 0）
+            case listing
+            /// 新しい・変わった写真を読んでいる（done / total）
+            case reading
+        }
+        public let phase: Phase
+        public let done: Int
+        public let total: Int
+        /// いま調べているフォルダ・読んでいるファイル（空のこともある）
+        public let path: String
+
+        public init(phase: Phase, done: Int = 0, total: Int = 0, path: String = "") {
+            self.phase = phase
+            self.done = done
+            self.total = total
+            self.path = path
+        }
+    }
+
     public enum ScanEvent: Sendable {
-        case progress(done: Int, total: Int)
+        case progress(ScanProgress)
         case finished(ScanStats)
     }
 
@@ -580,9 +602,12 @@ private final class ScanBox: @unchecked Sendable {
     }
 }
 
-private func scanProgress(_ user: UnsafeMutableRawPointer?, _ done: Int32, _ total: Int32) {
+private func scanProgress(_ user: UnsafeMutableRawPointer?, _ phase: Int32, _ done: Int32, _ total: Int32,
+                          _ path: UnsafePointer<CChar>?) {
     let box = Unmanaged<ScanBox>.fromOpaque(user!).takeUnretainedValue()
-    box.continuation.yield(.progress(done: Int(done), total: Int(total)))
+    let p = Catalog.ScanProgress(phase: phase == Int32(FC_SCAN_READING.rawValue) ? .reading : .listing,
+                                 done: Int(done), total: Int(total), path: path.map { String(cString: $0) } ?? "")
+    box.continuation.yield(.progress(p))
 }
 
 private func scanDone(_ user: UnsafeMutableRawPointer?, _ status: fc_status, _ stats: UnsafePointer<fc_scan_stats>?,

@@ -512,7 +512,9 @@ CardImportResult import_from_card(Catalog& catalog, const CardImportOptions& opt
 
     ScanOptions so;
     so.thumbnails = opt.thumbnails;
-    so.progress = [&](int d, int t) { report(CardImportProgress::Phase::Cataloging, d, t, 0, 0, {}); };
+    so.progress = [&](const ScanProgress& p) {
+        if (p.phase == ScanPhase::Reading) report(CardImportProgress::Phase::Cataloging, p.done, p.total, 0, 0, {});
+    };
     // コピーした RAW だけを登録する（ルートは走査しない。ほかの写真には触れず、ルートが大きくても遅くならない）
     // （RAW と同じ名前の JPEG などの付属ファイルも渡す。カタログがその RAW の付属ファイルとして記録する）
     std::vector<fs::path> raw_paths;

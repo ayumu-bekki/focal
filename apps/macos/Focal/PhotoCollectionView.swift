@@ -160,14 +160,6 @@ struct PhotoCollectionView: NSViewRepresentable {
         private func syncSelection(_ cv: NSCollectionView) {
             guard !syncingSelection else { return }
             let indexes = cv.selectionIndexPaths.map(\.item).sorted()
-            if indexes.isEmpty, let i = model.currentIndex, model.photoIDs.indices.contains(i) {
-                syncingSelection = true
-                cv.selectionIndexPaths = [IndexPath(item: i, section: 0)]
-                syncingSelection = false
-                model.selection = [model.photoIDs[i]]
-                model.selectionAnchor = i
-                return
-            }
             model.selection = Set(indexes.compactMap { model.photoIDs.indices.contains($0) ? model.photoIDs[$0] : nil })
             if let last = indexes.last, model.currentIndex.map({ !indexes.contains($0) }) ?? true {
                 model.currentIndex = last

@@ -199,8 +199,8 @@ final class FocalUITests: XCTestCase {
     /// 現像の設定を変えた写真は、一覧のセルの右下に印が出る。既定値に戻すと消える
     @MainActor
     func testEditedBadge() throws {
-        try requireCatalog()
-        let app = launch(extra: ["FOCAL_FRAME_STATS": "1"])
+        let catalog = try XCTUnwrap(ProcessInfo.processInfo.environment["FOCAL_BADGE_CATALOG"], "scripts/ui-test.sh から実行する")
+        let app = launch(extra: ["FOCAL_FRAME_STATS": "1", "FOCAL_CATALOG": catalog])  // 編集のない写真だけのカタログ
         let grid = app.descendants(matching: .any)["photoGrid"]
         XCTAssertTrue(grid.waitForExistence(timeout: 10))
         let cell = grid.descendants(matching: .any).matching(identifier: "photoCell").element(boundBy: 0)
@@ -1843,6 +1843,23 @@ final class FocalUITests: XCTestCase {
 
     /// カタログがないと初回起動の画面を出し、「カタログを作成」で既定の場所に作って空のカタログを開く。
     /// 作ったカタログを FOCAL_CATALOG で開き直せる
+    /// スキャンの進み具合（v3.30）: 読む段階のバーの下に、読んでいるファイルのパスが出る。終わると消える
+    @MainActor
+    func testScanProgressShowsPath() throws {
+        let env = ProcessInfo.processInfo.environment
+        let catalog = try XCTUnwrap(env["FOCAL_SCAN_CATALOG"], "scripts/ui-test.sh から実行する")
+        let app = launch(extra: ["FOCAL_CATALOG": catalog])
+        XCTAssertTrue(app.windows["library"].waitForExistence(timeout: 10))
+        app.typeKey("r", modifierFlags: [.command, .shift])  // すべてのフォルダを再スキャン
+        let path = app.staticTexts["scanProgressPath"]
+        XCTAssertTrue(path.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitUntil { self.text(path).contains("IMG_") }, text(path))
+        saveScreenshot(app, name: "scan-progress")
+        XCTAssertTrue(waitGone(path, timeout: 120))
+        let count = app.staticTexts["photoCount"]
+        XCTAssertTrue(waitUntil { self.text(count).filter(\.isNumber).hasSuffix("6000") }, text(count))
+    }
+
     /// ネットワークの共有の上のカタログは作れず・開けず、ダイアログで知らせる（実際の共有の代わりに FOCAL_TEST_NETWORK_VOLUME）
     @MainActor
     func testNetworkVolumeCatalogRefused() throws {

@@ -67,14 +67,22 @@ typedef struct scan_ctx {
     fc_status status;
     fc_scan_stats stats;
     int progress_calls;
+    int listing_calls;      /* FC_SCAN_LISTING の知らせ */
+    int reading_last_done;  /* FC_SCAN_READING の最後の done / total */
+    int reading_last_total;
+    int reading_paths;      /* path（読んでいるファイル）の付いた FC_SCAN_READING の知らせ */
     char message[512];
 } scan_ctx;
 
-static void on_progress(void* user, int32_t done, int32_t total) {
+static void on_progress(void* user, int32_t phase, int32_t done, int32_t total, const char* path) {
     scan_ctx* ctx = (scan_ctx*)user;
     ctx->progress_calls++;
-    (void)done;
-    (void)total;
+    if (phase == FC_SCAN_LISTING) ctx->listing_calls++;
+    if (phase == FC_SCAN_READING) {
+        ctx->reading_last_done = done;
+        ctx->reading_last_total = total;
+        if (path && path[0]) ctx->reading_paths++;
+    }
 }
 
 static void on_scan_done(void* user, fc_status status, const fc_scan_stats* stats, const char* message) {
@@ -404,6 +412,9 @@ int main(void) {
     CHECK(sc.stats.added == 2);
     CHECK(sc.stats.thumbnails == 2);
     CHECK(sc.progress_calls >= 1);
+    CHECK(sc.listing_calls >= 2);  /* 探し始めと探し終わり */
+    CHECK(sc.reading_last_done == 2 && sc.reading_last_total == 2);  /* 読み終わりは必ず知らせる */
+    CHECK(sc.reading_paths >= 1);  /* 読んでいるファイルのパス */
     CHECK(sc.w.calls == 1);
 
     /* 存在しないルートのスキャンはエラーで完了する */
