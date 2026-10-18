@@ -214,20 +214,32 @@ final class AppState {
         let stored = UserDefaults.standard.object(forKey: Self.previewCacheLimitKey) as? Int64
         // 前の版で保存した中途半端な値（512 MiB・2 GiB など）は、いちばん近い選択肢に寄せる
         previewCacheLimit = stored.map { Self.nearestLimit(UInt64(max($0, 0))) } ?? Self.defaultPreviewCacheLimit
-        if let url = Self.initialCatalog() { open(url) }
+        switch Self.initialCatalog() {
+        case .open(let url): open(url)
+        case .missing(let url):
+            // 前回のカタログが見つからない（移した・消した・外付けのディスクをつないでいない）: 黙って別のカタログを開かない
+            error = String(localized: "The catalog you used last time can’t be found: \(displayPath(url)). If it is on an external disk, connect the disk and open it with “Open Existing Catalog…”.")
+        case .none: break
+        }
     }
 
-    /// 起動時に開くカタログ。なければ nil（初回起動の画面を出す）
-    private static func initialCatalog() -> URL? {
-        if let url = AppPaths.fixedCatalog { return url }
-        if AppPaths.isolatedFromDefaults { return nil }
+    private enum InitialCatalog {
+        case open(URL)
+        case missing(URL)  // 前回のカタログ（記録はあるがファイルがない）
+        case none          // 初回起動
+    }
+
+    /// 起動時に開くカタログ
+    private static func initialCatalog() -> InitialCatalog {
+        if let url = AppPaths.fixedCatalog { return .open(url) }
+        if AppPaths.isolatedFromDefaults { return .none }
         if let p = UserDefaults.standard.string(forKey: lastCatalogKey), !p.isEmpty {
             let url = URL(fileURLWithPath: p)
-            if AppPaths.catalogExists(url) { return url }
+            return AppPaths.catalogExists(url) ? .open(url) : .missing(url)
         }
-        // 0.2.0 までの保存先にあれば、それを使い続ける（データを失わない）
-        if AppPaths.catalogExists(AppPaths.legacyCatalog) { return AppPaths.legacyCatalog }
-        return nil
+        // 前回のカタログを一度も記録していない（0.2.0 までの版から上げた）ときだけ、古い保存先にあれば使い続ける
+        if AppPaths.catalogExists(AppPaths.legacyCatalog) { return .open(AppPaths.legacyCatalog) }
+        return .none
     }
 
     /// 既存のカタログを開く。開けなければ今のカタログのまま false
@@ -269,6 +281,7 @@ final class AppState {
             let next = try LibraryModel(catalogURL: AppPaths.database(of: url), cacheURL: AppPaths.thumbnailCache,
                                         previewCacheURL: AppPaths.previewCache, previewCacheLimit: previewCacheLimit)
             model = next
+            previous?.close()  // 前のカタログのファイルとスレッドを、モデルの解放を待たずに閉じる
             catalogURL = url
             error = nil
             if !AppPaths.isolatedFromDefaults {

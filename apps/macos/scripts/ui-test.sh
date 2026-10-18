@@ -78,6 +78,12 @@ mkdir -p "$WORK/badge"
 cp -c "$ROOT/tests/data/sony_ilce7m3.ARW" "$WORK/badge/"
 "$ROOT/build/release/cli/focal" import "$WORK/badge" --catalog "$WORK/badge-catalog.sqlite" --cache "$WORK/thumbs" >/dev/null
 
+# カタログの切り替え（v3.30）のテスト用: 切り替え先のカタログ（パッケージ。Finder から開くのと同じ経路で渡す）
+mkdir -p "$WORK/switch-lib" "$WORK/Switch.focalcatalog"
+cp -c "$ROOT/tests/data/nikon_z7.NEF" "$WORK/switch-lib/"
+cp -c "$ROOT/tests/data/canon_eos_m50.CR3" "$WORK/switch-lib/"
+"$ROOT/build/release/cli/focal" import "$WORK/switch-lib" --catalog "$WORK/Switch.focalcatalog/catalog.sqlite" --no-thumbs >/dev/null
+
 # スキャンの進み具合（v3.30）のテスト用: 空のルートを登録したカタログを作ってから、写真（クローン）を 6,000 枚置く
 # （数秒かかる量にして、進み具合のパネルが出ている間に確かめる。600 枚のフォルダを 10 回複製する）
 mkdir -p "$WORK/scan-lib" "$WORK/scan-seed"
@@ -120,6 +126,7 @@ TEST_RUNNER_FOCAL_COLOR_ASPECT="$COLOR_ASPECT" \
 TEST_RUNNER_FOCAL_FIRST_RUN_HOME="$WORK/first-run" \
 TEST_RUNNER_FOCAL_SCAN_CATALOG="$WORK/scan-catalog.sqlite" \
 TEST_RUNNER_FOCAL_BADGE_CATALOG="$WORK/badge-catalog.sqlite" \
+TEST_RUNNER_FOCAL_SWITCH_CATALOG="$WORK/Switch.focalcatalog" \
 TEST_RUNNER_FOCAL_GPU="${FOCAL_GPU:-1}" \
 TEST_RUNNER_FOCAL_WINDOW_SCREEN="${FOCAL_WINDOW_SCREEN:-0}" \
   xcodebuild test -project Focal.xcodeproj -scheme Focal -destination 'platform=macOS' \

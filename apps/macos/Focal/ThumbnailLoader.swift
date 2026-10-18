@@ -27,6 +27,12 @@ final class ThumbnailLoader: @unchecked Sendable {
 
     func invalidate(_ id: Int64) { cache.removeObject(forKey: NSNumber(value: id)) }
 
+    /// 止める（カタログを切り替えるとき）。メモリのキャッシュも捨てる
+    func close() {
+        thumbnailer.close()
+        cache.removeAllObjects()
+    }
+
     /// バックグラウンドで完全にデコードした画像を作る。
     /// 遅延デコードの CGImage をレイヤーに渡すと、表示の確定時にメインスレッドで JPEG を展開してしまう（ヒッチの原因）
     static func decode(_ url: URL) -> CGImage? {

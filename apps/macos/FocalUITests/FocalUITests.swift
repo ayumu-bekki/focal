@@ -1843,6 +1843,21 @@ final class FocalUITests: XCTestCase {
 
     /// カタログがないと初回起動の画面を出し、「カタログを作成」で既定の場所に作って空のカタログを開く。
     /// 作ったカタログを FOCAL_CATALOG で開き直せる
+    /// カタログの切り替え（v3.30）: Finder から開くのと同じ経路で別のカタログを開くと、そのカタログに切り替わる
+    /// （前のカタログは、モデルの解放を待たずに閉じる。ファイルが閉じたことは、実行中に lsof で確かめた）
+    @MainActor
+    func testSwitchCatalog() throws {
+        let env = ProcessInfo.processInfo.environment
+        let other = try XCTUnwrap(env["FOCAL_SWITCH_CATALOG"], "scripts/ui-test.sh から実行する")
+        let app = launch()
+        let count = app.staticTexts["photoCount"]
+        XCTAssertTrue(count.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitUntil { self.text(count).hasSuffix("/ 5") }, text(count))
+        app.open(URL(fileURLWithPath: other))
+        XCTAssertTrue(waitUntil(timeout: 10) { self.text(count).hasSuffix("/ 2") }, text(count))
+        if env["FOCAL_SWITCH_HOLD"] != nil { sleep(15) }  // 調査用: この間に lsof で開いているファイルを見る
+    }
+
     /// スキャンの進み具合（v3.30）: 読む段階のバーの下に、読んでいるファイルのパスが出る。終わると消える
     @MainActor
     func testScanProgressShowsPath() throws {

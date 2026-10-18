@@ -149,7 +149,7 @@ apps/macos/scripts/package.sh      # 配布物（build/dist/Focal <版>.dmg）�
 - `DbWriter::call()` はコミット後に戻るので、直後に読み取り接続から結果が見える。
 - 現像のコールバック（セッションのイベント、レンダリング結果）は core のスレッドから来る。Swift 側では `Task { @MainActor … }` で戻す。セッションのコールバックの中で `close` しない（close は実行中のコールバックの終了を待つ）。
 - `Editor` は開いている `EditSession` より長く生きている必要がある（Swift の `Session` が `Editor` を参照で持つ）。
-- アプリの終了時とカタログの切り替え時は `LibraryModel.prepareForTermination()` でセッションを閉じ、`Catalog.flush()` で保存の完了を待つ。
+- アプリの終了時とカタログの切り替え時は `LibraryModel.prepareForTermination()` でセッションを閉じ、`Catalog.flush()` で保存の完了を待つ。切り替え時は続けて `LibraryModel.close()` で前のカタログの Editor・Thumbnailer・Catalog を閉じる（SwiftUI が前のモデルを参照し続けるので、`deinit` に頼らない。C API の `fc_*_shutdown`）。
 - アプリのカタログの既定は `~/Pictures/Focal/〜.focalcatalog` だが、CLI の既定は今も `~/Library/Application Support/jp.bekki.focal/catalog.sqlite`（CLI はパッケージを開くとき `--catalog 〜.focalcatalog/catalog.sqlite` と指定する）。
 - アルバムは `albums.kind`（0 アルバム / 1 フォルダ / 2 スマート）と `parent_id`。写真を足せるのは kind 0 だけ（core が Error にする）。スマートアルバムの条件を足すときは `smart_query.cpp`（検証と SQL）・design.md 7.2 章の表・`SmartQuery.swift`（編集の行）をそろえる。名前の一意は「同じ親の下」で、v2 の `albums` は v3 のマイグレーションで作り直している（`album_photos` を先に消してから `albums` を消す）。
 - ルートの `path` は「最後に見たマウントポイントからの絶対パス」。`Catalog::open` と、ボリュームの接続・取り外しの通知（アプリ）で `refresh_volumes()` が合わせ直す。すでに同じ場所を指しているなら書き換えない（サムネイルのキャッシュのキーがパスを含むため）。

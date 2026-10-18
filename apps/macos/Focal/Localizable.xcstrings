@@ -3947,6 +3947,16 @@
         }
       }
     },
+    "The catalog you used last time can’t be found: %@. If it is on an external disk, connect the disk and open it with “Open Existing Catalog…”." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前回のカタログが見つかりません: %@。外付けのディスクにある場合は、ディスクをつないでから「既存のカタログを開く…」で開いてください。"
+          }
+        }
+      }
+    },
     "The destination has %@ free; the selected photos take %@. Photos already imported are skipped, but there may not be enough space." : {
       "localizations" : {
         "ja" : {

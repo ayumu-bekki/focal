@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 27
+#define FC_API_VERSION 28
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -54,6 +54,10 @@ typedef struct fc_presets fc_presets;
 fc_status fc_catalog_open(const char* path, fc_catalog** out);
 /* NULL でもよい。実行中のスキャンがあれば先に fc_task_release で手放しておくこと */
 void fc_catalog_close(fc_catalog* catalog);
+/* カタログを手放す（ハンドルは fc_catalog_close まで残る）。以後このハンドルの呼び出しは FC_ERR_INVALID_ARGUMENT。
+   実行中の処理・エディタ・サムネイラが使っている間は、それらが終わる（手放す）まで core のカタログは開いたまま。
+   カタログを切り替えるとき、Swift のオブジェクトの解放を待たずにファイルとスレッドを閉じるために使う。NULL でもよい */
+void fc_catalog_shutdown(fc_catalog* catalog);
 /* 書き込みスレッドに積んだ変更（編集の保存など）がすべて終わるまで待つ。アプリの終了時に呼ぶ */
 fc_status fc_catalog_flush(fc_catalog* catalog);
 
@@ -624,6 +628,8 @@ typedef void (*fc_thumbnail_fn)(void* user, uint64_t request_id, fc_status statu
 fc_status fc_thumbnailer_create(fc_catalog* catalog, const char* cache_dir, int32_t threads, fc_thumbnailer** out);
 /* 開始前の要求はキャンセルとしてコールバックし、実行中の要求の完了を待つ */
 void fc_thumbnailer_destroy(fc_thumbnailer* thumbnailer);
+/* 止めて、カタログへの参照を手放す（ハンドルは destroy まで残る）。以後の fc_thumbnailer_request は 0（コールバックなし）。NULL でもよい */
+void fc_thumbnailer_shutdown(fc_thumbnailer* thumbnailer);
 /* 後から来た要求を先に処理する。戻り値は要求 id（0 は失敗） */
 uint64_t fc_thumbnailer_request(fc_thumbnailer* thumbnailer, int64_t photo_id, fc_thumbnail_fn callback, void* user);
 /* 開始前ならキャンセルとしてコールバックする。実行中・完了済みなら何もしない */
@@ -822,6 +828,9 @@ fc_status fc_lens_find(const char* id, fc_lens_array** out);
 fc_status fc_editor_create(fc_catalog* catalog, fc_editor** out);
 /* 未保存の編集を書き込む。開いているセッションはすべて先に閉じておくこと */
 void fc_editor_destroy(fc_editor* editor);
+/* 止めて、カタログへの参照を手放す（ハンドルは destroy まで残る）。開いているセッションをすべて閉じてから呼ぶこと。
+   以後の fc_editor_* は FC_ERR_INVALID_ARGUMENT（fc_editor_gpu_name は使える）。NULL でもよい */
+void fc_editor_shutdown(fc_editor* editor);
 
 /* 写真を開く（5.3 章）。すぐ戻り、PREVIEW → READY の順にコールバックする（先読み済みなら READY だけ）。
    preview_long_edge: 埋め込みプレビューの長辺、proxy_long_edge: ビューの長辺 × backingScaleFactor（上限 3840） */

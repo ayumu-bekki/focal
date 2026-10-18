@@ -60,6 +60,15 @@ static void waiter_wait_calls(waiter* w, int calls) {
     pthread_mutex_unlock(&w->m);
 }
 
+/* 呼ばれてはいけないサムネイルのコールバック */
+static void on_thumb_never(void* user, uint64_t request_id, fc_status status, const char* path) {
+    (void)user;
+    (void)request_id;
+    (void)status;
+    (void)path;
+    CHECK(0);
+}
+
 /* ---- スキャン ---- */
 
 typedef struct scan_ctx {
@@ -1172,6 +1181,43 @@ int main(void) {
         fc_string_free(id);
         fc_presets_close(presets);
         fc_presets_close(NULL);
+    }
+
+    /* 手放す（カタログを切り替えるとき）: エディタ・サムネイラ・カタログを先に止め、以後の呼び出しはエラーで落ちない。
+       エディタとサムネイラが参照を持つ間はカタログが生きていて、すべて手放すと閉じる（同じファイルを開き直して書ける） */
+    {
+        fc_editor* ed = NULL;
+        fc_thumbnailer* th = NULL;
+        REQUIRE_OK(fc_editor_create(cat, &ed));
+        REQUIRE_OK(fc_thumbnailer_create(cat, cache, 1, &th));
+        fc_catalog_shutdown(cat);
+        CHECK(fc_catalog_flush(cat) == FC_ERR_INVALID_ARGUMENT);
+        fc_root_array* rs = NULL;
+        CHECK(fc_catalog_roots(cat, &rs) == FC_ERR_INVALID_ARGUMENT);
+        fc_editor* ed2 = NULL;
+        CHECK(fc_editor_create(cat, &ed2) == FC_ERR_INVALID_ARGUMENT);
+        CHECK(ed2 == NULL);
+        fc_editor_shutdown(ed);
+        CHECK(fc_editor_set_preview_cache_limit(ed, 1) == FC_ERR_INVALID_ARGUMENT);
+        fc_editor_prefetch(ed, 1);  /* 何もしない */
+        CHECK(fc_editor_gpu_name(ed) != NULL);
+        fc_thumbnailer_shutdown(th);
+        CHECK(fc_thumbnailer_request(th, 1, on_thumb_never, NULL) == 0);
+        fc_thumbnailer_cancel(th, 1);
+        fc_thumbnailer_shutdown(th);  /* 二度呼んでもよい */
+        fc_editor_shutdown(ed);
+        fc_catalog_shutdown(cat);
+        fc_editor_destroy(ed);
+        fc_thumbnailer_destroy(th);
+        fc_catalog_shutdown(NULL);
+        fc_editor_shutdown(NULL);
+        fc_thumbnailer_shutdown(NULL);
+
+        fc_catalog* again = NULL;
+        REQUIRE_OK(fc_catalog_open(cat_path, &again));
+        REQUIRE_OK(fc_catalog_set_rating(again, &sony_id, 1, 2));
+        REQUIRE_OK(fc_catalog_flush(again));
+        fc_catalog_close(again);
     }
 
     fc_catalog_close(cat);

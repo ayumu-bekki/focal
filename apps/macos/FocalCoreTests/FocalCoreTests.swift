@@ -114,6 +114,31 @@ final class FocalCoreTests: XCTestCase {
         XCTAssertEqual(events.firstIndex { $0.phase == .reading }.map { events[$0...].allSatisfy { $0.phase == .reading } }, true)
     }
 
+    /// カタログを切り替えるとき（v3.30）: Editor・Thumbnailer・Catalog を先に閉じると、以後の呼び出しはエラーになり、
+    /// オブジェクトが残っていても同じファイルを開き直して書ける
+    func testCloseBeforeRelease() async throws {
+        let lib = try requireData()
+        let url = tmp.appendingPathComponent("close.sqlite")
+        let catalog = try Catalog(url: url)
+        let root = try catalog.addRoot(lib)
+        _ = try await scan(catalog, root)
+        let editor = try Editor(catalog: catalog)
+        let thumbnailer = try Thumbnailer(catalog: catalog, cacheDirectory: tmp.appendingPathComponent("thumbs"))
+        editor.close()
+        thumbnailer.close()
+        catalog.close()
+        XCTAssertThrowsError(try catalog.roots()) { XCTAssertEqual(($0 as? FocalError)?.code, .invalidArgument) }
+        XCTAssertThrowsError(try editor.setPreviewCacheLimit(1))
+        do {
+            _ = try await thumbnailer.thumbnailURL(for: 1)
+            XCTFail("閉じたあとに返った")
+        } catch {}
+
+        let again = try Catalog(url: url)  // 閉じたので、そのまま開き直せる
+        XCTAssertEqual(try again.photoIDs().count, 2)
+        withExtendedLifetime((catalog, editor, thumbnailer)) {}
+    }
+
     func testScanOfMissingRootFails() async throws {
         let catalog = try Catalog(url: tmp.appendingPathComponent("c.sqlite"))
         do {

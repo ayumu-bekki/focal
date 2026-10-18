@@ -158,6 +158,10 @@ public final class Editor: @unchecked Sendable {
         thumbnailBox?.release()
     }
 
+    /// 止めて、カタログへの参照を手放す（閉じた写真のキャッシュを書き終えるまで待つ）。開いているセッションを
+    /// すべて閉じてから呼ぶこと。以後の呼び出しはエラーになる
+    public func close() { fc_editor_shutdown(handle) }
+
     /// 写真を開く（5.3 章）。events はワーカースレッドから呼ばれる
     public func open(photoID: Int64, previewLongEdge: Int, proxyLongEdge: Int,
                      events: @escaping @Sendable (Session.Event) -> Void) throws -> Session {

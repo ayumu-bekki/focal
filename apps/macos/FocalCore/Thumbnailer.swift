@@ -18,6 +18,9 @@ public final class Thumbnailer: @unchecked Sendable {
 
     deinit { fc_thumbnailer_destroy(handle) }
 
+    /// 止めて、カタログへの参照を手放す。以後の要求はエラーで返る
+    public func close() { fc_thumbnailer_shutdown(handle) }
+
     /// キャッシュの JPEG（sRGB、長辺 512px）の URL
     public func thumbnailURL(for photoID: Int64) async throws -> URL {
         let box = ThumbBox()

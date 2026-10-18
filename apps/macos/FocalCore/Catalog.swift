@@ -20,6 +20,10 @@ public final class Catalog: @unchecked Sendable {
 
     deinit { fc_catalog_close(handle) }
 
+    /// カタログを閉じる（切り替えるとき）。このオブジェクトの解放を待たずに、ファイルと書き込みのスレッドを閉じる。
+    /// 以後の呼び出しはエラーになる。Editor・Thumbnailer が使っている間は、それらを close するまで開いたまま
+    public func close() { fc_catalog_shutdown(handle) }
+
     /// 積んである書き込み（編集の保存など）が終わるまで待つ。アプリの終了時に呼ぶ
     public func flush() throws { try check(fc_catalog_flush(handle)) }
 

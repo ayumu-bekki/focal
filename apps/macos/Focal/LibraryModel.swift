@@ -274,6 +274,15 @@ final class LibraryModel {
         try? catalog.flush()
     }
 
+    /// カタログを切り替えたあと、前のカタログを閉じる。SwiftUI がこのモデルをしばらく参照し続けても
+    /// （ウィンドウが前の画面の内容を持つなど）、ファイル・書き込み・現像・サムネイルのスレッドを残さない
+    func close() {
+        prepareForTermination()
+        develop.editor.close()
+        thumbnails.close()
+        catalog.close()
+    }
+
     // MARK: 現像パラメータの同期（9.5 章）
 
     /// 現像画面で、開いている写真のほかに選択している写真（現像パラメータの同期の写す先）

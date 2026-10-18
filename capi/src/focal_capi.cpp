@@ -36,7 +36,16 @@
 using namespace focal;
 
 struct fc_catalog {
-    std::unique_ptr<Catalog> catalog;
+    // fc_catalog_shutdown で手放せるよう共有にする。実行中の処理・エディタ・サムネイラはそれぞれ参照を持ち、
+    // 最後の参照がなくなったときに core のカタログが閉じる
+    mutable std::mutex mutex;
+    std::shared_ptr<Catalog> catalog;
+
+    std::shared_ptr<Catalog> get() const {
+        std::lock_guard lock(mutex);
+        if (!catalog) throw Error(Error::Code::InvalidArgument, "catalog is closed");
+        return catalog;
+    }
 };
 
 struct fc_presets {
@@ -51,10 +60,13 @@ struct fc_task {
 };
 
 struct fc_thumbnailer {
+    std::mutex mutex;                 // service を fc_thumbnailer_shutdown と取り合わない
+    std::shared_ptr<Catalog> catalog;  // service より長く生かす
     std::unique_ptr<ThumbnailService> service;
 };
 
 struct fc_editor {
+    std::shared_ptr<Catalog> catalog;  // editor より長く生かす
     std::unique_ptr<Editor> editor;
     std::string gpu_name;  // fc_editor_gpu_name が返す（editor と同じだけ生きる）
 };
@@ -327,6 +339,12 @@ fc_settings to_c(const Settings& s) {
     return c;
 }
 
+// fc_editor_shutdown のあとは使えない
+Editor& editor_of(fc_editor* editor) {
+    if (!editor->editor) throw Error(Error::Code::InvalidArgument, "editor is closed");
+    return *editor->editor;
+}
+
 } // namespace
 
 extern "C" {
@@ -352,17 +370,27 @@ fc_status fc_catalog_open(const char* path, fc_catalog** out) {
 
 void fc_catalog_close(fc_catalog* catalog) { delete catalog; }
 
+void fc_catalog_shutdown(fc_catalog* catalog) {
+    if (!catalog) return;
+    std::shared_ptr<Catalog> c;
+    {
+        std::lock_guard lock(catalog->mutex);
+        c = std::move(catalog->catalog);
+    }
+    c.reset();  // ほかに参照がなければ、ここで書き込みを終えて閉じる（ロックの外で待つ）
+}
+
 fc_status fc_catalog_flush(fc_catalog* catalog) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
-        catalog->catalog->flush();
+        catalog->get()->flush();
     });
 }
 
 fc_status fc_catalog_add_root(fc_catalog* catalog, const char* dir, int64_t* out_root_id) {
     return guard([&] {
         require(catalog && dir, "catalog and dir must not be NULL");
-        const int64_t id = catalog->catalog->add_root(utf8_to_path(dir));
+        const int64_t id = catalog->get()->add_root(utf8_to_path(dir));
         if (out_root_id) *out_root_id = id;
     });
 }
@@ -371,7 +399,7 @@ fc_status fc_catalog_roots(fc_catalog* catalog, fc_root_array** out) {
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
         auto a = std::make_unique<RootArray>();
-        a->src = catalog->catalog->roots();
+        a->src = catalog->get()->roots();
         for (const auto& r : a->src)
             a->v.push_back({r.id, r.path.c_str(), r.label.c_str(), r.volume_id.c_str(), r.volume_name.c_str(),
                             r.volume_rel_path.c_str(), r.online ? 1 : 0});
@@ -386,7 +414,7 @@ void fc_root_array_free(fc_root_array* array) { delete static_cast<RootArray*>(a
 fc_status fc_catalog_folder_for_path(fc_catalog* catalog, const char* dir, int64_t* out_root_id, int64_t* out_folder_id) {
     return guard([&] {
         require(catalog && dir, "catalog and dir must not be NULL");
-        const auto loc = catalog->catalog->folder_for_path(utf8_to_path(dir));
+        const auto loc = catalog->get()->folder_for_path(utf8_to_path(dir));
         if (!loc) throw Error(Error::Code::NotFound, "not inside a folder of the catalog");
         if (out_root_id) *out_root_id = loc->root_id;
         if (out_folder_id) *out_folder_id = loc->folder_id;
@@ -396,21 +424,21 @@ fc_status fc_catalog_folder_for_path(fc_catalog* catalog, const char* dir, int64
 fc_status fc_catalog_relocate_root(fc_catalog* catalog, int64_t root_id, const char* new_dir) {
     return guard([&] {
         require(catalog && new_dir, "catalog and new_dir must not be NULL");
-        catalog->catalog->relocate_root(root_id, utf8_to_path(new_dir));
+        catalog->get()->relocate_root(root_id, utf8_to_path(new_dir));
     });
 }
 
 fc_status fc_catalog_nested_root_count(fc_catalog* catalog, int32_t* out_count) {
     return guard([&] {
         require(catalog && out_count, "catalog and out_count must not be NULL");
-        *out_count = static_cast<int32_t>(catalog->catalog->nested_roots().size());
+        *out_count = static_cast<int32_t>(catalog->get()->nested_roots().size());
     });
 }
 
 fc_status fc_catalog_merge_nested_roots(fc_catalog* catalog, int32_t* out_merged) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
-        const int n = catalog->catalog->merge_nested_roots();
+        const int n = catalog->get()->merge_nested_roots();
         if (out_merged) *out_merged = n;
     });
 }
@@ -418,7 +446,7 @@ fc_status fc_catalog_merge_nested_roots(fc_catalog* catalog, int32_t* out_merged
 fc_status fc_catalog_detached_summary(fc_catalog* catalog, fc_detached_summary* out) {
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
-        const auto d = catalog->catalog->detached_summary();
+        const auto d = catalog->get()->detached_summary();
         *out = {d.items, d.edits};
     });
 }
@@ -426,7 +454,7 @@ fc_status fc_catalog_detached_summary(fc_catalog* catalog, fc_detached_summary* 
 fc_status fc_catalog_get_info(fc_catalog* catalog, fc_catalog_info* out) {
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
-        const auto i = catalog->catalog->info();
+        const auto i = catalog->get()->info();
         *out = {i.file_bytes,     i.schema_version,  i.roots,          i.folders,       i.photos,
                 i.photos_raw,     i.photos_missing,  i.edited_photos,  i.albums,        i.tags,
                 i.detached_items, i.detached_edits,  i.backup_files,   i.backup_bytes};
@@ -436,7 +464,7 @@ fc_status fc_catalog_get_info(fc_catalog* catalog, fc_catalog_info* out) {
 fc_status fc_catalog_optimize(fc_catalog* catalog, fc_optimize_result* out) {
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
-        const auto r = catalog->catalog->optimize();
+        const auto r = catalog->get()->optimize();
         *out = {r.removed_items, r.bytes_before, r.bytes_after};
     });
 }
@@ -446,7 +474,7 @@ fc_status fc_catalog_root_details(fc_catalog* catalog, int64_t root_id, fc_root_
         require(catalog && out, "catalog and out must not be NULL");
         *out = nullptr;
         auto b = std::make_unique<RootDetailsBox>();
-        b->src = catalog->catalog->root_details(root_id);
+        b->src = catalog->get()->root_details(root_id);
         const RootDetails& d = b->src;
         static_cast<fc_root_details&>(*b) = {
             d.root.id, d.root.path.c_str(), d.root.label.c_str(), d.root.volume_id.c_str(),
@@ -462,7 +490,7 @@ void fc_root_details_free(fc_root_details* details) { delete static_cast<RootDet
 fc_status fc_catalog_refresh_volumes(fc_catalog* catalog, int32_t* out_changed) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
-        const int n = catalog->catalog->refresh_volumes();
+        const int n = catalog->get()->refresh_volumes();
         if (out_changed) *out_changed = n;
     });
 }
@@ -470,14 +498,14 @@ fc_status fc_catalog_refresh_volumes(fc_catalog* catalog, int32_t* out_changed) 
 fc_status fc_catalog_remove_root(fc_catalog* catalog, int64_t root_id) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
-        catalog->catalog->remove_root(root_id);
+        catalog->get()->remove_root(root_id);
     });
 }
 
 fc_status fc_catalog_set_root_label(fc_catalog* catalog, int64_t root_id, const char* label) {
     return guard([&] {
         require(catalog && label, "catalog and label must not be NULL");
-        catalog->catalog->set_root_label(root_id, label);
+        catalog->get()->set_root_label(root_id, label);
     });
 }
 
@@ -485,7 +513,7 @@ fc_status fc_catalog_folders(fc_catalog* catalog, int64_t root_id, fc_folder_arr
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
         auto a = std::make_unique<FolderArray>();
-        a->src = catalog->catalog->folders(root_id);
+        a->src = catalog->get()->folders(root_id);
         for (const auto& f : a->src)
             a->v.push_back({f.id, f.root_id, f.parent_id.value_or(0), f.rel_path.c_str(), f.photo_count});
         a->count = a->v.size();
@@ -499,14 +527,14 @@ void fc_folder_array_free(fc_folder_array* array) { delete static_cast<FolderArr
 fc_status fc_catalog_tags(fc_catalog* catalog, fc_tag_array** out) {
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
-        *out = make_tags(catalog->catalog->tags());
+        *out = make_tags(catalog->get()->tags());
     });
 }
 
 fc_status fc_catalog_photo_tags(fc_catalog* catalog, int64_t photo_id, fc_tag_array** out) {
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
-        *out = make_tags(catalog->catalog->photo_tags(photo_id));
+        *out = make_tags(catalog->get()->photo_tags(photo_id));
     });
 }
 
@@ -515,7 +543,7 @@ void fc_tag_array_free(fc_tag_array* array) { delete static_cast<TagArray*>(arra
 fc_status fc_catalog_ensure_tag(fc_catalog* catalog, const char* path, int64_t* out_tag_id) {
     return guard([&] {
         require(catalog && path, "catalog and path must not be NULL");
-        const int64_t id = catalog->catalog->ensure_tag(path);
+        const int64_t id = catalog->get()->ensure_tag(path);
         if (out_tag_id) *out_tag_id = id;
     });
 }
@@ -523,14 +551,14 @@ fc_status fc_catalog_ensure_tag(fc_catalog* catalog, const char* path, int64_t* 
 fc_status fc_catalog_add_tag(fc_catalog* catalog, const int64_t* photo_ids, size_t count, int64_t tag_id) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
-        catalog->catalog->add_tag(id_span(photo_ids, count), tag_id);
+        catalog->get()->add_tag(id_span(photo_ids, count), tag_id);
     });
 }
 
 fc_status fc_catalog_remove_tag(fc_catalog* catalog, const int64_t* photo_ids, size_t count, int64_t tag_id) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
-        catalog->catalog->remove_tag(id_span(photo_ids, count), tag_id);
+        catalog->get()->remove_tag(id_span(photo_ids, count), tag_id);
     });
 }
 
@@ -540,7 +568,7 @@ fc_status fc_catalog_albums(fc_catalog* catalog, fc_album_array** out) {
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
         auto a = std::make_unique<AlbumArray>();
-        a->src = catalog->catalog->albums();
+        a->src = catalog->get()->albums();
         for (const auto& s : a->src)
             a->v.push_back({s.id, s.name.c_str(), s.photo_count, s.parent_id.value_or(0), static_cast<int32_t>(s.kind),
                             s.cover_photo_id.value_or(0)});
@@ -555,7 +583,7 @@ void fc_album_array_free(fc_album_array* array) { delete static_cast<AlbumArray*
 fc_status fc_catalog_create_album(fc_catalog* catalog, const char* name, int64_t parent_id, int64_t* out_album_id) {
     return guard([&] {
         require(catalog && name, "catalog and name must not be NULL");
-        const int64_t id = catalog->catalog->create_album(name, optional_id(parent_id));
+        const int64_t id = catalog->get()->create_album(name, optional_id(parent_id));
         if (out_album_id) *out_album_id = id;
     });
 }
@@ -564,7 +592,7 @@ fc_status fc_catalog_create_album_folder(fc_catalog* catalog, const char* name, 
                                          int64_t* out_album_id) {
     return guard([&] {
         require(catalog && name, "catalog and name must not be NULL");
-        const int64_t id = catalog->catalog->create_album_folder(name, optional_id(parent_id));
+        const int64_t id = catalog->get()->create_album_folder(name, optional_id(parent_id));
         if (out_album_id) *out_album_id = id;
     });
 }
@@ -573,7 +601,7 @@ fc_status fc_catalog_create_smart_album(fc_catalog* catalog, const char* name, c
                                         int64_t parent_id, int64_t* out_album_id) {
     return guard([&] {
         require(catalog && name && query_json, "catalog, name and query_json must not be NULL");
-        const int64_t id = catalog->catalog->create_smart_album(name, query_json, optional_id(parent_id));
+        const int64_t id = catalog->get()->create_smart_album(name, query_json, optional_id(parent_id));
         if (out_album_id) *out_album_id = id;
     });
 }
@@ -581,7 +609,7 @@ fc_status fc_catalog_create_smart_album(fc_catalog* catalog, const char* name, c
 fc_status fc_catalog_set_smart_query(fc_catalog* catalog, int64_t album_id, const char* query_json) {
     return guard([&] {
         require(catalog && query_json, "catalog and query_json must not be NULL");
-        catalog->catalog->set_smart_query(album_id, query_json);
+        catalog->get()->set_smart_query(album_id, query_json);
     });
 }
 
@@ -589,7 +617,7 @@ fc_status fc_catalog_smart_query(fc_catalog* catalog, int64_t album_id, fc_strin
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
         *out = nullptr;
-        const auto q = catalog->catalog->smart_query(album_id);
+        const auto q = catalog->get()->smart_query(album_id);
         if (!q) throw Error(Error::Code::NotFound, "not a smart album");
         auto b = std::make_unique<StringBox>();
         b->text = *q;
@@ -674,7 +702,7 @@ fc_status fc_catalog_apply_preset(fc_catalog* catalog, fc_presets* presets, cons
                                   size_t count) {
     return guard([&] {
         require(catalog && presets && id && (photo_ids || count == 0), "invalid arguments");
-        catalog->catalog->apply_preset({photo_ids, count}, presets->store.load(id));
+        catalog->get()->apply_preset({photo_ids, count}, presets->store.load(id));
     });
 }
 
@@ -691,7 +719,7 @@ fc_status fc_catalog_apply_adjustments(fc_catalog* catalog, const fc_settings* s
                                        const int64_t* photo_ids, size_t count) {
     return guard([&] {
         require(catalog && settings && (photo_ids || count == 0), "invalid arguments");
-        catalog->catalog->apply_adjustments({photo_ids, count}, to_settings(*settings), mask);
+        catalog->get()->apply_adjustments({photo_ids, count}, to_settings(*settings), mask);
     });
 }
 
@@ -741,49 +769,49 @@ void fc_string_free(fc_string* string) { delete static_cast<StringBox*>(string);
 fc_status fc_catalog_move_album(fc_catalog* catalog, int64_t album_id, int64_t parent_id) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
-        catalog->catalog->move_album(album_id, optional_id(parent_id));
+        catalog->get()->move_album(album_id, optional_id(parent_id));
     });
 }
 
 fc_status fc_catalog_move_album_order(fc_catalog* catalog, int64_t album_id, int32_t delta) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
-        catalog->catalog->move_album_order(album_id, delta);
+        catalog->get()->move_album_order(album_id, delta);
     });
 }
 
 fc_status fc_catalog_set_album_cover(fc_catalog* catalog, int64_t album_id, int64_t photo_id) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
-        catalog->catalog->set_album_cover(album_id, optional_id(photo_id));
+        catalog->get()->set_album_cover(album_id, optional_id(photo_id));
     });
 }
 
 fc_status fc_catalog_rename_album(fc_catalog* catalog, int64_t album_id, const char* name) {
     return guard([&] {
         require(catalog && name, "catalog and name must not be NULL");
-        catalog->catalog->rename_album(album_id, name);
+        catalog->get()->rename_album(album_id, name);
     });
 }
 
 fc_status fc_catalog_delete_album(fc_catalog* catalog, int64_t album_id) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
-        catalog->catalog->delete_album(album_id);
+        catalog->get()->delete_album(album_id);
     });
 }
 
 fc_status fc_catalog_add_to_album(fc_catalog* catalog, int64_t album_id, const int64_t* photo_ids, size_t count) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
-        catalog->catalog->add_to_album(album_id, id_span(photo_ids, count));
+        catalog->get()->add_to_album(album_id, id_span(photo_ids, count));
     });
 }
 
 fc_status fc_catalog_remove_from_album(fc_catalog* catalog, int64_t album_id, const int64_t* photo_ids, size_t count) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
-        catalog->catalog->remove_from_album(album_id, id_span(photo_ids, count));
+        catalog->get()->remove_from_album(album_id, id_span(photo_ids, count));
     });
 }
 
@@ -799,7 +827,7 @@ void fc_photo_filter_init(fc_photo_filter* filter) {
 fc_status fc_catalog_count(fc_catalog* catalog, const fc_photo_filter* filter, int64_t* out) {
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
-        *out = catalog->catalog->count(to_filter(filter));
+        *out = catalog->get()->count(to_filter(filter));
     });
 }
 
@@ -807,7 +835,7 @@ fc_status fc_catalog_query(fc_catalog* catalog, const fc_photo_filter* filter, i
                            fc_photo_array** out) {
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
-        *out = make_photos(catalog->catalog->query(to_filter(filter), offset, limit));
+        *out = make_photos(catalog->get()->query(to_filter(filter), offset, limit));
     });
 }
 
@@ -815,7 +843,7 @@ fc_status fc_catalog_query_ids(fc_catalog* catalog, const fc_photo_filter* filte
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
         auto a = std::make_unique<IdArray>();
-        a->v = catalog->catalog->query_ids(to_filter(filter));
+        a->v = catalog->get()->query_ids(to_filter(filter));
         a->count = a->v.size();
         a->items = a->v.data();
         *out = a.release();
@@ -825,7 +853,7 @@ fc_status fc_catalog_query_ids(fc_catalog* catalog, const fc_photo_filter* filte
 fc_status fc_catalog_photos_by_ids(fc_catalog* catalog, const int64_t* ids, size_t count, fc_photo_array** out) {
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
-        *out = make_photos(catalog->catalog->photos_by_ids(id_span(ids, count)));
+        *out = make_photos(catalog->get()->photos_by_ids(id_span(ids, count)));
     });
 }
 
@@ -835,14 +863,14 @@ void fc_id_array_free(fc_id_array* array) { delete static_cast<IdArray*>(array);
 fc_status fc_catalog_set_rating(fc_catalog* catalog, const int64_t* photo_ids, size_t count, int32_t rating) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
-        catalog->catalog->set_rating(id_span(photo_ids, count), rating);
+        catalog->get()->set_rating(id_span(photo_ids, count), rating);
     });
 }
 
 fc_status fc_catalog_set_flag(fc_catalog* catalog, const int64_t* photo_ids, size_t count, int32_t flag) {
     return guard([&] {
         require(catalog, "catalog must not be NULL");
-        catalog->catalog->set_flag(id_span(photo_ids, count), flag);
+        catalog->get()->set_flag(id_span(photo_ids, count), flag);
     });
 }
 
@@ -857,7 +885,7 @@ fc_status fc_catalog_scan_async(fc_catalog* catalog, int64_t root_id, const char
         std::optional<std::string> cache_dir;
         if (thumbnail_cache_dir) cache_dir = thumbnail_cache_dir;
         fc_task* t = task.get();
-        Catalog* c = catalog->catalog.get();
+        std::shared_ptr<Catalog> c = catalog->get();  // 処理の間はカタログを閉じない
         task->thread = std::thread([t, c, root_id, cache_dir, progress, done, user] {
             fc_scan_stats stats{};
             fc_status status = FC_OK;
@@ -902,7 +930,7 @@ fc_status fc_catalog_backup_start(fc_catalog* catalog, const fc_backup_options* 
         *out_task = nullptr;
         auto task = std::make_unique<fc_task>();
         fc_task* t = task.get();
-        Catalog* c = catalog->catalog.get();
+        std::shared_ptr<Catalog> c = catalog->get();  // 処理の間はカタログを閉じない
         const std::string dest = options->dest_dir;
         const bool check = options->check_integrity != 0, allow = options->allow_damaged != 0;
         task->thread = std::thread([t, c, dest, check, allow, progress, done, user] {
@@ -940,7 +968,7 @@ fc_status fc_catalog_name(fc_catalog* catalog, fc_string** out) {
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
         auto b = std::make_unique<StringBox>();
-        b->text = catalog->catalog->name();
+        b->text = catalog->get()->name();
         b->value = b->text.c_str();
         *out = b.release();
     });
@@ -950,7 +978,7 @@ fc_status fc_catalog_last_backup_at(fc_catalog* catalog, fc_string** out) {
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
         *out = nullptr;
-        if (const auto last = catalog->catalog->last_backup_at()) {
+        if (const auto last = catalog->get()->last_backup_at()) {
             auto b = std::make_unique<StringBox>();
             b->text = *last;
             b->value = b->text.c_str();
@@ -962,7 +990,7 @@ fc_status fc_catalog_last_backup_at(fc_catalog* catalog, fc_string** out) {
 fc_status fc_catalog_backup_due(fc_catalog* catalog, int32_t interval_days, int32_t* out_due) {
     return guard([&] {
         require(catalog && out_due, "catalog and out_due must not be NULL");
-        *out_due = catalog->catalog->backup_due(interval_days) ? 1 : 0;
+        *out_due = catalog->get()->backup_due(interval_days) ? 1 : 0;
     });
 }
 
@@ -970,7 +998,7 @@ fc_status fc_catalog_get_preference(fc_catalog* catalog, const char* name, fc_st
     return guard([&] {
         require(catalog && name && out, "catalog, name and out must not be NULL");
         *out = nullptr;
-        if (const auto v = catalog->catalog->preference(name)) {
+        if (const auto v = catalog->get()->preference(name)) {
             auto b = std::make_unique<StringBox>();
             b->text = *v;
             b->value = b->text.c_str();
@@ -982,7 +1010,7 @@ fc_status fc_catalog_get_preference(fc_catalog* catalog, const char* name, fc_st
 fc_status fc_catalog_set_preference(fc_catalog* catalog, const char* name, const char* value) {
     return guard([&] {
         require(catalog && name, "catalog and name must not be NULL");
-        catalog->catalog->set_preference(name, value ? std::optional<std::string>(value) : std::nullopt);
+        catalog->get()->set_preference(name, value ? std::optional<std::string>(value) : std::nullopt);
     });
 }
 
@@ -1016,7 +1044,7 @@ fc_status fc_backups_prune(const char* dir, const char* catalog_name, int32_t ke
 fc_status fc_catalog_plan_delete(fc_catalog* catalog, const int64_t* photo_ids, size_t count, fc_delete_plan* out) {
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
-        const DeletePlan p = plan_delete(*catalog->catalog, id_span(photo_ids, count));
+        const DeletePlan p = plan_delete(*catalog->get(), id_span(photo_ids, count));
         *out = {static_cast<int32_t>(p.items.size()), p.files, p.network_photos, p.missing_photos};
     });
 }
@@ -1026,10 +1054,10 @@ fc_status fc_catalog_delete_photos(fc_catalog* catalog, const int64_t* photo_ids
     return guard([&] {
         require(catalog && out, "catalog and out must not be NULL");
         if (errors) *errors = nullptr;
-        const DeletePlan plan = plan_delete(*catalog->catalog, id_span(photo_ids, count));
+        const DeletePlan plan = plan_delete(*catalog->get(), id_span(photo_ids, count));
         TrashFn fn;
         if (trash) fn = [trash, user](const std::filesystem::path& p) { return trash(user, path_to_utf8(p).c_str()) == 0; };
-        const DeleteResult r = delete_photos(*catalog->catalog, plan, fn);
+        const DeleteResult r = delete_photos(*catalog->get(), plan, fn);
         *out = {r.photos_deleted, r.photos_failed, r.files_trashed, r.files_removed, r.files_failed};
         if (errors) {
             auto b = std::make_unique<StringBox>();
@@ -1111,7 +1139,7 @@ fc_status fc_card_import_start(fc_catalog* catalog, const fc_card_import_options
 
         auto task = std::make_unique<fc_task>();
         fc_task* t = task.get();
-        Catalog* c = catalog->catalog.get();
+        std::shared_ptr<Catalog> c = catalog->get();  // 処理の間はカタログを閉じない
         task->thread = std::thread([t, c, opt = std::move(opt), cache_dir, progress, done, user]() mutable {
             fc_card_import_result out{};
             fc_status status = FC_OK;
@@ -1178,7 +1206,7 @@ fc_status fc_card_list_start(fc_catalog* catalog, const char* source, const char
         *out_task = nullptr;
         auto task = std::make_unique<fc_task>();
         fc_task* t = task.get();
-        Catalog* c = catalog->catalog.get();
+        std::shared_ptr<Catalog> c = catalog->get();  // 処理の間はカタログを閉じない
         task->thread = std::thread([t, c, src = std::string(source), dest = std::string(dest_root), progress, done, user] {
             fc_status status = FC_OK;
             std::string message;
@@ -1235,7 +1263,7 @@ fc_status fc_export_start(fc_catalog* catalog, const int64_t* photo_ids, size_t 
 
         auto task = std::make_unique<fc_task>();
         fc_task* t = task.get();
-        Catalog* c = catalog->catalog.get();
+        std::shared_ptr<Catalog> c = catalog->get();  // 処理の間はカタログを閉じない
         task->thread = std::thread([t, c, ids = std::move(ids), opt, progress, done, user] {
             bool completed = false;
             try {
@@ -1273,7 +1301,8 @@ fc_status fc_thumbnailer_create(fc_catalog* catalog, const char* cache_dir, int3
         require(catalog && cache_dir && out, "catalog, cache_dir and out must not be NULL");
         *out = nullptr;
         auto t = std::make_unique<fc_thumbnailer>();
-        t->service = std::make_unique<ThumbnailService>(*catalog->catalog, utf8_to_path(cache_dir),
+        t->catalog = catalog->get();
+        t->service = std::make_unique<ThumbnailService>(*t->catalog, utf8_to_path(cache_dir),
                                                         threads > 0 ? static_cast<unsigned>(threads) : 0u);
         *out = t.release();
     });
@@ -1281,10 +1310,24 @@ fc_status fc_thumbnailer_create(fc_catalog* catalog, const char* cache_dir, int3
 
 void fc_thumbnailer_destroy(fc_thumbnailer* thumbnailer) { delete thumbnailer; }
 
+void fc_thumbnailer_shutdown(fc_thumbnailer* thumbnailer) {
+    if (!thumbnailer) return;
+    std::unique_ptr<ThumbnailService> service;
+    std::shared_ptr<Catalog> catalog;
+    {
+        std::lock_guard lock(thumbnailer->mutex);
+        service = std::move(thumbnailer->service);
+        catalog = std::move(thumbnailer->catalog);
+    }
+    service.reset();  // 実行中の要求を終えてから止まる（ロックの外で待つ）
+}
+
 uint64_t fc_thumbnailer_request(fc_thumbnailer* thumbnailer, int64_t photo_id, fc_thumbnail_fn callback, void* user) {
     uint64_t id = 0;
     const fc_status st = guard([&] {
         require(thumbnailer && callback, "thumbnailer and callback must not be NULL");
+        std::lock_guard lock(thumbnailer->mutex);
+        require(thumbnailer->service != nullptr, "thumbnailer is closed");  // 0 を返す（コールバックは呼ばない）
         id = thumbnailer->service->request(
             photo_id, [callback, user](uint64_t rid, ThumbnailService::Result r, const std::string& path) {
                 switch (r) {
@@ -1299,7 +1342,10 @@ uint64_t fc_thumbnailer_request(fc_thumbnailer* thumbnailer, int64_t photo_id, f
 
 void fc_thumbnailer_cancel(fc_thumbnailer* thumbnailer, uint64_t request_id) {
     if (!thumbnailer) return;
-    guard([&] { thumbnailer->service->cancel(request_id); });
+    guard([&] {
+        std::lock_guard lock(thumbnailer->mutex);
+        if (thumbnailer->service) thumbnailer->service->cancel(request_id);
+    });
 }
 
 // ---- 現像 ------------------------------------------------------------------------
@@ -1313,7 +1359,8 @@ fc_status fc_editor_create(fc_catalog* catalog, fc_editor** out) {
         require(catalog && out, "catalog and out must not be NULL");
         *out = nullptr;
         auto e = std::make_unique<fc_editor>();
-        e->editor = std::make_unique<Editor>(*catalog->catalog);
+        e->catalog = catalog->get();
+        e->editor = std::make_unique<Editor>(*e->catalog);
 #ifdef FOCAL_HAVE_GPU
         // 表示は GPU で描く（v3.14）。使える GPU がない、または FOCAL_GPU=0 なら CPU
         e->editor->set_gpu_renderer(focal::gpu::create_metal_renderer());
@@ -1324,6 +1371,12 @@ fc_status fc_editor_create(fc_catalog* catalog, fc_editor** out) {
 }
 
 void fc_editor_destroy(fc_editor* editor) { delete editor; }
+
+void fc_editor_shutdown(fc_editor* editor) {
+    if (!editor) return;
+    editor->editor.reset();  // 閉じた写真のキャッシュを書き終えてから止まる
+    editor->catalog.reset();
+}
 
 const char* fc_editor_gpu_name(fc_editor* editor) { return editor ? editor->gpu_name.c_str() : ""; }
 
@@ -1343,7 +1396,7 @@ fc_status fc_editor_open(fc_editor* editor, int64_t photo_id, int32_t preview_lo
         }
         auto s = std::make_unique<fc_session>();
         s->editor = editor->editor.get();
-        s->session = editor->editor->open(photo_id, preview_long_edge, proxy_long_edge, std::move(cb));
+        s->session = editor_of(editor).open(photo_id, preview_long_edge, proxy_long_edge, std::move(cb));
         *out = s.release();
     });
 }
@@ -1354,41 +1407,41 @@ fc_status fc_editor_set_thumbnail_cache(fc_editor* editor, const char* cache_dir
         require(editor && cache_dir, "editor and cache_dir must not be NULL");
         std::function<void(int64_t)> cb;
         if (callback) cb = [callback, user](int64_t id) { callback(user, id); };
-        editor->editor->set_thumbnail_cache(utf8_to_path(cache_dir), std::move(cb));
+        editor_of(editor).set_thumbnail_cache(utf8_to_path(cache_dir), std::move(cb));
     });
 }
 
 fc_status fc_editor_set_preview_cache(fc_editor* editor, const char* cache_dir, uint64_t limit_bytes) {
     return guard([&] {
         require(editor && cache_dir, "editor and cache_dir must not be NULL");
-        editor->editor->set_preview_cache(utf8_to_path(cache_dir), limit_bytes);
+        editor_of(editor).set_preview_cache(utf8_to_path(cache_dir), limit_bytes);
     });
 }
 
 fc_status fc_editor_set_preview_cache_limit(fc_editor* editor, uint64_t limit_bytes) {
     return guard([&] {
         require(editor, "editor must not be NULL");
-        editor->editor->set_preview_cache_limit(limit_bytes);
+        editor_of(editor).set_preview_cache_limit(limit_bytes);
     });
 }
 
 fc_status fc_editor_preview_cache_usage(fc_editor* editor, uint64_t* out_bytes) {
     return guard([&] {
         require(editor && out_bytes, "editor and out_bytes must not be NULL");
-        *out_bytes = editor->editor->preview_cache_usage();
+        *out_bytes = editor_of(editor).preview_cache_usage();
     });
 }
 
 fc_status fc_editor_clear_preview_cache(fc_editor* editor) {
     return guard([&] {
         require(editor, "editor must not be NULL");
-        editor->editor->clear_preview_cache();
+        editor_of(editor).clear_preview_cache();
     });
 }
 
 void fc_editor_prefetch(fc_editor* editor, int64_t photo_id) {
     if (!editor) return;
-    guard([&] { editor->editor->prefetch(photo_id); });
+    guard([&] { editor_of(editor).prefetch(photo_id); });
 }
 
 void fc_session_close(fc_session* session) {
