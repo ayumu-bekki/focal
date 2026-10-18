@@ -25,6 +25,16 @@
         }
       }
     },
+    "“%@” is on a network volume (%@). Focal can’t use a catalog there, because the network share can lock the catalog or damage it. Quit Focal, copy the catalog to a folder on this Mac in the Finder, and open the copy. Your photos can stay on the network volume, and you can choose it as the backup location in Settings." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」はネットワーク上（%2$@）にあるため開けません。ネットワークの共有ではカタログがロックされて使えなくなったり、壊れたりするおそれがあるためです。Focal を終了し、Finder でカタログをこの Mac のフォルダにコピーしてから、コピーしたカタログを開いてください。写真はネットワーク上に置いたままで使えます。また、設定でバックアップの保存先にネットワークの共有を指定できます。"
+          }
+        }
+      }
+    },
     "%@ free of %@" : {
       "localizations" : {
         "ja" : {
@@ -929,6 +939,16 @@
         }
       }
     },
+    "Catalogs Can’t Be on a Network Volume" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ネットワーク上のカタログは使えません"
+          }
+        }
+      }
+    },
     "Change Location" : {
       "localizations" : {
         "ja" : {
@@ -1812,6 +1832,16 @@
     },
     "Focal" : {
 
+    },
+    "Focal can’t create a catalog on a network volume (%@), because the network share can lock the catalog or damage it. Choose a folder on a disk of this Mac. Your photos can stay on the network volume, and you can choose it as the backup location in Settings." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ネットワーク上（%@）にはカタログを作れません。ネットワークの共有ではカタログがロックされて使えなくなったり、壊れたりするおそれがあるためです。この Mac のディスクのフォルダを選んでください。写真はネットワーク上に置いたままで使えます。また、設定でバックアップの保存先にネットワークの共有を指定できます。"
+          }
+        }
+      }
     },
     "Focal Length" : {
       "localizations" : {

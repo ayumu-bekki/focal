@@ -4,7 +4,9 @@ import Foundation
 /// C API のエラー（fc_status と fc_last_error のメッセージ）
 public struct FocalError: Error, CustomStringConvertible, Sendable {
     public enum Code: Int32, Sendable {
-        case invalidArgument = 1, io, unsupported, decode, internalError, cancelled, database, notFound
+        case invalidArgument = 1, io, unsupported, decode, internalError, cancelled, database, notFound, notReady
+        /// カタログがネットワークの共有の上にある（開けない・作れない）
+        case networkVolume
     }
 
     public let code: Code

@@ -700,6 +700,10 @@ void process_works(db::DbWriter& writer, const std::vector<Work>& work, const Sc
 std::unique_ptr<Catalog> Catalog::open(const fs::path& path) { return std::unique_ptr<Catalog>(new Catalog(path)); }
 
 Catalog::Catalog(const fs::path& path) : path_(path) {
+    // ネットワークの共有の上では SQLite の WAL が働かず（共有メモリのファイルを使えない）、読み取りと書き込みの接続が
+    // ロックを取り合って「database is locked」になり、壊れることもある。作る前・開く前に止める（design.md 7.1 章）
+    if (on_network_volume(path))
+        throw Error(Error::Code::NetworkVolume, "the catalog cannot be on a network volume: " + path_to_utf8(path));
     if (path.has_parent_path()) fs::create_directories(path.parent_path());
     writer_ = std::make_unique<db::DbWriter>(path);  // スキーマを作ってから読み取り接続を開く
     reader_ = std::make_unique<Database>(path, Database::Mode::ReadOnly);

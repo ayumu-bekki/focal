@@ -14,15 +14,6 @@ namespace focal {
 
 namespace fs = std::filesystem;
 
-namespace {
-
-bool on_network_volume(const fs::path& p) {
-    const auto v = volume_for_path(p);
-    return v && v->id.rfind("net:", 0) == 0;
-}
-
-} // namespace
-
 DeletePlan plan_delete(Catalog& catalog, std::span<const int64_t> photo_ids) {
     DeletePlan plan;
     for (int64_t id : photo_ids) {

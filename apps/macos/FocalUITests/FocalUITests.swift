@@ -1843,6 +1843,44 @@ final class FocalUITests: XCTestCase {
 
     /// カタログがないと初回起動の画面を出し、「カタログを作成」で既定の場所に作って空のカタログを開く。
     /// 作ったカタログを FOCAL_CATALOG で開き直せる
+    /// ネットワークの共有の上のカタログは作れず・開けず、ダイアログで知らせる（実際の共有の代わりに FOCAL_TEST_NETWORK_VOLUME）
+    @MainActor
+    func testNetworkVolumeCatalogRefused() throws {
+        let env = ProcessInfo.processInfo.environment
+        let home = try XCTUnwrap(env["FOCAL_FIRST_RUN_HOME"], "scripts/ui-test.sh から実行する") + "/nas"
+        func start(_ extra: [String: String]) -> XCUIApplication {
+            let app = XCUIApplication()
+            app.launchEnvironment["FOCAL_CACHE"] = env["FOCAL_FIRST_RUN_HOME"]! + "/thumbs"
+            app.launchEnvironment["FOCAL_WINDOW_SIZE"] = "1440x900"
+            app.launchEnvironment["FOCAL_TEST_NETWORK_VOLUME"] = home
+            for (k, v) in extra { app.launchEnvironment[k] = v }
+            app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+            app.launch()
+            return app
+        }
+        // 作る: 初回の画面で「カタログを作成」→ ダイアログ。閉じても初回の画面のまま
+        var app = start(["FOCAL_CATALOG_HOME": home])
+        let create = app.buttons["welcomeCreate"]
+        XCTAssertTrue(create.waitForExistence(timeout: 10))
+        create.click()
+        let ok = app.buttons["networkVolumeOK"]
+        XCTAssertTrue(ok.waitForExistence(timeout: 5))
+        saveScreenshot(app, name: "network-volume-create")
+        ok.click()
+        XCTAssertTrue(waitGone(ok))
+        XCTAssertTrue(create.exists)
+        XCTAssertFalse(app.buttons["emptyAddFolder"].exists)
+        app.terminate()
+
+        // 開く: 起動時に開くカタログが共有の上 → ダイアログを出して初回の画面
+        app = start(["FOCAL_CATALOG": home + "/Focal Catalog.focalcatalog"])
+        XCTAssertTrue(app.buttons["networkVolumeOK"].waitForExistence(timeout: 10))
+        saveScreenshot(app, name: "network-volume-open")
+        app.buttons["networkVolumeOK"].click()
+        XCTAssertTrue(app.buttons["welcomeCreate"].waitForExistence(timeout: 5))
+        app.terminate()
+    }
+
     @MainActor
     func testFirstRunCreatesCatalog() throws {
         let env = ProcessInfo.processInfo.environment

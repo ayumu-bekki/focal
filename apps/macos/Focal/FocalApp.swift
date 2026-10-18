@@ -41,6 +41,15 @@ struct FocalApp: App {
             } message: {
                 Text(state.error ?? "")
             }
+            // ネットワークの共有の上のカタログ（最初の画面でも出す）
+            .alert("Catalogs Can’t Be on a Network Volume",
+                   isPresented: Binding(get: { state.networkVolumeError != nil },
+                                        set: { if !$0 { state.networkVolumeError = nil } })) {
+                Button("OK") { state.networkVolumeError = nil }
+                    .accessibilityIdentifier("networkVolumeOK")
+            } message: {
+                Text(state.networkVolumeError ?? "")
+            }
             .onAppear {
                 delegate.state = state
                 if let url = delegate.pendingOpen {
@@ -180,6 +189,8 @@ final class AppState {
     private(set) var catalogURL: URL?
     /// 初回起動の画面に出すエラー
     var error: String?
+    /// カタログがネットワークの共有の上にあって開けない・作れない（ダイアログで知らせる）
+    var networkVolumeError: String?
 
     static let defaultPreviewCacheLimit: UInt64 = 2_000_000_000
     private static let lastCatalogKey = "LastCatalogPath"
@@ -232,6 +243,7 @@ final class AppState {
     /// 新しいカタログを作って開く
     @discardableResult
     func create(_ url: URL) -> Bool {
+        let existed = FileManager.default.fileExists(atPath: url.path)
         do {
             if AppPaths.isPackage(url) {
                 try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -240,10 +252,16 @@ final class AppState {
             self.error = error.localizedDescription
             return false
         }
-        return load(url)
+        let ok = load(url, creating: true)
+        // 作れなかった（ネットワークの共有の上など）: いま作った空のパッケージを残さない
+        if !ok, !existed, AppPaths.isPackage(url),
+           (try? FileManager.default.contentsOfDirectory(atPath: url.path))?.isEmpty == true {
+            try? FileManager.default.removeItem(at: url)
+        }
+        return ok
     }
 
-    private func load(_ url: URL) -> Bool {
+    private func load(_ url: URL, creating: Bool = false) -> Bool {
         if url.standardizedFileURL == catalogURL?.standardizedFileURL, model != nil { return true }
         let previous = model
         previous?.prepareForTermination()
@@ -257,10 +275,23 @@ final class AppState {
                 UserDefaults.standard.set(url.path, forKey: Self.lastCatalogKey)
             }
             return true
+        } catch let e as FocalError where e.code == .networkVolume {
+            let volume = Self.volumeName(of: url)
+            networkVolumeError = creating
+                ? String(localized: "Focal can’t create a catalog on a network volume (\(volume)), because the network share can lock the catalog or damage it. Choose a folder on a disk of this Mac. Your photos can stay on the network volume, and you can choose it as the backup location in Settings.")
+                : String(localized: "“\(url.deletingPathExtension().lastPathComponent)” is on a network volume (\(volume)). Focal can’t use a catalog there, because the network share can lock the catalog or damage it. Quit Focal, copy the catalog to a folder on this Mac in the Finder, and open the copy. Your photos can stay on the network volume, and you can choose it as the backup location in Settings.")
+            return false
         } catch {
             self.error = String(describing: error)
             return false
         }
+    }
+
+    /// url があるボリュームの表示名（まだない場所なら、ある親までたどる）
+    private static func volumeName(of url: URL) -> String {
+        var u = url
+        while !FileManager.default.fileExists(atPath: u.path), u.pathComponents.count > 1 { u.deleteLastPathComponent() }
+        return (try? u.resourceValues(forKeys: [.volumeLocalizedNameKey]).volumeLocalizedName) ?? u.path
     }
 
     // MARK: パネル

@@ -8,7 +8,7 @@ namespace focal {
 // core 内部のエラーは例外で伝える。C API の境界でステータスコードに変換する（ADR-13）。
 class Error : public std::runtime_error {
 public:
-    enum class Code { InvalidArgument, Io, Unsupported, Decode, Internal, Cancelled, Database, NotFound };
+    enum class Code { InvalidArgument, Io, Unsupported, Decode, Internal, Cancelled, Database, NotFound, NetworkVolume };
 
     Error(Code code, const std::string& message) : std::runtime_error(message), code_(code) {}
 

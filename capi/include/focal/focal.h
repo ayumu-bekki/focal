@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 25
+#define FC_API_VERSION 26
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -36,6 +36,7 @@ typedef enum fc_status {
     FC_ERR_DATABASE = 7,
     FC_ERR_NOT_FOUND = 8,
     FC_ERR_NOT_READY = 9, /* 写真のデコードがまだ終わっていない */
+    FC_ERR_NETWORK_VOLUME = 10, /* カタログがネットワークの共有（SMB・NFS など）の上にある（開けない・作れない） */
 } fc_status;
 
 /* ヘッダの FC_API_VERSION とライブラリが一致するか、ラッパーの初期化時に確認する */
@@ -49,7 +50,7 @@ const char* fc_last_error(void);
 typedef struct fc_catalog fc_catalog;
 typedef struct fc_presets fc_presets;
 
-/* カタログを開く（なければ作る。古いスキーマなら移行する） */
+/* カタログを開く（なければ作る。古いスキーマなら移行する）。ネットワークの共有の上なら FC_ERR_NETWORK_VOLUME（何も作らない） */
 fc_status fc_catalog_open(const char* path, fc_catalog** out);
 /* NULL でもよい。実行中のスキャンがあれば先に fc_task_release で手放しておくこと */
 void fc_catalog_close(fc_catalog* catalog);

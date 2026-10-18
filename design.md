@@ -506,6 +506,7 @@ Lensfun（https://lensfun.github.io/ 。ライブラリ LGPL-3.0、データ CC 
 ### 7.1 運用ルール
 
 - 接続ごとに必ず `PRAGMA foreign_keys = ON;`、カタログ作成時に `PRAGMA journal_mode = WAL;`。
+- **カタログはネットワークの共有（SMB・NFS など）の上に置かない**（ADR-07 の前提を守るため）。WAL は共有メモリのファイル（`-shm`）を使うのでネットワークのファイルシステムでは働かず、`journal_mode = WAL` が黙ってロールバック方式のままになる。その結果、読み取りと書き込みの接続がロックを取り合って `SQLITE_BUSY`（database is locked）になり、ファイルが壊れるおそれもある。`Catalog::open` が、作る前・開く前に `on_network_volume`（`util/volume`。まだない場所は親をたどって判定）で調べ、`Error::Code::NetworkVolume`（C API は `FC_ERR_NETWORK_VOLUME`）で止める（何も作らない）。アプリはダイアログで、この Mac のディスクに置くよう知らせる（ローカルへのコピーは利用者が Finder で行う）。写真のルートと定期バックアップの保存先はネットワークの共有でよい。テストでは環境変数 `FOCAL_TEST_NETWORK_VOLUME` のパスの下をネットワークとみなす。
 - スキーマのバージョンは `PRAGMA user_version` で管理し、起動時に順番にマイグレーションする。マイグレーション前にカタログファイルをバックアップする。
 - 取り込みなどの一括処理は 1 トランザクション（500 件単位程度）で行う。
 - 日時は ISO 8601 文字列で統一する。撮影日時は EXIF にタイムゾーンがないため、ローカル時刻の文字列として保持する。

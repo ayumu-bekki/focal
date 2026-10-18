@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <system_error>
 
 #include "util/file.h"
@@ -291,6 +292,18 @@ std::optional<VolumeInfo> volume_for_path(const fs::path& path) {
     for (auto& v : list_volumes())
         if (v.mount_point == *mount) return v;
     return std::nullopt;
+}
+
+bool on_network_volume(const fs::path& path) {
+    std::error_code ec;
+    fs::path p = fs::absolute(path, ec);
+    if (ec) return false;
+    if (const char* fake = std::getenv("FOCAL_TEST_NETWORK_VOLUME"); fake && *fake) {
+        if (relative_path_under(normalized_path_string(utf8_to_path(fake)), normalized_path_string(p))) return true;
+    }
+    while (!fs::exists(p, ec) && p.has_parent_path() && p.parent_path() != p) p = p.parent_path();
+    const auto v = volume_for_path(p);
+    return v && volume_kind(*v) == VolumeKind::Network;
 }
 
 std::optional<std::string> volume_relative_path(const VolumeInfo& volume, const fs::path& path) {

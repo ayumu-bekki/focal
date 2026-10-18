@@ -376,6 +376,18 @@ int main(void) {
     CHECK(strlen(fc_last_error()) > 0);
     CHECK(fc_catalog_open(lib, &bad) == FC_ERR_DATABASE); /* ディレクトリはカタログとして開けない */
     CHECK(bad == NULL);
+    /* ネットワークの共有の上には作れない（何も作らない）。テストでは環境変数でネットワークとみなす */
+    {
+        char net[1024];
+        snprintf(net, sizeof net, "%s/net/Focal.focalcatalog/catalog.sqlite", lib);
+        setenv("FOCAL_TEST_NETWORK_VOLUME", lib, 1);
+        CHECK(fc_catalog_open(net, &bad) == FC_ERR_NETWORK_VOLUME);
+        CHECK(bad == NULL);
+        unsetenv("FOCAL_TEST_NETWORK_VOLUME");
+        snprintf(net, sizeof net, "%s/net", lib);
+        struct stat st;
+        CHECK(stat(net, &st) != 0);
+    }
 
     fc_catalog* cat = NULL;
     REQUIRE_OK(fc_catalog_open(cat_path, &cat));

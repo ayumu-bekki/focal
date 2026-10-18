@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 
 #include "catalog/catalog.h"
@@ -258,6 +259,43 @@ TEST_CASE("ボリューム: ルートにボリュームの ID と相対パスを
     CHECK_FALSE(roots[0].online);
     CHECK(roots[0].path == "/definitely/not/here/photos");
     CHECK_THROWS_AS(c->scan_root(roots[0].id), Error);  // 写真をファイルなしにはしない
+}
+
+TEST_CASE("カタログ: ネットワークの共有の上には作れず・開けず、何も作らない", "[library][volume]") {
+    TempDir dir;
+    const fs::path local = dir / "local" / "c.sqlite";
+    const fs::path net = dir / "nas" / "Focal.focalcatalog" / "catalog.sqlite";
+    {
+        auto c = Catalog::open(local);  // ネットワークでなければ開ける
+        CHECK(c->roots().empty());
+    }
+    CHECK_FALSE(on_network_volume(local));
+    // 実際の共有は用意できないので、環境変数でネットワークとみなす（まだない場所でも、親で判定する）
+    struct FakeNetwork {
+        explicit FakeNetwork(const fs::path& p) {
+#if defined(_WIN32)
+            _putenv_s("FOCAL_TEST_NETWORK_VOLUME", p.string().c_str());
+#else
+            setenv("FOCAL_TEST_NETWORK_VOLUME", p.c_str(), 1);
+#endif
+        }
+        ~FakeNetwork() {
+#if defined(_WIN32)
+            _putenv_s("FOCAL_TEST_NETWORK_VOLUME", "");
+#else
+            unsetenv("FOCAL_TEST_NETWORK_VOLUME");
+#endif
+        }
+    } fake(dir / "nas");
+    CHECK(on_network_volume(net));
+    CHECK_FALSE(on_network_volume(local));
+    try {
+        Catalog::open(net);
+        FAIL("ネットワークの上のカタログが開けた");
+    } catch (const Error& e) {
+        CHECK(e.code() == Error::Code::NetworkVolume);
+    }
+    CHECK_FALSE(fs::exists(dir / "nas"));
 }
 
 TEST_CASE("ルート: 含むルートを探し、ボリューム情報のない古いルートは起動時に補う", "[library][volume]") {

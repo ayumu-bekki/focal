@@ -78,6 +78,7 @@ fc_status to_status(Error::Code code) {
     case Error::Code::Cancelled: return FC_ERR_CANCELLED;
     case Error::Code::Database: return FC_ERR_DATABASE;
     case Error::Code::NotFound: return FC_ERR_NOT_FOUND;
+    case Error::Code::NetworkVolume: return FC_ERR_NETWORK_VOLUME;
     }
     return FC_ERR_INTERNAL;
 }

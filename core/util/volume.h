@@ -34,6 +34,10 @@ std::vector<VolumeInfo> mounted_volumes();
 // path があるボリューム。判別できなければ nullopt
 std::optional<VolumeInfo> volume_for_path(const std::filesystem::path& path);
 
+// path（まだなければ、あるところまで親をたどる）がネットワークの共有（SMB・NFS など）の上にあるか。判別できなければ false。
+// テスト用: 環境変数 FOCAL_TEST_NETWORK_VOLUME のパスの下もネットワークとみなす（実際の共有を用意できないため）
+bool on_network_volume(const std::filesystem::path& path);
+
 // path をボリュームのルートからの相対パス（NFC、区切りは '/'、ルート自身は ""）にする。
 // path がボリュームの外なら nullopt
 std::optional<std::string> volume_relative_path(const VolumeInfo& volume, const std::filesystem::path& path);
