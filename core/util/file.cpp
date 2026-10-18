@@ -109,4 +109,31 @@ std::optional<DiskSpace> disk_space(const std::filesystem::path& path, std::chro
     return fut.get();
 }
 
+std::optional<std::string> relative_path_under(std::string_view parent, std::string_view child) {
+    while (parent.size() > 1 && parent.back() == '/') parent.remove_suffix(1);
+    while (child.size() > 1 && child.back() == '/') child.remove_suffix(1);
+    if (parent == "/") {
+        if (!child.empty() && child.front() == '/') return std::string(child.substr(1));
+        return std::nullopt;
+    }
+    size_t pi = 0, ci = 0;
+    while (pi < parent.size()) {
+        if (ci >= child.size()) return std::nullopt;
+        const size_t ps = parent.find('/', pi);
+        const size_t cs = child.find('/', ci);
+        const std::string_view pseg = parent.substr(pi, ps == std::string_view::npos ? std::string_view::npos : ps - pi);
+        const std::string_view cseg = child.substr(ci, cs == std::string_view::npos ? std::string_view::npos : cs - ci);
+        if (casefold_key(pseg) != casefold_key(cseg)) return std::nullopt;
+        pi = ps == std::string_view::npos ? parent.size() : ps + 1;
+        if (pi < parent.size()) {
+            if (cs == std::string_view::npos) return std::nullopt;
+            ci = cs + 1;
+        } else {
+            if (cs == std::string_view::npos) return std::string();
+            return std::string(child.substr(cs + 1));
+        }
+    }
+    return std::string();
+}
+
 } // namespace focal

@@ -143,6 +143,11 @@ TEST_CASE("スマートアルバム: 条件の検証", "[library]") {
              R"({"rules":[{"field":3,"op":">=","value":1}]})",
          })
         CHECK_THROWS_AS(validate_smart_query(bad), Error);
+    // int64 に入らない整数は id・★として受け付けない（切り捨てて別の id にしない）。数値の比較は小数として扱う
+    CHECK_THROWS_AS(validate_smart_query(R"({"rules":[{"field":"folder","op":"in","value":18446744073709551615}]})"), Error);
+    CHECK_THROWS_AS(validate_smart_query(R"({"rules":[{"field":"album","op":"in","value":9223372036854775808}]})"), Error);
+    CHECK_THROWS_AS(validate_smart_query(R"({"rules":[{"field":"rating","op":">=","value":18446744073709551615}]})"), Error);
+    CHECK_NOTHROW(validate_smart_query(R"({"rules":[{"field":"iso","op":"<=","value":18446744073709551615}]})"));
     // 壊れた条件を保存済みでも、問い合わせは何にも一致しないだけで落ちない
     CHECK(smart_query_clause("not json").sql == "0 = 1");
 }
@@ -267,6 +272,10 @@ TEST_CASE("ルート: 含むルートを探し、ボリューム情報のない�
     CHECK(c->root_containing(outer / "other")->id == o);
     CHECK(c->root_containing(dir / "elsewhere") == std::nullopt);
     CHECK(c->root_containing(outer)->id == o);
+    // macOS・Windows は大文字小文字を区別しないので、綴りの違うパスでも同じルート
+    CHECK(c->root_containing(dir / "OUTER" / "Inner" / "deep")->id == i);
+    CHECK(c->root_for_path(dir / "Outer")->id == o);
+    CHECK(c->root_containing(dir / "outerx") == std::nullopt);
 
     c->set_root_label(o, "Main");
     CHECK(c->root_for_path(outer)->label == "Main");

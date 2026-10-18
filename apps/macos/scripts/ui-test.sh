@@ -75,6 +75,7 @@ sqlite3 "$WORK/nested-catalog.sqlite" "
 
 cd "$ROOT/apps/macos"
 xcodegen -q
+XCODE_STATUS=0
 TEST_RUNNER_FOCAL_CATALOG="$WORK/catalog.sqlite" \
 TEST_RUNNER_FOCAL_CACHE="$WORK/thumbs" \
 TEST_RUNNER_FOCAL_EXPORT_DIR="$WORK/export" \
@@ -105,8 +106,11 @@ TEST_RUNNER_FOCAL_GPU="${FOCAL_GPU:-1}" \
 TEST_RUNNER_FOCAL_WINDOW_SCREEN="${FOCAL_WINDOW_SCREEN:-0}" \
   xcodebuild test -project Focal.xcodeproj -scheme Focal -destination 'platform=macOS' \
     -derivedDataPath "$ROOT/apps/macos/build/DerivedData" -resultBundlePath "$WORK/result.xcresult" "${@:2}" \
-  | grep -E "error:|Test Case|TEST (SUCCEEDED|FAILED)|Executed" || true
+  | { grep -E "error:|Test Case|TEST (SUCCEEDED|FAILED)|Executed" || true; } || XCODE_STATUS=$?
 # テストランナーはサンドボックス内で動くので、スクリーンショットは結果バンドルから書き出す
-xcrun xcresulttool export attachments --path "$WORK/result.xcresult" --output-path "$OUT" >/dev/null
+if [[ -d "$WORK/result.xcresult" ]]; then
+  xcrun xcresulttool export attachments --path "$WORK/result.xcresult" --output-path "$OUT" >/dev/null || true
+fi
 echo "screenshots: $OUT"
 rm -rf "$WORK"
+exit "$XCODE_STATUS"

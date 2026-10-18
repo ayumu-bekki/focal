@@ -497,3 +497,39 @@ TEST_CASE("Editor: 閉じると現像結果のサムネイルと大きいプレ�
     editor.clear_preview_cache();
     CHECK(editor.preview_cache_usage() == 0);
 }
+
+TEST_CASE("Editor: 閉じずに続けて開いた写真は、後のものを先にデコードし、前のものも現像可能になる", "[editor][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Fixture f;
+    Editor editor(*f.catalog);
+    Events ev1, ev2;
+    auto s1 = editor.open(f.sony, 512, 1024, ev1.callback());
+    auto s2 = editor.open(f.canon, 512, 1024, ev2.callback());  // s1 のデコードを打ち切る
+    REQUIRE(ev2.wait_for(EditSession::Event::Ready));
+    REQUIRE(ev1.wait_for(EditSession::Event::Ready));  // 打ち切られた s1 も後でデコードされる
+    CHECK(s1->info().stage == SessionInfo::Stage::Ready);
+    editor.close(s2);
+    editor.close(s1);
+}
+
+TEST_CASE("ThumbnailService: 同じ写真を同時に頼んでも、どの要求にも 1 回ずつ同じサムネイルを返す", "[thumbs][data]") {
+    if (!have_data()) SKIP("tests/data/fetch.sh でテスト用 RAW を取得する");
+    Fixture f;
+    ThumbnailService service(*f.catalog, f.dir / "thumbs", 3);
+    constexpr int n = 6;
+    std::mutex m;
+    std::condition_variable cv;
+    std::vector<std::string> paths;
+    for (int i = 0; i < n; ++i)
+        service.request(f.sony, [&](uint64_t, ThumbnailService::Result r, const std::string& path) {
+            std::lock_guard lock(m);
+            paths.push_back(r == ThumbnailService::Result::Ok ? path : "");
+            cv.notify_all();
+        });
+    std::unique_lock lock(m);
+    REQUIRE(cv.wait_for(lock, 30s, [&] { return paths.size() == n; }));
+    for (const auto& p : paths) {
+        CHECK_FALSE(p.empty());
+        CHECK(p == paths[0]);
+    }
+}

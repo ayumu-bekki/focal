@@ -91,18 +91,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let quitPanel = BackupQuitController()
 
+    private var importQuitTimeout: DispatchWorkItem?
+
     /// 終了の流れ: (1) カードの取り込み中なら、取り込みを止めて（コピー済みの分は登録され、書きかけのファイルは消える）終わるのを待つ。
     /// 10 秒待っても終わらなければ次へ。(2) カタログのバックアップが必要な時期なら、聞いて（設定で聞かないこともできる）取ってから終了する。
     /// バックアップ中は進捗のパネルを出し、終わったら終了する（v3.24）
     @MainActor
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let importer = state?.model?.cardImport, importer.isRunning else { return continueQuit() }
+        importQuitTimeout?.cancel()
+        let timeout = DispatchWorkItem { [weak self] in
+            self?.importQuitTimeout = nil
+            importer.afterFinish = nil
+            if self?.continueQuit() == .terminateNow { NSApp.reply(toApplicationShouldTerminate: true) }
+        }
+        importQuitTimeout = timeout
         importer.afterFinish = { [weak self] in
             guard let self else { return }
+            self.importQuitTimeout?.cancel()
+            self.importQuitTimeout = nil
             if self.continueQuit() == .terminateNow { NSApp.reply(toApplicationShouldTerminate: true) }
         }
         importer.cancel()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { NSApp.reply(toApplicationShouldTerminate: true) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: timeout)
         return .terminateLater
     }
 

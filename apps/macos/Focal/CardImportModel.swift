@@ -350,20 +350,29 @@ final class CardThumbnailLoader: @unchecked Sendable {
     private let gate = ConcurrencyGate(limit: 3)
     private let lock = NSLock()
     private var directory: URL?
+    private var generation = 0
 
     init() { cache.countLimit = 3000 }
 
     func reset(cacheDirectory: URL) {
         lock.lock()
         directory = cacheDirectory
+        generation &+= 1
         lock.unlock()
         cache.removeAllObjects()
     }
 
-    private func currentDirectory() -> URL? {
+    private func currentDirectory() -> (url: URL, generation: Int)? {
         lock.lock()
         defer { lock.unlock() }
-        return directory
+        guard let directory else { return nil }
+        return (directory, generation)
+    }
+
+    private func isCurrentGeneration(_ gen: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return generation == gen
     }
 
     func cached(_ shot: CardShot) -> CGImage? { cache.object(forKey: shot.key as NSString) }
@@ -372,41 +381,66 @@ final class CardThumbnailLoader: @unchecked Sendable {
     func image(for shot: CardShot) async -> CGImage? {
         if let img = cached(shot) { return img }
         guard shot.isPhoto else { return nil }
-        guard let dir = currentDirectory() else { return nil }
-        await gate.enter()
+        guard let (dir, gen) = currentDirectory() else { return nil }
+        guard await gate.enter() else { return nil }
         var image: CGImage?
         if !Task.isCancelled {
             image = await Task.detached(priority: .utility) { () -> CGImage? in
-                guard let url = try? Catalog.cardThumbnail(file: shot.path, cacheDirectory: dir) else { return nil }
+                guard !Task.isCancelled,
+                      let url = try? Catalog.cardThumbnail(file: shot.path, cacheDirectory: dir),
+                      !Task.isCancelled else { return nil }
                 return ThumbnailLoader.decode(url)
             }.value
         }
         await gate.leave()
-        if let image { cache.setObject(image, forKey: shot.key as NSString) }
+        if let image, !Task.isCancelled, isCurrentGeneration(gen) {
+            cache.setObject(image, forKey: shot.key as NSString)
+        }
         return image
     }
 }
 
-/// 同時に動かす数を絞る（待つ側は、開始前なら動かさずに抜けられる）
+/// 同時に動かす数を絞る（待つ側は、開始前ならキャンセルで即座に抜けられる）
 actor ConcurrencyGate {
     private var available: Int
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var nextID: UInt64 = 0
+    private var waiters: [(id: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
 
     init(limit: Int) { available = limit }
 
-    func enter() async {
+    func enter() async -> Bool {
+        if Task.isCancelled { return false }
         if available > 0 {
             available -= 1
-            return
+            return true
         }
-        await withCheckedContinuation { waiters.append($0) }
+        nextID &+= 1
+        let id = nextID
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { cont in
+                if Task.isCancelled {
+                    cont.resume(returning: false)
+                } else {
+                    waiters.append((id: id, continuation: cont))
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: id) }
+        }
+    }
+
+    private func cancelWaiter(id: UInt64) {
+        if let i = waiters.firstIndex(where: { $0.id == id }) {
+            let w = waiters.remove(at: i)
+            w.continuation.resume(returning: false)
+        }
     }
 
     func leave() {
         if waiters.isEmpty {
             available += 1
         } else {
-            waiters.removeFirst().resume()
+            waiters.removeFirst().continuation.resume(returning: true)
         }
     }
 }

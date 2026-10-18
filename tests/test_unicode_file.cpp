@@ -107,3 +107,18 @@ TEST_CASE("quick_hash: サイズ + 先頭 1MB + 末尾 1MB", "[hash]") {
     CHECK(quick_hash(dir / "small.bin") != quick_hash(dir / "small2.bin"));
     CHECK(blake3_hex("") == "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262");
 }
+
+TEST_CASE("ルートからの相対パス: パス要素ごとに大文字小文字・NFC を無視して比べ、元の綴りで切り出す", "[unicode][file]") {
+    CHECK(relative_path_under("/a/b", "/a/b") == std::string());
+    CHECK(relative_path_under("/a/b/", "/a/b") == std::string());
+    CHECK(relative_path_under("/a/b", "/a/b/c/D") == "c/D");
+    CHECK(relative_path_under("/A/B", "/a/b/c") == "c");
+    CHECK(relative_path_under("/", "/x/y") == "x/y");
+    // 名前の途中で区切らない
+    CHECK_FALSE(relative_path_under("/a/b", "/a/bc"));
+    CHECK_FALSE(relative_path_under("/a/b", "/a"));
+    CHECK_FALSE(relative_path_under("/a/b", "/x/b/c"));
+    // 折りたたむとバイト数が変わる名前（ß → ss、NFD → NFC）でも、子の元の区切りで切り出す
+    CHECK(relative_path_under("/Photos/Straße", "/photos/STRASSE/2026/x") == "2026/x");
+    CHECK(relative_path_under("/" + kNfc, "/" + kNfd + "/" + kNfd) == kNfd);
+}

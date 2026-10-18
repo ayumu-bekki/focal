@@ -15,6 +15,8 @@ namespace {
 
 void check(int rc, const char* what, const std::filesystem::path& path) {
     if (rc == LIBRAW_SUCCESS) return;
+    // 進み具合のコールバックで打ち切った（open_file・unpack の途中でも起きる）
+    if (rc == LIBRAW_CANCELLED_BY_CALLBACK) throw Error(Error::Code::Cancelled, "decode cancelled");
     const auto code = (rc == LIBRAW_FILE_UNSUPPORTED) ? Error::Code::Unsupported
                       : (rc == LIBRAW_IO_ERROR)       ? Error::Code::Io
                                                       : Error::Code::Decode;

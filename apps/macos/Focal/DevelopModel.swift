@@ -133,6 +133,8 @@ final class DevelopModel {
 
     /// 編集をすぐ保存する（写真の切り替え時、7.4 章）
     func close() {
+        proxyResizeTask?.cancel()
+        proxyResizeTask = nil
         if cropMode { commitCrop() }
         session?.close()
         session = nil
@@ -197,11 +199,11 @@ final class DevelopModel {
 
     func beginChange() {
         changing = true
-        session?.beginChange()
+        if !cropMode { session?.beginChange() }
     }
 
     func endChange() {
-        session?.endChange()
+        if !cropMode { session?.endChange() }
         refreshUndoState()
         changing = false
         commitSync()
@@ -422,6 +424,7 @@ final class DevelopModel {
     var detectedLens: LensInfo? { session?.detectedLens }
 
     func undo() {
+        if cropMode { commitCrop() }
         guard let session, session.undo() else { return }
         settings = session.settings
         syncBaseline = settings  // 取り消し・やり直しは他の写真へ写さない
@@ -430,6 +433,7 @@ final class DevelopModel {
     }
 
     func redo() {
+        if cropMode { commitCrop() }
         guard let session, session.redo() else { return }
         settings = session.settings
         syncBaseline = settings  // 取り消し・やり直しは他の写真へ写さない

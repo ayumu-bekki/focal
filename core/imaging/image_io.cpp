@@ -177,12 +177,17 @@ struct TiffReader {
 };
 
 void read_ifd(const TiffReader& r, size_t ifd, ExifInfo& info, size_t* exif_ifd) {
+    if (ifd + 2 > r.n) return;
     const uint16_t count = r.u16(ifd);
+    auto short_or_long = [&](size_t e) -> uint32_t {
+        return r.u16(e + 2) == 4 ? r.u32(e + 8) : static_cast<uint32_t>(r.u16(e + 8));
+    };
     for (uint16_t i = 0; i < count; ++i) {
-        const size_t e = ifd + 2 + 12 * i;
+        const size_t e = ifd + 2 + 12 * static_cast<size_t>(i);
+        if (e + 12 > r.n) break;
         switch (r.u16(e)) {
         case 0x010F: info.make = r.str(e); break;
-        case 0x0112: info.orientation = r.u16(e + 8); break;
+        case 0x0112: info.orientation = static_cast<int>(short_or_long(e)); break;
         case 0x0110: info.model = r.str(e); break;
         case 0x0132:
             if (info.capture_time.empty()) info.capture_time = from_exif_datetime(r.str(e));
@@ -192,7 +197,7 @@ void read_ifd(const TiffReader& r, size_t ifd, ExifInfo& info, size_t* exif_ifd)
             break;
         case 0x829A: info.exposure_time = r.rational(e); break;
         case 0x829D: info.f_number = r.rational(e); break;
-        case 0x8827: info.iso = r.u16(e + 8); break;
+        case 0x8827: info.iso = static_cast<int>(short_or_long(e)); break;
         case 0x9003: info.capture_time = from_exif_datetime(r.str(e)); break;  // 撮影日時を優先する
         case 0x920A: info.focal_length = r.rational(e); break;
         case 0xA434: info.lens = r.str(e); break;
@@ -408,7 +413,12 @@ LoadedImage read_tiff(const std::filesystem::path& path) {
     TIFFGetFieldDefaulted(t, TIFFTAG_SAMPLESPERPIXEL, &spp);
     TIFFGetFieldDefaulted(t, TIFFTAG_BITSPERSAMPLE, &bps);
     TIFFGetFieldDefaulted(t, TIFFTAG_PLANARCONFIG, &planar);
-    if (spp != 3 || (bps != 8 && bps != 16) || planar != PLANARCONFIG_CONTIG)
+    if (spp != 3 || (bps != 8 && bps != 16) || planar != PLANARCONFIG_CONTIG || w == 0 || h == 0 ||
+        static_cast<uint64_t>(w) * h > (1ull << 30))
+        throw Error(Error::Code::Unsupported, "unsupported TIFF layout: " + path.string());
+    const tmsize_t scan_bytes = TIFFScanlineSize(t);
+    const tmsize_t min_bytes = static_cast<tmsize_t>(w) * 3 * (bps / 8);
+    if (scan_bytes < min_bytes)
         throw Error(Error::Code::Unsupported, "unsupported TIFF layout: " + path.string());
 
     LoadedImage img;
@@ -416,7 +426,7 @@ LoadedImage read_tiff(const std::filesystem::path& path) {
     img.height = static_cast<int>(h);
     img.bits = bps;
     img.data.resize(static_cast<size_t>(w) * h * 3);
-    std::vector<uint8_t> line(TIFFScanlineSize(t));
+    std::vector<uint8_t> line(static_cast<size_t>(scan_bytes));
     for (uint32_t y = 0; y < h; ++y) {
         if (TIFFReadScanline(t, line.data(), y, 0) < 0) throw Error(Error::Code::Io, "TIFF read failed");
         uint16_t* dst = &img.data[static_cast<size_t>(y) * w * 3];

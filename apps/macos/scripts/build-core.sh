@@ -106,7 +106,8 @@ sync_built_products() {
 # 入力が変わっていなければ作り直さない
 STAMP="$STAGE/inputs.sha"
 NEW_STAMP=$(shasum "${STATIC_LIBS[@]}" "$ROOT/capi/include/focal/focal.h" | shasum | cut -d' ' -f1)
-if [[ -f "$STAMP" && "$(cat "$STAMP")" == "$NEW_STAMP" && -d "$OUT/FocalCore.xcframework" ]]; then
+if [[ -f "$STAMP" && "$(cat "$STAMP")" == "$NEW_STAMP" && -d "$OUT/FocalCore.xcframework" \
+      && -f "$OUT/Frameworks/libraw_r.dylib" && -f "$OUT/Frameworks/liblensfun.dylib" ]]; then
   sync_built_products
   exit 0
 fi

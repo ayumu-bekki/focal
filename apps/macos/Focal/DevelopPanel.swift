@@ -119,8 +119,8 @@ struct DevelopPanel: View {
     @State private var lensPicker = false
 
     var body: some View {
-        // 読み込み中は中身だけを操作できなくする（見出しは開閉できる）
-        let disabled = develop.stage != .ready
+        // 読み込み中・クロップモード中は中身だけを操作できなくする（見出しは開閉できる）
+        let disabled = develop.stage != .ready || develop.cropMode
         presetSection(disabled: disabled)
 
         Section {

@@ -482,7 +482,9 @@ public final class Catalog: @unchecked Sendable {
                                 opt.preset_id = presetID
                                 return onlyPointers.withUnsafeBufferPointer { only in
                                     opt.only_keys = only.baseAddress
-                                    return fc_card_import_start(handle, &opt, cardProgress, cardDone, user, &task)
+                                    return withExtendedLifetime(options.presets) {
+                                        fc_card_import_start(handle, &opt, cardProgress, cardDone, user, &task)
+                                    }
                                 }
                             }
                         }
@@ -569,8 +571,11 @@ private final class ScanBox: @unchecked Sendable {
         lock.unlock()
         guard let t else { return }
         let handle = UInt(bitPattern: t)
+        let catalog = self.catalog
         DispatchQueue.global(qos: .utility).async {
-            fc_task_release(OpaquePointer(bitPattern: handle))
+            withExtendedLifetime(catalog) {
+                fc_task_release(OpaquePointer(bitPattern: handle))
+            }
         }
     }
 }
@@ -634,7 +639,12 @@ private final class ExportBox: @unchecked Sendable {
         lock.unlock()
         guard let t else { return }
         let handle = UInt(bitPattern: t)
-        DispatchQueue.global(qos: .utility).async { fc_task_release(OpaquePointer(bitPattern: handle)) }
+        let catalog = self.catalog
+        DispatchQueue.global(qos: .utility).async {
+            withExtendedLifetime(catalog) {
+                fc_task_release(OpaquePointer(bitPattern: handle))
+            }
+        }
     }
 }
 
@@ -695,7 +705,12 @@ private final class StreamTaskBox<Event: Sendable>: @unchecked Sendable {
         lock.unlock()
         guard let t else { return }
         let handle = UInt(bitPattern: t)
-        DispatchQueue.global(qos: .utility).async { fc_task_release(OpaquePointer(bitPattern: handle)) }
+        let catalog = self.catalog
+        DispatchQueue.global(qos: .utility).async {
+            withExtendedLifetime(catalog) {
+                fc_task_release(OpaquePointer(bitPattern: handle))
+            }
+        }
     }
 }
 

@@ -59,12 +59,26 @@ void ThumbnailService::worker() {
         Job job;
         {
             std::unique_lock lock(mutex_);
-            cv_.wait(lock, [this] { return stopping_ || !queue_.empty(); });
+            auto find_ready = [this]() -> std::deque<Job>::iterator {
+                for (auto it = queue_.end(); it != queue_.begin();) {
+                    --it;
+                    if (active_photos_.count(it->photo_id) == 0) return it;
+                }
+                return queue_.end();
+            };
+            cv_.wait(lock, [&] { return stopping_ || find_ready() != queue_.end(); });
             if (stopping_) return;
-            job = std::move(queue_.back());
-            queue_.pop_back();
+            auto it = find_ready();
+            job = std::move(*it);
+            queue_.erase(it);
+            active_photos_.insert(job.photo_id);
         }
         run(job);
+        {
+            std::lock_guard lock(mutex_);
+            active_photos_.erase(job.photo_id);
+        }
+        cv_.notify_all();
     }
 }
 

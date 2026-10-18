@@ -32,13 +32,26 @@ bool is_date(const std::string& s) {
     return true;
 }
 
+bool valid_int64(const json& v, int64_t& out) {
+    if (!v.is_number_integer()) return false;
+    if (v.is_number_unsigned()) {
+        const uint64_t u = v.get<uint64_t>();
+        if (u > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) return false;
+        out = static_cast<int64_t>(u);
+    } else {
+        out = v.get<int64_t>();
+    }
+    return true;
+}
+
 SqlClause numeric(const std::string& column, const std::string& op, const json& value) {
     if (op != "=" && op != ">=" && op != "<=") bad("bad operator " + op);
     if (!value.is_number()) bad("value must be a number");
     SqlClause c;
     c.sql = column + " " + op + " ?";
-    if (value.is_number_integer())
-        c.args.emplace_back(value.get<int64_t>());
+    int64_t iv = 0;
+    if (valid_int64(value, iv))
+        c.args.emplace_back(iv);
     else
         c.args.emplace_back(value.get<double>());
     return c;
@@ -56,10 +69,11 @@ SqlClause text_match(const std::string& expr, const std::string& op, const json&
 SqlClause id_membership(const std::string& op, const std::string& yes, const std::string& no, const json& value,
                         const std::string& subquery) {
     if (op != yes && op != no) bad("bad operator " + op);
-    if (!value.is_number_integer()) bad("value must be an id");
+    int64_t id = 0;
+    if (!valid_int64(value, id)) bad("value must be an id");
     SqlClause c;
     c.sql = std::string("p.id ") + (op == yes ? "IN" : "NOT IN") + " (" + subquery + ")";
-    c.args.emplace_back(value.get<int64_t>());
+    c.args.emplace_back(id);
     return c;
 }
 
@@ -71,7 +85,8 @@ SqlClause rule_clause(const json& r) {
     const json& value = r.at("value");
 
     if (field == "rating") {
-        if (!value.is_number_integer() || value.get<int>() < 0 || value.get<int>() > 5) bad("rating must be 0-5");
+        int64_t rv = -1;
+        if (!valid_int64(value, rv) || rv < 0 || rv > 5) bad("rating must be 0-5");
         return numeric("p.rating", op, value);
     }
     if (field == "flag") {
@@ -99,12 +114,13 @@ SqlClause rule_clause(const json& r) {
                              " SELECT c.id FROM albums c JOIN sub ON c.parent_id = sub.id) SELECT id FROM sub)");
     if (field == "folder") {
         if (op != "in" && op != "not_in") bad("bad operator " + op);
-        if (!value.is_number_integer()) bad("value must be an id");
+        int64_t id = 0;
+        if (!valid_int64(value, id)) bad("value must be an id");
         SqlClause c;
         c.sql = std::string("p.folder_id ") + (op == "in" ? "IN" : "NOT IN") +
                 " (WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL"
                 " SELECT c.id FROM folders c JOIN sub ON c.parent_id = sub.id) SELECT id FROM sub)";
-        c.args.emplace_back(value.get<int64_t>());
+        c.args.emplace_back(id);
         return c;
     }
     if (field == "camera") return text_match("(COALESCE(p.camera_make, '') || ' ' || COALESCE(p.camera_model, ''))", op, value);

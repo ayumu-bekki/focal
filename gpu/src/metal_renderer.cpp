@@ -174,6 +174,7 @@ public:
         const auto t0 = std::chrono::steady_clock::now();
         cmd->commit();
         cmd->waitUntilCompleted();
+        retired_.clear();
         if (std::getenv("FOCAL_GPU_TIMING")) {
             const auto t1 = std::chrono::steady_clock::now();
             std::fprintf(stderr, "gpu %.2f ms, wait %.2f ms\n", (cmd->GPUEndTime() - cmd->GPUStartTime()) * 1000,
@@ -310,7 +311,7 @@ private:
             a.f = lp.f, a.gx0 = lp.gx0, a.gy0 = lp.gy0, a.sw = lp.sw, a.sh = lp.sh;
             a.amount = pipeline.clarity();
             const size_t sn = static_cast<size_t>(lp.sw) * lp.sh;
-            MTL::Buffer *ca = plane(7, sn), *ii = plane(8, sn), *cb = plane(9, sn), *tmp = plane(10, sn);
+            MTL::Buffer *ca = plane(20, sn), *ii = plane(21, sn), *cb = plane(22, sn), *tmp = plane(23, sn);
             aux(enc, "lc_down_wk", a, lp.sw, lp.sh, {wk, ca, ii});
             AuxParams s = a;
             s.w = lp.sw, s.h = lp.sh;
@@ -391,7 +392,10 @@ private:
     }
 
     void ensure(Ref<MTL::Buffer>& buf, size_t bytes) {
-        if (!buf || buf->length() < bytes) buf.reset(device_->newBuffer(bytes, MTL::ResourceStorageModeShared));
+        if (!buf || buf->length() < bytes) {
+            if (buf) retired_.push_back(std::move(buf));
+            buf.reset(device_->newBuffer(bytes, MTL::ResourceStorageModeShared));
+        }
     }
 
     // 描画元を GPU から見える置き場に写す。同じ画像（weak_ptr で確かめる）なら使い回す。
@@ -423,6 +427,7 @@ private:
     Ref<MTL::Buffer> lens_buf_;  // レンズ補正の補正マップ（同じマップなら使い回す）
     std::shared_ptr<const LensMaps> lens_held_;
     std::vector<Ref<MTL::Buffer>> planes_;  // 作業用の平面（使い回す）
+    std::vector<Ref<MTL::Buffer>> retired_;  // エンコード中に広げ直した古い平面（実行完了後に解放）
     std::mutex mutex_;
 };
 

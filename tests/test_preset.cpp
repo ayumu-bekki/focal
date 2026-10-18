@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include "catalog/catalog.h"
+#include "catalog/sqlite.h"
 #include "edit/preset.h"
 #include "import/card_import.h"
 #include "test_util.h"
@@ -300,4 +301,49 @@ TEST_CASE("プリセット: 調整が同じプリセットを探す・名前を�
     CHECK_THROWS_AS(store.rename("user:none", "X"), Error);
     store.rename(mine_id, "MINE 2");  // 自分自身との大文字小文字だけの違いは許す
     CHECK(store.list()[1].name == "MINE 2");
+}
+
+TEST_CASE("プリセット・同期: 直前の保存の上に重ね、RAW 以外は飛ばし、読めない現像は既定値として扱う", "[preset][catalog]") {
+    TempDir lib, db;
+    fs::create_directories(lib.path() / "d");
+    std::ofstream(lib.path() / "d" / "a.NEF") << "x";
+    std::ofstream(lib.path() / "d" / "b.NEF") << "yy";
+    std::ofstream(lib.path() / "d" / "c.jpg") << "zzz";  // RAW のない JPEG は別の写真（現像しない）
+    auto c = Catalog::open(db / "c.sqlite");
+    c->scan_root(c->add_root(lib.path()));
+    int64_t a = 0, b = 0, jpg = 0;
+    for (const auto& p : c->query({})) (p.file_name == "a.NEF" ? a : p.file_name == "b.NEF" ? b : jpg) = p.id;
+    REQUIRE(a);
+    REQUIRE(b);
+    REQUIRE(jpg);
+
+    // flush せずに重ねても、直前に積んだ保存（切り取り）の上に重なる
+    Settings cropped;
+    cropped.geometry.crop = {0, 0, 0.5, 0.5};
+    c->save_edit(a, 1, settings_to_json(cropped));
+    Settings preset;
+    preset.contrast = 10;
+    const std::vector<int64_t> ids{a, b, jpg};
+    c->apply_preset(ids, preset);
+    const Settings sa = settings_from_json(*c->edit_json(a));  // apply_preset はコミットしてから戻る
+    CHECK(sa.contrast == 10);
+    CHECK(sa.geometry.crop == CropRect{0, 0, 0.5, 0.5});
+    CHECK_FALSE(c->edit_json(jpg));
+
+    c->save_edit(a, 1, settings_to_json(cropped));
+    Settings src;
+    src.exposure = 1;
+    c->apply_adjustments(ids, src, kAdjExposure);
+    CHECK(settings_from_json(*c->edit_json(a)).exposure == 1);
+    CHECK(settings_from_json(*c->edit_json(a)).geometry.crop == CropRect{0, 0, 0.5, 0.5});
+    CHECK_FALSE(c->edit_json(jpg));
+
+    // 壊れた JSON の現像は既定値の上に重ねる（例外にしない）
+    c->flush();
+    {
+        db::Database d(db / "c.sqlite", db::Database::Mode::ReadWrite);
+        d.exec("UPDATE edits SET settings = 'not json' WHERE photo_id = " + std::to_string(b));
+    }
+    CHECK_NOTHROW(c->apply_preset(ids, preset));
+    CHECK(settings_from_json(*c->edit_json(b)).contrast == 10);
 }

@@ -243,7 +243,8 @@ final class LibraryModel {
 
     /// 書き出す写真（選択中。なければ表示中の写真）を撮影日時順で
     var exportIDs: [Int64] {
-        let selected = selection.isEmpty ? Set(currentIndex.map { [photoIDs[$0]] } ?? []) : selection
+        let fallback = currentIndex.flatMap { photoIDs.indices.contains($0) ? [photoIDs[$0]] : nil } ?? []
+        let selected = selection.isEmpty ? Set(fallback) : selection
         return photoIDs.filter { selected.contains($0) }
     }
 
@@ -264,6 +265,11 @@ final class LibraryModel {
         for o in menuObservers { NotificationCenter.default.removeObserver(o) }
         menuObservers = []
         watcher.stop()
+        toastTask?.cancel()
+        syncChain?.cancel()
+        export.cancel()
+        cardImport.cancel()
+        backup.cancel()
         develop.close()
         try? catalog.flush()
     }
@@ -312,7 +318,8 @@ final class LibraryModel {
     /// メニューの操作の対象（選択中の写真。なければ今の写真）
     var targetIDs: [Int64] {
         if !selection.isEmpty { return Array(selection) }
-        return currentIndex.map { [photoIDs[$0]] } ?? []
+        guard let i = currentIndex, photoIDs.indices.contains(i) else { return [] }
+        return [photoIDs[i]]
     }
 
     // MARK: ★・フラグ・タグ（Undo の対象外、9.3 章）
@@ -566,29 +573,29 @@ final class LibraryModel {
             return
         }
         isScanning = true
-        importProgress = (0, 0)
         defer {
             importProgress = nil
             isScanning = false
         }
-        do {
-            // サムネイルは表示時に作る（取り込みを早く終わらせる）
-            for try await ev in catalog.scan(rootID: rootID, thumbnailCache: nil) {
-                switch ev {
-                case .progress(let done, let total): importProgress = (done, total)
-                case .finished(let stats):
-                    // カタログから外したときに保管した情報（現像・★・タグなど）が、同じ写真に戻った（v3.23）
-                    if stats.restoredData > 0 {
-                        showToast(String(localized: "Restored the saved edits of \(stats.restoredData) photos"))
+        var current: Int64? = rootID
+        while let id = current {
+            importProgress = (0, 0)
+            do {
+                // サムネイルは表示時に作る（取り込みを早く終わらせる）
+                for try await ev in catalog.scan(rootID: id, thumbnailCache: nil) {
+                    switch ev {
+                    case .progress(let done, let total): importProgress = (done, total)
+                    case .finished(let stats):
+                        // カタログから外したときに保管した情報（現像・★・タグなど）が、同じ写真に戻った（v3.23）
+                        if stats.restoredData > 0 {
+                            showToast(String(localized: "Restored the saved edits of \(stats.restoredData) photos"))
+                        }
                     }
                 }
-            }
-        } catch { report(error) }
-        reloadSidebar()
-        reloadPhotos()
-        if !scanQueue.isEmpty {
-            let next = scanQueue.removeFirst()
-            await scan(rootID: next)
+            } catch { report(error) }
+            reloadSidebar()
+            reloadPhotos()
+            current = (!scanQueue.isEmpty && cardImport.phase != .running) ? scanQueue.removeFirst() : nil
         }
     }
 

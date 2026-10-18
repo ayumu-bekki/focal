@@ -77,9 +77,11 @@ std::string quick_hash(const std::filesystem::path& path) {
     std::unique_ptr<FILE, Closer> f(open_file(path, "rb"));
     if (!f) throw Error(Error::Code::Io, "cannot open: " + path_to_utf8(path));
 
-    std::fseek(f.get(), 0, SEEK_END);
-    const auto size = static_cast<uint64_t>(std::ftell(f.get()));
-    std::fseek(f.get(), 0, SEEK_SET);
+    if (std::fseek(f.get(), 0, SEEK_END) != 0) throw Error(Error::Code::Io, "seek error: " + path_to_utf8(path));
+    const long pos = std::ftell(f.get());
+    if (pos < 0) throw Error(Error::Code::Io, "tell error: " + path_to_utf8(path));
+    const auto size = static_cast<uint64_t>(pos);
+    if (std::fseek(f.get(), 0, SEEK_SET) != 0) throw Error(Error::Code::Io, "seek error: " + path_to_utf8(path));
 
     blake3_hasher h;
     blake3_hasher_init(&h);

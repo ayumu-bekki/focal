@@ -119,9 +119,11 @@ bool PreviewCache::load(const std::string& key, ImageU8& out) const {
     {
         std::unique_ptr<FILE, int (*)(FILE*)> f(open_file(p, "rb"), &std::fclose);
         if (!f) return false;
-        std::fseek(f.get(), 0, SEEK_END);
-        bytes.resize(static_cast<size_t>(std::ftell(f.get())));
-        std::fseek(f.get(), 0, SEEK_SET);
+        if (std::fseek(f.get(), 0, SEEK_END) != 0) return false;
+        const long pos = std::ftell(f.get());
+        if (pos < 0) return false;
+        bytes.resize(static_cast<size_t>(pos));
+        if (std::fseek(f.get(), 0, SEEK_SET) != 0) return false;
         if (std::fread(bytes.data(), 1, bytes.size(), f.get()) != bytes.size()) return false;
     }
     try {
@@ -140,12 +142,23 @@ void PreviewCache::store(const std::string& key, const ImageU8& display_p3) {
     fs::create_directories(final_path.parent_path());
     fs::path tmp = final_path;
     tmp += ".tmp" + std::to_string(counter.fetch_add(1));
-    write_jpeg(tmp, display_p3, 90, icc);
     std::error_code ec;
+    try {
+        write_jpeg(tmp, display_p3, 90, icc);
+    } catch (...) {
+        fs::remove(tmp, ec);
+        throw;
+    }
     const auto size = fs::file_size(tmp, ec);
-    fs::rename(tmp, final_path);
-    // 毎回フォルダを数えると重いので、64MB 書くごとに上限を確かめる
-    if (written_since_check_.fetch_add(ec ? 0 : size) + size > (64u << 20)) enforce_limit();
+    fs::rename(tmp, final_path, ec);
+    if (ec) {
+        fs::remove(tmp, ec);
+        throw Error(Error::Code::Io, "cannot rename preview cache file: " + path_to_utf8(final_path));
+    }
+    // 毎回フォルダを数えると重いので、上限の 1/4（最大 64MB）書くごとに上限を確かめる
+    const uint64_t threshold = std::min<uint64_t>(64u << 20, std::max<uint64_t>(1, limit_ / 4));
+    const uint64_t added = ec ? 0 : size;
+    if (written_since_check_.fetch_add(added) + added >= threshold) enforce_limit();
 }
 
 void PreviewCache::set_limit(uint64_t bytes) {
@@ -177,14 +190,21 @@ void PreviewCache::enforce_limit() {
         uint64_t size;
     };
     std::vector<Entry> entries;
+    std::vector<fs::path> stale_tmps;
     uint64_t total = 0;
     std::error_code ec;
     for (fs::recursive_directory_iterator it(dir_, ec), end; !ec && it != end; it.increment(ec)) {
-        if (!it->is_regular_file(ec) || it->path().extension() != ".jpg") continue;
+        if (!it->is_regular_file(ec)) continue;
+        if (it->path().extension() != ".jpg") {
+            const std::string ext = path_to_utf8(it->path().extension());
+            if (ext.rfind(".tmp", 0) == 0) stale_tmps.push_back(it->path());
+            continue;
+        }
         const uint64_t size = it->file_size(ec);
         entries.push_back({it->path(), it->last_write_time(ec), size});
         total += size;
     }
+    for (const auto& t : stale_tmps) fs::remove(t, ec);
     if (total <= limit_) return;
     std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) { return a.time < b.time; });
     for (const auto& e : entries) {
@@ -210,9 +230,19 @@ void ThumbnailCache::store(const std::string& key, const ImageU8& image) const {
     fs::create_directories(final_path.parent_path());
     fs::path tmp = final_path;
     tmp += ".tmp" + std::to_string(counter.fetch_add(1));
+    std::error_code ec;
     // サムネイルは sRGB とみなす約束なので ICC は埋め込まない（8.1 章）
-    write_jpeg(tmp, image, kJpegQuality, {});
-    fs::rename(tmp, final_path);
+    try {
+        write_jpeg(tmp, image, kJpegQuality, {});
+    } catch (...) {
+        fs::remove(tmp, ec);
+        throw;
+    }
+    fs::rename(tmp, final_path, ec);
+    if (ec) {
+        fs::remove(tmp, ec);
+        throw Error(Error::Code::Io, "cannot rename thumbnail cache file: " + path_to_utf8(final_path));
+    }
 }
 
 ImageU8 apply_orientation(const ImageU8& src, int flip) {

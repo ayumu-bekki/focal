@@ -154,7 +154,7 @@ RawMetadata read_image_file_metadata(const fs::path& path, PhotoKind kind) {
     if (kind == PhotoKind::Heif) {
         const auto reader = platform_reader();
         if (!reader) throw Error(Error::Code::Unsupported, "HEIF is not supported on this OS");
-        return reader(path, 64).meta;  // 小さく読めば速い。メタデータと大きさ（原寸）は meta に入る
+        return reader(path, -1).meta;  // 画素は展開せず、メタデータと大きさ（原寸）だけ読む
     }
     return metadata_from(read_header(path, kind));
 }

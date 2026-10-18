@@ -97,14 +97,18 @@ struct PhotoCollectionView: NSViewRepresentable {
                 cv.collectionViewLayout?.invalidateLayout()
             }
             // 選択（キー操作で動いたとき）をグリッドに反映してスクロールする
-            if let i = model.currentIndex {
+            if let i = model.currentIndex, model.photoIDs.indices.contains(i) {
                 let ip = IndexPath(item: i, section: 0)
-                if !cv.selectionIndexPaths.contains(ip) || cv.selectionIndexPaths.count != model.selection.count {
-                    syncingSelection = true
+                // 安い判定を先に（選択の組み立ては写真の数 × 選択の数かかる。全選択のまま毎回組み立てると固まる）
+                let current = cv.selectionIndexPaths
+                if !current.contains(ip) || current.count != model.selection.count {
                     let paths = Set(model.selection.compactMap { id in
                         model.photoIDs.firstIndex(of: id).map { IndexPath(item: $0, section: 0) }
                     })
-                    cv.selectionIndexPaths = paths.isEmpty ? [ip] : paths
+                    let expected: Set<IndexPath> = paths.isEmpty ? [ip] : paths
+                    guard current != expected else { return }
+                    syncingSelection = true
+                    cv.selectionIndexPaths = expected
                     // フィルムストリップは選択中の写真を中央に
                     cv.scrollToItems(at: [ip], scrollPosition: style == .grid ? .nearestHorizontalEdge : .centeredHorizontally)
                     syncingSelection = false
@@ -156,6 +160,14 @@ struct PhotoCollectionView: NSViewRepresentable {
         private func syncSelection(_ cv: NSCollectionView) {
             guard !syncingSelection else { return }
             let indexes = cv.selectionIndexPaths.map(\.item).sorted()
+            if indexes.isEmpty, let i = model.currentIndex, model.photoIDs.indices.contains(i) {
+                syncingSelection = true
+                cv.selectionIndexPaths = [IndexPath(item: i, section: 0)]
+                syncingSelection = false
+                model.selection = [model.photoIDs[i]]
+                model.selectionAnchor = i
+                return
+            }
             model.selection = Set(indexes.compactMap { model.photoIDs.indices.contains($0) ? model.photoIDs[$0] : nil })
             if let last = indexes.last, model.currentIndex.map({ !indexes.contains($0) }) ?? true {
                 model.currentIndex = last

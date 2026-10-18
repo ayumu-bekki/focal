@@ -438,6 +438,9 @@ struct FilmstripHandle: View {
             if inside, !hovering { NSCursor.resizeUpDown.push(); hovering = true }
             if !inside, hovering { NSCursor.pop(); hovering = false }
         }
+        .onDisappear {
+            if hovering { NSCursor.pop(); hovering = false }
+        }
         .gesture(
             DragGesture(minimumDistance: 3, coordinateSpace: .global)
                 .onChanged { value in

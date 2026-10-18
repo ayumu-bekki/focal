@@ -750,10 +750,8 @@ std::string local_timestamp_for_filename() {
 
 // child が parent の中（parent 自身は含まない）にあるか。macOS・Windows は大文字小文字を区別しないので、折りたたんで比べる
 bool path_inside(const std::string& parent, const std::string& child) {
-    std::string a = casefold_key(parent), b = casefold_key(child);
-    while (a.size() > 1 && a.back() == '/') a.pop_back();
-    if (b.size() <= a.size()) return false;
-    return a == "/" ? b.rfind("/", 0) == 0 : (b.compare(0, a.size(), a) == 0 && b[a.size()] == '/');
+    const auto rel = relative_path_under(parent, child);
+    return rel && !rel->empty();
 }
 
 std::vector<std::pair<int64_t, std::string>> all_root_paths(Database& db) {
@@ -805,8 +803,7 @@ int64_t merge_photo_rows(Database& db, int64_t a, int64_t b) {
 // id・現像・★・タグ・アルバムの所属はそのまま。parent にすでに同じファイルの行があれば merge_photo_rows で合わせる
 void merge_root_into(Database& db, int64_t parent_id, const std::string& parent_path, int64_t child_id,
                      const std::string& child_path) {
-    const size_t skip = parent_path == "/" ? 1 : parent_path.size() + 1;
-    const std::string prefix = child_path.size() > skip ? child_path.substr(skip) : std::string();
+    const std::string prefix = relative_path_under(parent_path, child_path).value_or(std::string());
 
     std::map<std::string, int64_t> parent_folders;
     {
@@ -946,9 +943,12 @@ std::optional<Catalog::FolderLocation> Catalog::folder_for_path(const fs::path& 
     const std::string p = normalized_path_string(dir);
     std::lock_guard lock(reader_mutex_);
     for (const auto& [id, path] : all_root_paths(*reader_)) {
-        if (casefold_key(path) != casefold_key(p) && !path_inside(path, p)) continue;
-        const size_t skip = path == "/" ? 1 : path.size() + 1;
-        const std::string rel = p.size() > skip ? p.substr(skip) : std::string();
+        std::string rel;
+        if (casefold_key(path) != casefold_key(p)) {
+            const auto r = relative_path_under(path, p);
+            if (!r) continue;
+            rel = *r;
+        }
         auto st = reader_->prepare("SELECT id FROM folders WHERE root_id = ? AND rel_path = ?");
         st.bind(1, id).bind(2, to_nfc(rel));
         if (st.step()) return FolderLocation{id, st.column_int64(0)};
@@ -1040,7 +1040,7 @@ std::vector<RootInfo> Catalog::roots() {
 std::optional<RootInfo> Catalog::root_for_path(const fs::path& dir) {
     const std::string p = normalized_path_string(dir);
     for (auto& r : roots())
-        if (r.path == p) return r;
+        if (casefold_key(r.path) == casefold_key(p)) return r;
     return std::nullopt;
 }
 
@@ -1048,7 +1048,7 @@ std::optional<RootInfo> Catalog::root_containing(const fs::path& dir) {
     const std::string p = normalized_path_string(dir);
     std::optional<RootInfo> best;
     for (auto& r : roots()) {
-        const bool inside = p == r.path || r.path == "/" || p.rfind(r.path + "/", 0) == 0;
+        const bool inside = casefold_key(p) == casefold_key(r.path) || path_inside(r.path, p);
         if (inside && (!best || r.path.size() > best->path.size())) best = r;
     }
     return best;
@@ -1647,7 +1647,7 @@ std::vector<AlbumInfo> Catalog::albums() {
     auto st = reader_->prepare(
         "SELECT a.id, a.name, a.parent_id, a.kind,"
         " COALESCE(a.cover_photo_id, (SELECT ap.photo_id FROM album_photos ap JOIN photos p ON p.id = ap.photo_id"
-        "   WHERE ap.album_id = a.id ORDER BY p.capture_time IS NULL, p.capture_time, p.file_name, p.id LIMIT 1)),"
+        "   WHERE ap.album_id = a.id ORDER BY p.status <> 0, p.capture_time IS NULL, p.capture_time, p.file_name, p.id LIMIT 1)),"
         " a.query,"
         " (SELECT COUNT(*) FROM album_photos ap WHERE ap.album_id = a.id)"
         " FROM albums a ORDER BY a.sort_order, a.id");
@@ -1885,7 +1885,10 @@ ScanStats Catalog::register_files(int64_t root_id, std::span<const fs::path> fil
 
     // 既存の行（同じフォルダ・同じ名前）があれば、変わっていなければ飛ばし、変わっていれば読み直す
     writer_->call([&](Database& db) {
-        auto q = db.prepare("SELECT id, file_size, file_mtime, status FROM photos WHERE folder_id = ? AND file_name = ?");
+        auto q = db.prepare(
+            "SELECT id, file_size, file_mtime, status, kind, COALESCE(companions, '') FROM photos"
+            " WHERE folder_id = ? AND file_name = ?");
+        auto up_kind = db.prepare("UPDATE photos SET kind = ?, companions = ? WHERE id = ?");
         for (const auto& f : found) {
             Work w;
             w.folder_id = folder_ids.at(f.folder_rel);
@@ -1898,13 +1901,25 @@ ScanStats Catalog::register_files(int64_t root_id, std::span<const fs::path> fil
             q.reset();
             q.bind(1, w.folder_id).bind(2, w.name);
             if (q.step()) {
+                const int64_t existing_id = q.column_int64(0);
                 const bool same = q.column_int64(1) == f.st.size && q.column_int64(2) == f.st.mtime &&
                                   q.column_int(3) == static_cast<int>(PhotoStatus::Ok);
                 if (same) {
                     ++stats.unchanged;
+                    if (static_cast<PhotoKind>(q.column_int(4)) != w.kind || q.column_text(5) != w.companions) {
+                        up_kind.bind(1, static_cast<int>(w.kind))
+                            .bind(2, w.companions.empty() ? std::nullopt : std::optional<std::string>(w.companions))
+                            .bind(3, existing_id)
+                            .run();
+                    }
+                    if (opt.thumbnails && !opt.thumbnails->contains(thumbnail_key(w.nfc_path, w.st.size, w.st.mtime))) {
+                        w.thumb_only = true;
+                        w.photo_id = existing_id;
+                        work.push_back(std::move(w));
+                    }
                     continue;
                 }
-                w.photo_id = q.column_int64(0);
+                w.photo_id = existing_id;
                 w.was_missing = q.column_int(3) == static_cast<int>(PhotoStatus::Missing);
             }
             work.push_back(std::move(w));
@@ -2125,30 +2140,57 @@ void Catalog::save_edit(int64_t photo_id, int process_version, std::optional<std
     });
 }
 
-void Catalog::apply_preset(std::span<const int64_t> photo_ids, const Settings& preset) {
+namespace {
+
+// RAW の写真それぞれの今の現像に merge をかけて保存する（書き込みスレッドで。直前に積んだ save_edit の後に読む）。
+// RAW 以外の写真（JPEG など）は現像の対象外（v3.22）。読めない JSON の現像は既定値として扱う
+void merge_edits(Database& db, std::span<const int64_t> photo_ids, const std::function<Settings(const Settings&)>& merge) {
+    auto q_kind = db.prepare("SELECT kind FROM photos WHERE id = ?");
+    auto q_edit = db.prepare("SELECT settings FROM edits WHERE photo_id = ?");
+    auto del = db.prepare("DELETE FROM edits WHERE photo_id = ?");
+    auto up = db.prepare(
+        "INSERT INTO edits (photo_id, process_version, settings, updated_at)"
+        " VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"
+        " ON CONFLICT(photo_id) DO UPDATE SET process_version = excluded.process_version,"
+        " settings = excluded.settings, updated_at = excluded.updated_at");
     for (const int64_t id : photo_ids) {
-        // RAW 以外の写真（JPEG など）は現像の対象外（v3.22）
-        if (const auto photo = this->photo(id); photo && photo->kind != PhotoKind::Raw) continue;
-        const auto json = edit_json(id);
-        const Settings merged = focal::apply_preset(json ? settings_from_json(*json) : Settings{}, preset);
-        if (settings_need_no_row(merged))
-            save_edit(id, merged.process_version, std::nullopt);
-        else
-            save_edit(id, merged.process_version, settings_to_json(merged));
+        q_kind.reset();
+        q_kind.bind(1, id);
+        if (q_kind.step() && static_cast<PhotoKind>(q_kind.column_int(0)) != PhotoKind::Raw) continue;
+        Settings base;
+        q_edit.reset();
+        q_edit.bind(1, id);
+        if (q_edit.step()) {
+            try {
+                base = settings_from_json(q_edit.column_text(0));
+            } catch (const Error&) {}
+        }
+        const Settings merged = merge(base);
+        if (settings_need_no_row(merged)) {
+            del.bind(1, id).run();
+        } else {
+            up.bind(1, id)
+                .bind(2, static_cast<int64_t>(merged.process_version))
+                .bind(3, settings_to_json(merged))
+                .run();
+        }
     }
 }
 
+} // namespace
+
+void Catalog::apply_preset(std::span<const int64_t> photo_ids, const Settings& preset) {
+    if (photo_ids.empty()) return;
+    writer_->call([&](Database& db) {
+        merge_edits(db, photo_ids, [&](const Settings& base) { return focal::apply_preset(base, preset); });
+    });
+}
+
 void Catalog::apply_adjustments(std::span<const int64_t> photo_ids, const Settings& src, uint32_t mask) {
-    if (mask == 0) return;
-    for (const int64_t id : photo_ids) {
-        if (const auto photo = this->photo(id); photo && photo->kind != PhotoKind::Raw) continue;
-        const auto json = edit_json(id);
-        const Settings merged = focal::apply_adjustments(json ? settings_from_json(*json) : Settings{}, src, mask);
-        if (settings_need_no_row(merged))
-            save_edit(id, merged.process_version, std::nullopt);
-        else
-            save_edit(id, merged.process_version, settings_to_json(merged));
-    }
+    if (mask == 0 || photo_ids.empty()) return;
+    writer_->call([&](Database& db) {
+        merge_edits(db, photo_ids, [&](const Settings& base) { return focal::apply_adjustments(base, src, mask); });
+    });
 }
 
 void Catalog::flush() {

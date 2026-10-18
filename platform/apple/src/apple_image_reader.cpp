@@ -91,12 +91,14 @@ PlatformImage read_image(const std::filesystem::path& path, int max_long_edge) {
             iso && CFGetTypeID(iso) == CFArrayGetTypeID() && CFArrayGetCount(static_cast<CFArrayRef>(iso)) > 0)
             m.iso = static_cast<float>(cf_number(CFArrayGetValueAtIndex(static_cast<CFArrayRef>(iso), 0)));
         m.timestamp = parse_exif_time(cf_string(dict_get(exif, kCGImagePropertyExifDateTimeOriginal)));
+        if (m.timestamp == 0) m.timestamp = parse_exif_time(cf_string(dict_get(tiff, kCGImagePropertyTIFFDateTime)));
     }
     if (width <= 0 || height <= 0) throw Error(Error::Code::Decode, "cannot read image size: " + utf8);
     const bool swap = orientation >= 5;
     m.width = swap ? height : width;   // 向き補正後の大きさ
     m.height = swap ? width : height;
     m.flip = 0;
+    if (max_long_edge < 0) return out;
 
     // 向きを補正した画素（長辺が max_long_edge。0 なら原寸）を、sRGB の 8-bit RGBA に描いて RGB にする
     const int target = max_long_edge > 0 ? max_long_edge : std::max(width, height);

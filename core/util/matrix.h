@@ -50,6 +50,7 @@ struct Mat3 {
 
     Mat3 inverse() const {
         const double d = det();
+        if (std::abs(d) < 1e-15) return identity();
         Mat3 r;
         r.m[0][0] = (m[1][1] * m[2][2] - m[1][2] * m[2][1]) / d;
         r.m[0][1] = (m[0][2] * m[2][1] - m[0][1] * m[2][2]) / d;

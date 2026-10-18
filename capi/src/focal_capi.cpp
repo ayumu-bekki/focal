@@ -877,6 +877,9 @@ fc_status fc_catalog_scan_async(fc_catalog* catalog, int64_t root_id, const char
             } catch (const std::exception& e) {
                 status = FC_ERR_INTERNAL;
                 message = e.what();
+            } catch (...) {
+                status = FC_ERR_INTERNAL;
+                message = "unknown error";
             }
             done(user, status, &stats, message.c_str());
         });
@@ -918,6 +921,9 @@ fc_status fc_catalog_backup_start(fc_catalog* catalog, const fc_backup_options* 
             } catch (const std::exception& e) {
                 status = FC_ERR_INTERNAL;
                 message = e.what();
+            } catch (...) {
+                status = FC_ERR_INTERNAL;
+                message = "unknown error";
             }
             done(user, status, &out, path.c_str(), message.c_str());
         });
@@ -1128,6 +1134,9 @@ fc_status fc_card_import_start(fc_catalog* catalog, const fc_card_import_options
             } catch (const std::exception& e) {
                 status = FC_ERR_INTERNAL;
                 message = e.what();
+            } catch (...) {
+                status = FC_ERR_INTERNAL;
+                message = "unknown error";
             }
             done(user, status, &out, message.c_str());
         });
@@ -1180,6 +1189,9 @@ fc_status fc_card_list_start(fc_catalog* catalog, const char* source, const char
             } catch (const std::exception& e) {
                 status = FC_ERR_INTERNAL;
                 message = e.what();
+            } catch (...) {
+                status = FC_ERR_INTERNAL;
+                message = "unknown error";
             }
             // 文字列は、コールバックの間だけ生きている shots のものを指す
             std::vector<std::string> paths, times, keys, names;
@@ -1231,6 +1243,7 @@ fc_status fc_export_start(fc_catalog* catalog, const int64_t* photo_ids, size_t 
                     },
                     &t->cancel);
             } catch (const std::exception&) {
+            } catch (...) {
             }
             done(user, completed ? FC_OK : FC_ERR_CANCELLED);
         });

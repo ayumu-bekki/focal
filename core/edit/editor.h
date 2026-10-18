@@ -237,10 +237,11 @@ private:
     std::condition_variable cv_;
     bool stopping_ = false;
     std::deque<std::pair<std::weak_ptr<EditSession>, int>> preview_queue_;
-    std::optional<DecodeJob> open_job_;      // 開いた写真のデコード（最新の 1 件だけ）
+    std::deque<DecodeJob> open_jobs_;        // 開いた写真のデコード（最新のものから処理）
     std::optional<int64_t> prefetch_job_;    // 先読み（最新の 1 件だけ）
     std::optional<Prefetched> prefetched_;
     int64_t decoding_photo_ = 0;             // デコード中の写真（先読みも含む）
+    std::weak_ptr<EditSession> decoding_session_;
     std::atomic<bool> decode_cancel_{false};
     std::optional<RenderJob> render_job_;
     std::atomic<uint64_t> render_generation_{0};
@@ -251,9 +252,10 @@ private:
     std::vector<std::weak_ptr<EditSession>> sessions_;
     // 編集後のサムネイル（保存スレッドで作る）
     std::optional<ThumbnailCache> thumbnail_cache_;
+    std::mutex thumbnail_cb_mutex_;
     std::function<void(int64_t)> on_thumbnail_;
     std::deque<CacheJob> cache_jobs_;
-    std::unique_ptr<GpuRenderer> gpu_;  // レンダースレッドだけが使う（設定は最初に 1 回）
+    std::shared_ptr<GpuRenderer> gpu_;
     std::shared_ptr<PreviewCache> preview_cache_;
 
     std::thread preview_thread_, decode_thread_, render_thread_, save_thread_;

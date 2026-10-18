@@ -48,4 +48,8 @@ std::optional<DiskSpace> disk_space(const std::filesystem::path& path, std::chro
 // 絶対パスにして正規化し、区切りを '/' にした NFC の文字列（カタログに保存する形）
 std::string normalized_path_string(const std::filesystem::path& p);
 
+// child が parent の下（または同じ場所）にあれば、parent からの相対パス（同じ場所なら ""）を返す。どちらも '/' 区切りの絶対パス。
+// macOS・Windows は大文字小文字を区別しないので、パス要素ごとに casefold_key で比べ、元の child の区切り位置で切り出す
+std::optional<std::string> relative_path_under(std::string_view parent, std::string_view child);
+
 } // namespace focal

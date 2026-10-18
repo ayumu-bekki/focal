@@ -54,6 +54,7 @@ private:
     std::mutex mutex_;
     std::condition_variable cv_;
     std::deque<Job> queue_;  // 後ろが新しい。後ろから取り出す
+    std::unordered_set<int64_t> active_photos_;
     uint64_t next_id_ = 1;
     bool stopping_ = false;
     std::vector<std::thread> workers_;

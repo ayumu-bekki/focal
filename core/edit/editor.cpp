@@ -251,7 +251,8 @@ std::shared_ptr<EditSession> Editor::open(int64_t photo_id, int preview_long_edg
         std::lock_guard lock(mutex_);
         sessions_.push_back(s);
         preview_queue_.emplace_back(s, preview_long_edge);
-        open_job_ = DecodeJob{s, photo_id};
+        std::erase_if(open_jobs_, [](const DecodeJob& j) { return j.session.expired(); });
+        open_jobs_.push_back(DecodeJob{s, photo_id});
         // 別の写真をデコード中なら打ち切る（同じ写真の先読み中ならそのまま使う）
         if (decoding_photo_ != 0 && decoding_photo_ != photo_id) decode_cancel_ = true;
     }
@@ -282,7 +283,11 @@ void Editor::close(const std::shared_ptr<EditSession>& s) {
         auto p = w.lock();
         return !p || p == s;
     });
-    if (open_job_ && open_job_->session.lock() == s) open_job_.reset();
+    std::erase_if(open_jobs_, [&](const DecodeJob& j) {
+        auto p = j.session.lock();
+        return !p || p == s;
+    });
+    if (decoding_session_.lock() == s) decode_cancel_ = true;
     // GPU に写した描画元（フル解像度は 45MP で約 270MB）を解放する。次に開いた写真は描くときに写し直す
     if (gpu_) gpu_->release_sources();
 }
@@ -317,8 +322,11 @@ void Editor::enqueue_cache_job(const std::shared_ptr<EditSession>& s, Settings s
 }
 
 void Editor::set_thumbnail_cache(std::filesystem::path dir, std::function<void(int64_t)> on_updated) {
-    std::lock_guard lock(mutex_);
-    thumbnail_cache_.emplace(std::move(dir));
+    {
+        std::lock_guard lock(mutex_);
+        thumbnail_cache_.emplace(std::move(dir));
+    }
+    std::lock_guard cb_lock(thumbnail_cb_mutex_);
     on_thumbnail_ = std::move(on_updated);
 }
 
@@ -366,16 +374,22 @@ void Editor::update_caches(const CacheJob& job) {
             raw = s->raw_;
             proxy = s->proxy_;
         }
+        std::optional<ThumbnailCache> thumb_cache;
+        std::shared_ptr<PreviewCache> previews;
+        {
+            std::lock_guard lock(mutex_);
+            thumb_cache = thumbnail_cache_;
+            previews = preview_cache_;
+        }
         const auto photo = catalog_.photo(s->photo_id());
         bool thumb_changed = false;
         if (photo && raw && proxy) {
             const std::string key = rendered_key(photo->path, photo->file_size, photo->file_mtime, job.settings);
-            const auto previews = preview_cache();
-            const bool need_thumb = thumbnail_cache_ && !(job.closing && thumbnail_cache_->contains(key));
+            const bool need_thumb = thumb_cache && !(job.closing && thumb_cache->contains(key));
             const bool need_preview = job.closing && previews && !previews->contains(key);
             if (need_thumb) {
                 const OutputTransform srgb(OutputSpace::Srgb, OutputDepth::U8);
-                thumbnail_cache_->store(
+                thumb_cache->store(
                     key, downscale_u8(render_preview(*raw, *proxy, job.settings, srgb), kThumbnailLongEdge));
                 thumb_changed = true;
             }
@@ -384,6 +398,7 @@ void Editor::update_caches(const CacheJob& job) {
         if (thumb_changed || !job.closing) {
             // 編集の行が書き込まれてから知らせる（グリッドが新しいキーで読み直す）
             catalog_.flush();
+            std::lock_guard cb_lock(thumbnail_cb_mutex_);
             if (on_thumbnail_) on_thumbnail_(s->photo_id());
         }
     } catch (const std::exception&) {
@@ -486,12 +501,13 @@ void Editor::decode_loop() {
         bool is_prefetch = false;
         {
             std::unique_lock lock(mutex_);
-            cv_.wait(lock, [this] { return stopping_ || open_job_ || prefetch_job_; });
+            cv_.wait(lock, [this] { return stopping_ || !open_jobs_.empty() || prefetch_job_; });
             if (stopping_) return;
-            if (open_job_) {
-                session = open_job_->session.lock();
-                photo = open_job_->photo_id;
-                open_job_.reset();
+            std::erase_if(open_jobs_, [](const DecodeJob& j) { return j.session.expired(); });
+            if (!open_jobs_.empty()) {
+                session = open_jobs_.back().session.lock();
+                photo = open_jobs_.back().photo_id;
+                open_jobs_.pop_back();
                 if (!session) continue;
                 if (prefetched_ && prefetched_->photo_id == photo) {
                     auto raw = std::move(prefetched_->raw);
@@ -500,14 +516,17 @@ void Editor::decode_loop() {
                     finish_decode(session, std::move(raw));
                     continue;
                 }
-            } else {
+            } else if (prefetch_job_) {
                 photo = *prefetch_job_;
                 prefetch_job_.reset();
                 is_prefetch = true;
                 if (prefetched_ && prefetched_->photo_id == photo) continue;
                 prefetched_.reset();  // 先読みは 1 枚分だけ持つ
+            } else {
+                continue;
             }
             decoding_photo_ = photo;
+            decoding_session_ = session;
             decode_cancel_ = false;
         }
 
@@ -528,14 +547,20 @@ void Editor::decode_loop() {
         {
             std::lock_guard lock(mutex_);
             decoding_photo_ = 0;
+            decoding_session_.reset();
             if (raw && is_prefetch) {
                 // 先読み中に同じ写真が開かれていれば、すぐ使う
-                if (open_job_ && open_job_->photo_id == photo) {
-                    session = open_job_->session.lock();
-                    open_job_.reset();
+                if (!open_jobs_.empty() && open_jobs_.back().photo_id == photo) {
+                    session = open_jobs_.back().session.lock();
+                    open_jobs_.pop_back();
                 } else {
                     prefetched_ = Prefetched{photo, raw};
                 }
+            } else if (!raw && cancelled && session && !stopping_) {
+                // 新しい open に割り込まれたが、このセッション自体はまだ閉じられていない場合は後ろに回す
+                const bool still_open = std::any_of(sessions_.begin(), sessions_.end(),
+                                                    [&](const std::weak_ptr<EditSession>& w) { return w.lock() == session; });
+                if (still_open) open_jobs_.push_front(DecodeJob{session, photo});
             }
         }
         if (!session) continue;
@@ -617,9 +642,14 @@ std::shared_ptr<const LensMaps> Editor::lens_maps_for(const LensSettings& ls, co
 
 bool Editor::draw(const GpuSource& src, const GeometryPlan& plan, double scale, PointD origin,
                   const ColorPipeline& pipeline, const RenderRequest& rq, RenderResult& result, const CancelToken& cancel) {
-    if (gpu_) {
-        switch (gpu_->render(src, plan, scale, origin, result.width, result.height, pipeline, display_, rq.buffer,
-                             rq.stride, rq.layout, result.histogram, cancel)) {
+    std::shared_ptr<GpuRenderer> gpu;
+    {
+        std::lock_guard lock(mutex_);
+        gpu = gpu_;
+    }
+    if (gpu) {
+        switch (gpu->render(src, plan, scale, origin, result.width, result.height, pipeline, display_, rq.buffer,
+                            rq.stride, rq.layout, result.histogram, cancel)) {
         case GpuStatus::Ok:
             return true;
         case GpuStatus::Cancelled:

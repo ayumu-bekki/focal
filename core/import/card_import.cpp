@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <mutex>
 #include <set>
 #include <thread>
 #include <tuple>
@@ -224,6 +225,7 @@ bool plan_shots(Catalog& catalog, std::vector<Shot>& shots, const fs::path& dest
     auto cancelled = [&] { return cancel && cancel->load(); };
     ThreadPool pool(std::max(1u, std::min(4u, std::thread::hardware_concurrency())));
     std::atomic<int> done{0};
+    std::mutex cb_mu;
     const int total = static_cast<int>(shots.size());
     std::vector<std::string> times(shots.size());
     pool.parallel_for(total, 1, [&](int b, int e) {
@@ -235,7 +237,10 @@ bool plan_shots(Catalog& catalog, std::vector<Shot>& shots, const fs::path& dest
                 } catch (const Error&) {
                 }
             }
-            if (on_read) on_read(++done, total, shots[i].stem);
+            if (on_read) {
+                std::lock_guard lock(cb_mu);
+                on_read(++done, total, shots[i].stem);
+            }
         }
     });
     if (cancelled()) return false;
@@ -252,13 +257,6 @@ bool plan_shots(Catalog& catalog, std::vector<Shot>& shots, const fs::path& dest
         plan_destination(catalog, s, dest_root);
     }
     return true;
-}
-
-// ルート（正規化した絶対パス）の下にある dir の、ルートからの相対パス
-std::string relative_under(const std::string& root, const std::string& dir) {
-    if (dir == root) return {};
-    const size_t skip = root == "/" ? 1 : root.size() + 1;
-    return dir.size() > skip ? dir.substr(skip) : std::string();
 }
 
 } // namespace
@@ -531,7 +529,7 @@ CardImportResult import_from_card(Catalog& catalog, const CardImportOptions& opt
     const std::string root_path = root->path;
     for (const auto& r : raws) {
         const std::string dir = normalized_path_string(r.dir);
-        const std::string rel = relative_under(root_path, dir);
+        const std::string rel = relative_path_under(root_path, dir).value_or(std::string());
         const auto id = catalog.find_photo(root->id, rel, r.name);
         if (!id) {  // 登録したはずなのに、カタログにない（コピーは済んでいる）
             result.errors.push_back("catalog: not registered: " + r.name);

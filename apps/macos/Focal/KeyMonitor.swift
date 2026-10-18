@@ -15,9 +15,9 @@ final class KeyMonitor {
     func install(model: LibraryModel) {
         guard token == nil else { return }
         token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak model] event in
-            guard let model else { return event }
-            if NSApp.keyWindow?.firstResponder is NSText { return event }  // 入力中
-            if NSApp.keyWindow?.isSheet == true || NSApp.keyWindow?.attachedSheet != nil { return event }  // シート
+            guard let model, let window = NSApp.keyWindow, Self.isLibraryWindow(window) else { return event }
+            if window.firstResponder is NSText { return event }  // 入力中
+            if window.isSheet || window.attachedSheet != nil { return event }  // シート
             // 写真の削除: ⌥⌃⇧ Delete だけ（普通の Delete・⌘ Delete には何も割り当てない）
             let chord: NSEvent.ModifierFlags = [.option, .control, .shift]
             if (event.keyCode == 51 || event.keyCode == 117),
@@ -44,7 +44,7 @@ final class KeyMonitor {
                 }
                 if event.charactersIgnoringModifiers?.lowercased() == "z" {
                     // フィット ⇄ 100%（ポインタの位置を中心に、9.2 章）
-                    let view = NSApp.keyWindow?.contentView.flatMap(Self.developView(in:))
+                    let view = window.contentView.flatMap(Self.developView(in:))
                     model.develop.toggleZoom(at: view?.pointerInOutput())
                     return nil
                 }
@@ -57,6 +57,17 @@ final class KeyMonitor {
             }
             return handleLibraryKey(event, model: model) ? nil : event
         }
+    }
+
+    private static func isLibraryWindow(_ window: NSWindow) -> Bool {
+        if window is NSPanel { return false }
+        if window.identifier?.rawValue.contains("library") == true { return true }
+        return window.contentView.map(containsLibraryView) ?? false
+    }
+
+    private static func containsLibraryView(_ view: NSView) -> Bool {
+        if view is KeyCollectionView || view is DevelopNSView { return true }
+        return view.subviews.contains(where: containsLibraryView)
     }
 
     private static func developView(in view: NSView) -> DevelopNSView? {

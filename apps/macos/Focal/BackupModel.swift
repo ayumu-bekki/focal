@@ -130,7 +130,7 @@ final class BackupModel {
 
     /// バックアップを取る（設定の保存先・世代・整合性の確認で）。開いている写真の編集を保存し、書き込みを終わらせてから取る
     private func run(allowDamaged: Bool) async -> RunResult {
-        guard let model else { return .failed("") }
+        guard !isRunning, let model else { return .failed("") }
         phase = .running
         progress = 0
         model.develop.saveNow()

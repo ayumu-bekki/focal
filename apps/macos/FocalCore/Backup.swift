@@ -154,7 +154,12 @@ private final class BackupBox: @unchecked Sendable {
         lock.unlock()
         guard let t else { return }
         let handle = UInt(bitPattern: t)
-        DispatchQueue.global(qos: .utility).async { fc_task_release(OpaquePointer(bitPattern: handle)) }
+        let catalog = self.catalog
+        DispatchQueue.global(qos: .utility).async {
+            withExtendedLifetime(catalog) {
+                fc_task_release(OpaquePointer(bitPattern: handle))
+            }
+        }
     }
 }
 
