@@ -29,7 +29,7 @@ jobs:
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -86,13 +86,13 @@ jobs:
           git -C "$VCPKG_ROOT" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
       - name: vcpkg binary cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/vcpkg/archives
           key: vcpkg-macos-latest-${{ hashFiles('vcpkg.json', 'triplets/**', 'ports/**') }}
           restore-keys: vcpkg-macos-latest-
       - name: Test RAW files
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tests/data
           key: rawdata-${{ hashFiles('tests/data/fetch.sh') }}
@@ -184,7 +184,7 @@ jobs:
           echo "body=$BODY" >> "$GITHUB_OUTPUT"
 
       - name: Create the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: Focal ${{ steps.tag.outputs.number }}${{ steps.tag.outputs.channel && format(' {0}', steps.tag.outputs.channel) || '' }}
           prerelease: ${{ steps.tag.outputs.prerelease == 'true' }}

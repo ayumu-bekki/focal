@@ -27,10 +27,10 @@ jobs:
             preset: windows-release
             cache: ~\AppData\Local\vcpkg\archives
     env:
-      # msvc-dev-cmd が VCPKG_ROOT を Visual Studio 付属の vcpkg に上書きするので、別の名前で持ち、vcpkg の手順で設定し直す
+      # Visual Studio の開発者環境（vcvars）が VCPKG_ROOT を Visual Studio 付属の vcpkg に上書きするので、別の名前で持ち、vcpkg の手順で設定し直す
       VCPKG_DIR: ${{ github.workspace }}/vcpkg
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Tools (Linux)
         if: runner.os == 'Linux'
@@ -38,9 +38,27 @@ jobs:
       - name: Tools (macOS)
         if: runner.os == 'macOS'
         run: brew install ninja
+      # Visual Studio の開発者環境（cl・link・INCLUDE・LIB など）。ilammy/msvc-dev-cmd は Node.js 20 のままなので使わず、
+      # vswhere で Visual Studio を探して vcvars64.bat を実行し、変わった環境変数を後のステップへ渡す
       - name: MSVC (Windows)
         if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { Write-Error "Visual Studio（C++ のツール）が見つかりません"; exit 1 }
+          $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+          $before = [Environment]::GetEnvironmentVariables()
+          $lines = cmd /c "`"$vcvars`" >nul && set"
+          if ($LASTEXITCODE -ne 0) { Write-Error "vcvars64.bat に失敗しました"; exit 1 }
+          foreach ($line in $lines) {
+            if ($line -match '^([^=]+)=(.*)$') {
+              $name = $matches[1]; $value = $matches[2]
+              if ($name -like 'GITHUB_*' -or $name -like 'RUNNER_*') { continue }  # Actions の変数は上書きしない
+              if ($before[$name] -ne $value) { "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 }
+            }
+          }
+          Write-Host "MSVC: $vs"
 
       - name: vcpkg
         shell: bash
@@ -51,14 +69,14 @@ jobs:
           git -C "$VCPKG_ROOT" checkout "$VCPKG_COMMIT"
           if [ "$RUNNER_OS" = "Windows" ]; then "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics; else "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics; fi
       - name: vcpkg binary cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ matrix.cache }}
           key: vcpkg-${{ matrix.os }}-${{ hashFiles('vcpkg.json', 'triplets/**', 'ports/**') }}
           restore-keys: vcpkg-${{ matrix.os }}-
 
       - name: Test RAW files
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tests/data
           key: rawdata-${{ hashFiles('tests/data/fetch.sh') }}
@@ -89,7 +107,7 @@ jobs:
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Tools
         run: brew install ninja xcodegen
       - name: vcpkg
@@ -98,13 +116,13 @@ jobs:
           git -C "$VCPKG_ROOT" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
       - name: vcpkg binary cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/vcpkg/archives
           key: vcpkg-macos-latest-${{ hashFiles('vcpkg.json', 'triplets/**', 'ports/**') }}
           restore-keys: vcpkg-macos-latest-
       - name: Test RAW files
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tests/data
           key: rawdata-${{ hashFiles('tests/data/fetch.sh') }}
@@ -120,7 +138,7 @@ jobs:
             -derivedDataPath build/DerivedData -only-testing:FocalCoreTests CODE_SIGN_IDENTITY=-
       - name: Package (ad-hoc DMG)
         run: apps/macos/scripts/package.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Focal-dmg
           path: apps/macos/build/dist/*.dmg
