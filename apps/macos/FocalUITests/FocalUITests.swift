@@ -96,6 +96,12 @@ final class FocalUITests: XCTestCase {
 
     private func exposure(_ app: XCUIApplication) -> XCUIElement { app.sliders["exposureSlider"] }
 
+    /// SwiftUI の Text の文字（value に入る。なければ label）
+    private func text(_ e: XCUIElement) -> String {
+        let v = e.value as? String ?? ""
+        return v.isEmpty ? e.label : v
+    }
+
     private func waitGone(_ e: XCUIElement, timeout: TimeInterval = 3) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -117,6 +123,12 @@ final class FocalUITests: XCTestCase {
         XCTAssertTrue(waitReady(app), developStats(app))
         sleep(1)
         saveScreenshot(app, name: "develop-fit")
+
+        // ヒストグラムの下の撮影情報（先頭の写真は Sony の 1/50s f/4.0 ISO 400 32mm）
+        XCTAssertEqual(text(app.staticTexts["shootingISO"]), "ISO 400")
+        XCTAssertEqual(text(app.staticTexts["shootingFocalLength"]), "32mm")
+        XCTAssertEqual(text(app.staticTexts["shootingAperture"]), "f/4.0")
+        XCTAssertEqual(text(app.staticTexts["shootingShutter"]), "1/50s")
 
         // 露出 +1EV（-5〜+5 の 60% の位置）
         let slider = exposure(app)

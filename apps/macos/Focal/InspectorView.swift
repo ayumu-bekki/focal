@@ -24,7 +24,7 @@ struct InspectorView: View {
         VStack(spacing: 0) {
             // ヒストグラムは上に固定（スクロールしても隠れない）
             if developing {
-                HistogramHeader(develop: model.develop, presets: model.presets)
+                HistogramHeader(develop: model.develop, presets: model.presets, photo: model.currentPhoto)
                 Divider()
             }
             form
@@ -132,11 +132,17 @@ struct InspectorView: View {
     }
 
     static func exposure(_ p: Photo) -> String {
-        var parts: [String] = []
-        if let t = p.exposureTime { parts.append(t >= 1 ? String(format: "%.1fs", t) : "1/\(Int((1 / t).rounded()))") }
-        if let f = p.fNumber { parts.append(String(format: "f/%.1f", f)) }
-        if let iso = p.iso { parts.append("ISO \(iso)") }
-        if let fl = p.focalLength { parts.append(String(format: "%.0fmm", fl)) }
+        let parts = [p.shutterText, p.apertureText, p.isoText, p.focalLengthText].compactMap { $0 }
         return parts.isEmpty ? "—" : parts.joined(separator: "  ")
     }
+}
+
+/// 撮影情報の表記（情報パネルの「露出」とヒストグラムの下で共有する）
+extension Photo {
+    var shutterText: String? {
+        exposureTime.map { $0 >= 1 ? String(format: "%.1fs", $0) : "1/\(Int((1 / $0).rounded()))s" }
+    }
+    var apertureText: String? { fNumber.map { String(format: "f/%.1f", $0) } }
+    var isoText: String? { iso.map { "ISO \($0)" } }
+    var focalLengthText: String? { focalLength.map { String(format: "%.0fmm", $0) } }
 }

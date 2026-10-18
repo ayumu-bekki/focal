@@ -5,10 +5,12 @@ import SwiftUI
 struct HistogramHeader: View {
     let develop: DevelopModel
     let presets: PresetModel
+    let photo: Photo?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HistogramView(histogram: develop.histogram)
+            if let photo { ShootingInfoRow(photo: photo) }
             DevelopTools(develop: develop, presets: presets)
             if develop.stage != .ready {
                 HStack(spacing: 6) {
@@ -22,6 +24,32 @@ struct HistogramHeader: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+/// ヒストグラムの下の撮影情報: ISO・焦点距離・絞り値・シャッタースピード（分からない項目は「—」）
+struct ShootingInfoRow: View {
+    let photo: Photo
+
+    var body: some View {
+        HStack(spacing: 0) {
+            item(photo.isoText, id: "shootingISO")
+            Spacer(minLength: 4)
+            item(photo.focalLengthText, id: "shootingFocalLength")
+            Spacer(minLength: 4)
+            item(photo.apertureText, id: "shootingAperture")
+            Spacer(minLength: 4)
+            item(photo.shutterText, id: "shootingShutter")
+        }
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("shootingInfo")
+    }
+
+    private func item(_ text: String?, id: String) -> some View {
+        Text(verbatim: text ?? "—").accessibilityIdentifier(id)
     }
 }
 
