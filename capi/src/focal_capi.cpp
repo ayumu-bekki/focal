@@ -231,6 +231,7 @@ fc_photo_array* make_photos(std::vector<PhotoRecord> photos) {
         a->companions.push_back(std::move(joined));
         c.companions = a->companions.back().c_str();
         c.kind = static_cast<int32_t>(p.kind);
+        c.edited = p.edited ? 1 : 0;
         c.id = p.id;
         c.folder_id = p.folder_id;
         c.file_name = p.file_name.c_str();

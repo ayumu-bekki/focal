@@ -433,6 +433,7 @@ int main(void) {
     const int64_t canon_id = photos->items[1].id;
     CHECK(photos->items[0].kind == FC_KIND_RAW);  /* v3.22: 種類と付属ファイル */
     CHECK(photos->items[0].companions != NULL && photos->items[0].companions[0] == '\0');
+    CHECK(photos->items[0].edited == 0);  /* 現像の設定はまだない */
     fc_photo_array_free(photos);
 
     fc_id_array* ids = NULL;
@@ -1123,6 +1124,12 @@ int main(void) {
         int64_t one[1] = {canon_id};
         REQUIRE_OK(fc_catalog_apply_preset(cat, presets, id->value, one, 1));
         REQUIRE_OK(fc_catalog_flush(cat));
+        {
+            fc_photo_array* edited = NULL;
+            REQUIRE_OK(fc_catalog_photos_by_ids(cat, one, 1, &edited));
+            CHECK(edited->count == 1 && edited->items[0].edited == 1);  /* プリセットを重ねたので現像の設定がある */
+            fc_photo_array_free(edited);
+        }
         CHECK(fc_catalog_apply_preset(cat, presets, "user:none", one, 1) == FC_ERR_NOT_FOUND);
 
         /* 現像パラメータの同期: 動かした項目だけを写す */

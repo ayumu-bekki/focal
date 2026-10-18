@@ -1425,6 +1425,16 @@
         }
       }
     },
+    "Development settings changed" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現像の設定を変更済み"
+          }
+        }
+      }
+    },
     "Disk" : {
       "localizations" : {
         "ja" : {

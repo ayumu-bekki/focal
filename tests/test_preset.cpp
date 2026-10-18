@@ -347,3 +347,26 @@ TEST_CASE("プリセット・同期: 直前の保存の上に重ね、RAW 以外
     CHECK_NOTHROW(c->apply_preset(ids, preset));
     CHECK(settings_from_json(*c->edit_json(b)).contrast == 10);
 }
+
+TEST_CASE("カタログ: 写真の行は、現像の設定を既定値から変えてあるか（edited）を持つ", "[catalog]") {
+    TempDir lib, db;
+    fs::create_directories(lib.path() / "d");
+    std::ofstream(lib.path() / "d" / "a.NEF") << "x";
+    auto c = Catalog::open(db / "c.sqlite");
+    c->scan_root(c->add_root(lib.path()));
+    const auto ids = c->query_ids(PhotoFilter{});
+    REQUIRE(ids.size() == 1);
+    CHECK_FALSE(c->photo(ids[0])->edited);
+
+    Settings s;
+    s.geometry.rotate90 = 1;  // 回転だけでも変えたことになる
+    c->save_edit(ids[0], 1, settings_to_json(s));
+    c->flush();
+    CHECK(c->photo(ids[0])->edited);
+    CHECK(c->query({})[0].edited);
+    CHECK(c->photos_by_ids(ids)[0].edited);
+
+    c->save_edit(ids[0], 1, std::nullopt);  // 既定値に戻すと行がなくなる
+    c->flush();
+    CHECK_FALSE(c->photo(ids[0])->edited);
+}

@@ -133,6 +133,8 @@ public struct Photo: Identifiable, Hashable, Sendable {
     public let kind: PhotoKind
     /// 同じ名前（拡張子を除く）の付属の写真ファイル（RAW の JPEG など）。主役と同じ 1 枚として扱う
     public let companions: [String]
+    /// 現像の設定を既定値から変えてある（調整・切り取り・回転など）
+    public let edited: Bool
 
     init(_ c: fc_photo) {
         id = c.id
@@ -157,6 +159,7 @@ public struct Photo: Identifiable, Hashable, Sendable {
         fileMTime = c.file_mtime
         kind = PhotoKind(rawValue: c.kind) ?? .raw
         companions = String(cString: c.companions).split(separator: "/").map(String.init)
+        edited = c.edited != 0
     }
 }
 

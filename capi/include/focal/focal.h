@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define FC_API_VERSION 24
+#define FC_API_VERSION 25
 
 typedef enum fc_status {
     FC_OK = 0,
@@ -296,6 +296,7 @@ typedef struct fc_photo {
     int64_t file_mtime;
     int32_t kind;            /* fc_photo_kind。主役のファイルの種類（RAW 以外は現像できない） */
     const char* companions;  /* 同じ名前（拡張子を除く）の付属の写真ファイル（RAW の JPEG など）。ファイル名を '/' で区切る。なければ "" */
+    int32_t edited;          /* 1: 現像の設定を既定値から変えてある（調整・切り取り・回転など）。0: なし */
 } fc_photo;
 
 typedef struct fc_photo_array {

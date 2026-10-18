@@ -112,6 +112,7 @@ struct PhotoRecord {
     PhotoKind kind = PhotoKind::Raw;  // 主役のファイルの種類（v3.22）。RAW 以外は現像できない
     // 同じ名前（拡張子を除く）の付属の写真ファイル。RAW の JPEG など（v3.22）。主役と同じ 1 枚として扱う
     std::vector<std::string> companions;
+    bool edited = false;  // 現像の行がある（既定値から変えた調整・切り取り・回転などがある）
 };
 
 enum class FlagFilter { Any, Picked, Rejected, Unflagged, NotRejected };

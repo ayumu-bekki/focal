@@ -184,6 +184,36 @@ final class FocalUITests: XCTestCase {
         XCTAssertEqual(exposure(app).normalizedSliderPosition, 0.5, accuracy: 0.01)
     }
 
+    /// 現像の設定を変えた写真は、一覧のセルの右下に印が出る。既定値に戻すと消える
+    @MainActor
+    func testEditedBadge() throws {
+        try requireCatalog()
+        let app = launch(extra: ["FOCAL_FRAME_STATS": "1"])
+        let grid = app.descendants(matching: .any)["photoGrid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 10))
+        let cell = grid.descendants(matching: .any).matching(identifier: "photoCell").element(boundBy: 0)
+        XCTAssertTrue(cell.waitForExistence(timeout: 5))
+        let badge = cell.descendants(matching: .any)["editedBadge"]
+        XCTAssertFalse(badge.exists)
+
+        cell.click()
+        app.typeText("v")
+        XCTAssertTrue(waitReady(app), developStats(app))
+        exposure(app).adjust(toNormalizedSliderPosition: 0.6)
+        app.typeKey(.escape, modifierFlags: [])  // 一覧に戻る（閉じるときに保存してサムネイルを作り直す）
+        XCTAssertTrue(badge.waitForExistence(timeout: 10))
+        saveScreenshot(app, name: "grid-edited-badge")
+
+        // 後片付け: 既定値に戻すと印が消える
+        cell.click()
+        app.typeText("v")
+        XCTAssertTrue(waitReady(app), developStats(app))
+        exposure(app).doubleClick()
+        XCTAssertEqual(exposure(app).normalizedSliderPosition, 0.5, accuracy: 0.01)
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitGone(badge, timeout: 10))
+    }
+
     // MARK: レンズ補正（v3.27）
 
     @MainActor

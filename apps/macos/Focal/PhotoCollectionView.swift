@@ -251,6 +251,17 @@ final class PhotoGridItem: NSCollectionViewItem {
     private let imageLayer = CALayer()
     private let caption = NSTextField(labelWithString: "")
     private let badge = NSTextField(labelWithString: "")
+    /// 現像の設定を変えた写真の印（右下。★・フラグはその左）
+    private let editedIcon: NSImageView = {
+        let v = NSImageView()
+        v.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 10, weight: .regular))
+        v.contentTintColor = .secondaryLabelColor
+        v.setAccessibilityIdentifier("editedBadge")
+        v.setAccessibilityLabel(String(localized: "Development settings changed"))
+        v.isHidden = true
+        return v
+    }()
 
     override func loadView() {
         let v = NSView()
@@ -265,16 +276,21 @@ final class PhotoGridItem: NSCollectionViewItem {
         caption.lineBreakMode = .byTruncatingMiddle
         badge.font = .systemFont(ofSize: 11)
         badge.alignment = .right
-        for f in [caption, badge] {
+        // 右下: ★・フラグ、現像を変えた印の順（印がなければ ★・フラグが右端に寄る）
+        let trailing = NSStackView(views: [badge, editedIcon])
+        trailing.orientation = .horizontal
+        trailing.spacing = 3
+        trailing.alignment = .centerY
+        for f in [caption, trailing] {
             f.translatesAutoresizingMaskIntoConstraints = false
             v.addSubview(f)
         }
         NSLayoutConstraint.activate([
             caption.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 2),
             caption.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -2),
-            badge.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -2),
-            badge.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -2),
-            caption.trailingAnchor.constraint(lessThanOrEqualTo: badge.leadingAnchor, constant: -4),
+            trailing.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -3),
+            trailing.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -2),
+            caption.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor, constant: -4),
         ])
         view = v
     }
@@ -311,6 +327,8 @@ final class PhotoGridItem: NSCollectionViewItem {
         }
         if photo?.status == .missing { b += " ?" }
         badge.stringValue = b
+        badge.isHidden = b.isEmpty
+        editedIcon.isHidden = photo?.edited != true
         badge.textColor = photo?.flag == .rejected ? .systemRed : .labelColor
         view.alphaValue = photo?.flag == .rejected ? 0.5 : 1.0
         view.setAccessibilityLabel(photo?.fileName)

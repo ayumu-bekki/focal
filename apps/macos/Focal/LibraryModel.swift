@@ -371,6 +371,9 @@ final class LibraryModel {
     private func thumbnailUpdated(_ id: Int64) {
         thumbnails.invalidate(id)
         reloadedThumbnails = (reloadedThumbnails.generation + 1, [id])
+        // 編集の行ができた・なくなった（セルの「現像を変えた」印を出し直す）
+        pageCache.removeAll()
+        changedPhotos = (changedPhotos.generation + 1, [id])
     }
 
     func afterPhotoChange(_ ids: [Int64]) {

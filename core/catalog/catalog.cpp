@@ -348,7 +348,8 @@ void write_probe(Database& db, const Work& w, const Probe& p) {
 constexpr const char* kPhotoColumns =
     "p.id, p.folder_id, p.file_name, p.file_size, p.file_mtime, p.quick_hash, p.status, p.capture_time,"
     " p.camera_make, p.camera_model, p.lens_model, p.iso, p.exposure_time, p.f_number, p.focal_length,"
-    " p.width, p.height, p.orientation, p.rating, p.flag, r.path, f.rel_path, p.kind, p.companions";
+    " p.width, p.height, p.orientation, p.rating, p.flag, r.path, f.rel_path, p.kind, p.companions,"
+    " EXISTS(SELECT 1 FROM edits e WHERE e.photo_id = p.id)";
 
 // photos.companions（ファイル名を '/' で区切る）→ 並び
 std::vector<std::string> split_companions(const std::optional<std::string>& text) {
@@ -390,6 +391,7 @@ PhotoRecord read_photo(const Statement& st) {
     r.path = join_path(st.column_text(20), st.column_text(21), r.file_name);
     r.kind = static_cast<PhotoKind>(st.column_int(22));
     r.companions = split_companions(st.column_opt_text(23));
+    r.edited = st.column_int(24) != 0;
     return r;
 }
 
