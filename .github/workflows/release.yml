@@ -164,14 +164,32 @@ jobs:
         run: |
           security delete-keychain "$RUNNER_TEMP/focal-release.keychain-db" || true
 
+      # 本文: 注意書き + リリースノート（docs/release-notes/<タグ>.md。なければ注意書きだけ）。
+      # その後ろに、GitHub が自動で作る変更一覧（generate_release_notes）が付く
+      - name: Compose the release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          BODY="$RUNNER_TEMP/release-body.md"
+          NOTES="docs/release-notes/${GITHUB_REF_NAME}.md"
+          cat > "$BODY" <<'MD'
+          > **ご利用にあたって**: Focal は開発中のソフトウェア（ベータ版）です。写真のファイルやカタログの内容が失われる不具合が含まれている可能性があります。**大切な写真は、必ずバックアップを取ったうえでお使いください。** 本ソフトウェアの使用によって生じたいかなる損害についても、開発者は責任を負いません（Apache License 2.0）。使い方は [使い方ガイド](https://ayumu-bekki.github.io/focal/manual/) を見てください。
+          MD
+          if [[ -f "$NOTES" ]]; then
+            { echo; cat "$NOTES"; } >> "$BODY"
+            echo "== release notes: $NOTES"
+          else
+            echo "::warning::リリースノート ${NOTES} がありません。注意書きと自動の変更一覧だけで公開します（docs/release.md）"
+          fi
+          echo "body=$BODY" >> "$GITHUB_OUTPUT"
+
       - name: Create the release
         uses: softprops/action-gh-release@v2
         with:
           name: Focal ${{ steps.tag.outputs.number }}${{ steps.tag.outputs.channel && format(' {0}', steps.tag.outputs.channel) || '' }}
           prerelease: ${{ steps.tag.outputs.prerelease == 'true' }}
           generate_release_notes: true
-          body: |
-            > **ご利用にあたって**: Focal は開発中のソフトウェア（ベータ版）です。写真のファイルやカタログの内容が失われる不具合が含まれている可能性があります。**大切な写真は、必ずバックアップを取ったうえでお使いください。** 本ソフトウェアの使用によって生じたいかなる損害についても、開発者は責任を負いません（Apache License 2.0）。使い方は [使い方ガイド](https://ayumu-bekki.github.io/focal/manual/) を見てください。
+          body_path: ${{ steps.notes.outputs.body }}
           files: |
             apps/macos/build/dist/${{ steps.tag.outputs.asset }}
             apps/macos/build/dist/${{ steps.tag.outputs.asset }}.sha256

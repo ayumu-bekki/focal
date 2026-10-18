@@ -6,8 +6,9 @@
 ## 流れ
 
 1. `develop` で開発する。
-2. `main` にマージする。
-3. `main` の上でタグを打って push する。
+2. リリースノートを `docs/release-notes/<タグ>.md`（例: `docs/release-notes/v26.0.2-beta.md`）に書いてコミットする（下の「リリースノート」）。
+3. `main` にマージする。
+4. `main` の上でタグを打って push する。
 
 ```sh
 git checkout main && git pull
@@ -15,13 +16,20 @@ git tag v26.0.0            # β なら v26.0.0-beta（プレリリースにな�
 git push origin v26.0.0
 ```
 
-4. Actions の「Release」が次を行う（macos-latest）。
+5. Actions の「Release」が次を行う（macos-latest）。
    1. タグの形と、`main` の履歴にあることを確認（違えば中止）
    2. 署名・公証の Secrets がそろっていることを確認（足りなければ、署名なしでは出さずに中止）
    3. core のビルド、Swift ラッパーのテスト（FocalCoreTests）
    4. Developer ID の証明書を一時キーチェーンに入れる
    5. `apps/macos/scripts/package.sh`: ビルド → 署名 → DMG → 公証（notarytool）→ staple
-   6. GitHub Releases に DMG と SHA-256 を添付（リリースノートは自動生成）
+   6. GitHub Releases に DMG と SHA-256 を添付。本文は 注意書き + `docs/release-notes/<タグ>.md` + 自動の変更一覧
+
+## リリースノート
+
+- `docs/release-notes/<タグ>.md` に、利用者向けの変更点（大切な変更・新機能・不具合の修正）を Markdown で書く。冒頭の「ご利用にあたって」の注意書きはワークフローが付けるので、書かない。
+- ファイル名はタグと同じにする（`v26.0.2-beta` なら `v26.0.2-beta.md`）。**タグを打つコミットに入っていること**（ワークフローはタグのコミットを読む）。
+- ファイルがなければ止めずに、注意書きと自動の変更一覧だけで公開する（Actions のログに警告が出る）。あとから足すときは `gh release edit <タグ> --notes-file <ファイル>`（本文を丸ごと置き換えるので、注意書きも含めたファイルを渡す）。
+- 公開後に直すときも `gh release edit`。リポジトリのファイルも同じように直しておく。
 
 ## タグと版
 

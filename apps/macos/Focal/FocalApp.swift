@@ -521,7 +521,7 @@ extension UserDefaults {
     }
 }
 
-/// アプリの版の表示（26.0.1 β のように、版にリリースの種類を添える。種類が空なら版だけ）
+/// アプリの版の表示（26.0.2 β のように、版にリリースの種類を添える。種類が空なら版だけ）
 enum AppInfo {
     static var displayVersion: String {
         let info = Bundle.main.infoDictionary ?? [:]
